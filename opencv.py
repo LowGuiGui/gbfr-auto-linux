@@ -6,6 +6,13 @@ import cv2
 import numpy as np
 from PIL import Image
 
+def _cv_read_image(path):
+    try:
+        return cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
+    except Exception:
+        return None
+
+
 def cv_find_template(full_image: str | Image.Image | np.ndarray, template_image: str | Image.Image | np.ndarray, threshold = 0.8)->tuple[int, int, int, int, float] | None:
     """
     使用OpenCV进行模板匹配，在全图中查找模板图像的位置
@@ -25,7 +32,7 @@ def cv_find_template(full_image: str | Image.Image | np.ndarray, template_image:
     # 处理全图输入，转换为OpenCV的BGR格式
     if isinstance(full_image, str):
         # 如果是文件路径，直接读取图像
-        full_cv = cv2.imread(full_image)
+        full_cv = _cv_read_image(full_image)
     elif isinstance(full_image, Image.Image):
         # 如果是PIL Image，先转为numpy数组再转换颜色空间为BGR
         full_cv = cv2.cvtColor(np.array(full_image), cv2.COLOR_RGB2BGR)
@@ -36,7 +43,7 @@ def cv_find_template(full_image: str | Image.Image | np.ndarray, template_image:
     # 处理模板图像输入，转换为OpenCV的BGR格式
     if isinstance(template_image, str):
         # 如果是文件路径，直接读取图像
-        temp_cv = cv2.imread(template_image)
+        temp_cv = _cv_read_image(template_image)
     elif isinstance(template_image, Image.Image):
         # 如果是PIL Image，先转为numpy数组再转换颜色空间为BGR
         temp_cv = cv2.cvtColor(np.array(template_image), cv2.COLOR_RGB2BGR)
@@ -84,7 +91,7 @@ def cv_match_template(full_image: str | Image.Image | np.ndarray, template_image
     # 处理全图输入，转换为OpenCV的BGR格式
     if isinstance(full_image, str):
         # 如果是文件路径，直接读取图像
-        full_cv = cv2.imread(full_image)
+        full_cv = _cv_read_image(full_image)
     elif isinstance(full_image, Image.Image):
         # 如果是PIL Image，先转为numpy数组再转换颜色空间为BGR
         full_cv = cv2.cvtColor(np.array(full_image), cv2.COLOR_RGB2BGR)
@@ -95,7 +102,7 @@ def cv_match_template(full_image: str | Image.Image | np.ndarray, template_image
     # 处理模板图像输入，转换为OpenCV的BGR格式
     if isinstance(template_image, str):
         # 如果是文件路径，直接读取图像
-        temp_cv = cv2.imread(template_image)
+        temp_cv = _cv_read_image(template_image)
     elif isinstance(template_image, Image.Image):
         # 如果是PIL Image，先转为numpy数组再转换颜色空间为BGR
         temp_cv = cv2.cvtColor(np.array(template_image), cv2.COLOR_RGB2BGR)

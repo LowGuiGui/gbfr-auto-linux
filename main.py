@@ -19,13 +19,13 @@ def resource_path(relative_path):
     if hasattr(sys, "_MEIPASS"):
         base_path = sys._MEIPASS
     else:
-        base_path = os.path.dirname(__file__)
-    return os.path.join(base_path, relative_path)
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.normpath(os.path.join(base_path, relative_path))
 
 
 def exe_dir():
     if hasattr(sys, "_MEIPASS"):
-        return os.path.dirname(sys.executable)
+        return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -112,15 +112,22 @@ class App:
 
     def _init_template_dir(self):
         external_dir = os.path.join(exe_dir(), "template")
-        os.makedirs(external_dir, exist_ok=True)
+        try:
+            os.makedirs(external_dir, exist_ok=True)
+        except OSError as e:
+            self.log(f"创建 template 目录失败: {e}")
+            return
         copied = 0
         for filename in TEMPLATE_FILES:
             external_path = os.path.join(external_dir, filename)
             if not os.path.exists(external_path):
                 internal_path = resource_path(f"template/{filename}")
                 if os.path.exists(internal_path):
-                    shutil.copy2(internal_path, external_path)
-                    copied += 1
+                    try:
+                        shutil.copy2(internal_path, external_path)
+                        copied += 1
+                    except OSError as e:
+                        self.log(f"复制模板 {filename} 失败: {e}")
         if copied > 0:
             self.log(f"已生成 {copied} 个模板文件到 template 目录")
 
