@@ -39,3 +39,6 @@ logs/
 *.tmp
 *.bak
 *.cache
+
+### 其他 ###
+icon.png
