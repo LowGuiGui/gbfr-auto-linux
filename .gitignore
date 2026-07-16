@@ -1,0 +1,41 @@
+### Python ###
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+### PyInstaller ###
+build/
+dist/
+*.spec
+
+### 虚拟环境 ###
+venv/
+env/
+.venv/
+.env/
+
+### IDE / 编辑器 ###
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+### 系统文件 ###
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+.DS_Store
+Desktop.ini
+
+### 日志 ###
+*.log
+logs/
+
+### 临时文件 ###
+*.tmp
+*.bak
+*.cache
