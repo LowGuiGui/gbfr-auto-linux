@@ -8,11 +8,13 @@ from enum import Enum
 
 import pyautogui
 import tkinter as tk
+from tkinter import ttk
 from pynput import keyboard
 from PIL import Image
 
 from option import Option
 from opencv import cv_find_template
+from window_capture import capture, list_window_titles
 
 
 def resource_path(relative_path):
@@ -86,6 +88,7 @@ class App:
 
         self._has_battle = False
         self._loop_count = 0
+        self._target_window = tk.StringVar(value="")
 
         self._build_ui()
         self._init_template_dir()
@@ -100,6 +103,20 @@ class App:
         )
         key_tips.pack(pady=5)
 
+        window_frame = tk.Frame(self.root)
+        window_frame.pack(fill=tk.X, padx=10, pady=2)
+
+        tk.Label(window_frame, text="目标窗口:").pack(side=tk.LEFT)
+        self._window_combo = ttk.Combobox(
+            window_frame, textvariable=self._target_window,
+            width=30, state="normal"
+        )
+        self._window_combo.pack(side=tk.LEFT, padx=5)
+        tk.Button(window_frame, text="刷新", width=6,
+                  command=self._refresh_window_list).pack(side=tk.LEFT, padx=2)
+        tk.Label(window_frame, text="(留空为全屏)", fg="gray").pack(side=tk.LEFT)
+        self._refresh_window_list()
+
         log_frame = tk.Frame(self.root)
         log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
@@ -109,6 +126,10 @@ class App:
 
         self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         log_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def _refresh_window_list(self):
+        titles = [""] + list_window_titles()
+        self._window_combo["values"] = titles
 
     def _init_template_dir(self):
         external_dir = os.path.join(exe_dir(), "template")
@@ -198,6 +219,11 @@ class App:
         if self.job_timer_id is None:
             self._loop_count = 0
             self._has_battle = False
+            target = self._target_window.get().strip() or None
+            if target:
+                self._option.set_target(target)
+                if not self._option.is_ready():
+                    self.log(f"警告: 找不到目标窗口「{target}」，按键可能无效")
             self.log("启动自动循环")
             self.show_overlay("● 自动循环已启动")
             self._schedule_job_loop()
@@ -216,7 +242,13 @@ class App:
         self.job_timer_id = self.root.after(3000, self._schedule_job_loop)
 
     def job_loop(self):
-        self.screen = pyautogui.screenshot()
+        target = self._target_window.get().strip() or None
+        if target:
+            self._option.set_target(target)
+        self.screen = capture(target)
+        if self.screen is None and target is not None:
+            self.log(f"找不到窗口: {target}")
+            return
         self.root.after(10, self._analyze_page)
 
     def _analyze_page(self):

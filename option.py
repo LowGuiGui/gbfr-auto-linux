@@ -1,44 +1,57 @@
-import tkinter as tk
-from pynput.keyboard import Controller as KeyboardController
-from pynput.mouse import Controller as MouseController
-from pynput.keyboard import Key
-from pynput.mouse import Button
 import time
+import tkinter as tk
+
+from window_input import WindowInput
+
+
 class Option:
     def __init__(self, root: tk.Tk):
         self.root = root
         self._is_battle_ing = False
-        self._kc = KeyboardController()
-        self._mc = MouseController()
+        self._wi = WindowInput()
 
-    # 按住W和中键开始战斗
+    def set_target(self, hwnd_or_title):
+        self._wi.set_target(hwnd_or_title)
+
+    def is_ready(self):
+        return self._wi.is_ready()
+
     def start_battle(self):
         if self._is_battle_ing:
             return
         self._is_battle_ing = True
-        self._kc.press("w")
-        self._mc.press(Button.middle)
+        self._wi.key_press("w")
+        rect = self._get_center()
+        if rect:
+            cx, cy = rect
+            self._wi.mouse_press(cx, cy, "middle")
 
-    # 松开W和中键结束战斗
     def end_battle(self):
         if not self._is_battle_ing:
             return
         self._is_battle_ing = False
-        self._kc.release("w")
-        self._mc.release(Button.middle)
+        self._wi.key_release("w")
+        rect = self._get_center()
+        if rect:
+            cx, cy = rect
+            self._wi.mouse_release(cx, cy, "middle")
 
-    # 切换为再次挑战
     def switch_again(self):
-        self._kc.press("3")
-        time.sleep(0.5)
-        self._kc.release("3")
+        self._wi.key_tap("3")
 
-    # 点击确认
     def click_enter(self):
-        self._kc.press(Key.enter)
-        time.sleep(0.5)
-        self._kc.release(Key.enter)
+        self._wi.key_tap("enter")
 
-    # 清除所有操作
     def clear_all(self):
         self.end_battle()
+
+    def _get_center(self):
+        try:
+            from window_capture import get_window_rect
+            rect = get_window_rect(self._wi.hwnd)
+            if rect:
+                left, top, right, bottom = rect
+                return ((right - left) // 2, (bottom - top) // 2)
+        except Exception:
+            pass
+        return None
