@@ -16,6 +16,22 @@ class Option:
     def is_ready(self):
         return self._wi.is_ready()
 
+    def has_window(self):
+        return self._wi.has_window()
+
+    def set_fallback_mode(self):
+        self._wi.enable_fallback()
+
+    def enable_inject_mode(self, dll_path=None, progress_cb=None):
+        return self._wi.enable_inject(dll_path, progress_cb)
+
+    def disable_inject_mode(self):
+        self._wi.disable_inject()
+
+    @property
+    def input_mode(self):
+        return self._wi.mode
+
     def start_battle(self):
         if self._is_battle_ing:
             return
@@ -39,8 +55,9 @@ class Option:
     def switch_again(self):
         self._wi.key_tap("3")
 
-    def click_enter(self):
-        self._wi.key_tap("enter")
+    def tap_enter(self):
+        # self._wi.key_tap("enter")
+        self._wi.key_tap("a")
 
     def clear_all(self):
         self.end_battle()
@@ -55,3 +72,15 @@ class Option:
         except Exception:
             pass
         return None
+
+    def press_w(self):
+        self._wi.key_press("w")
+    
+    def release_w(self):
+        self._wi.key_release("w")
+    
+    def tap_w(self):
+        self._wi.key_tap("w")
+    
+    def click_left(self):
+        self._wi.mouse_click("left")

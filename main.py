@@ -89,6 +89,8 @@ class App:
         self._has_battle = False
         self._loop_count = 0
         self._target_window = tk.StringVar(value="")
+        self._input_mode = tk.StringVar(value="fallback")
+        self._is_enabling_inject = False
 
         self._build_ui()
         self._init_template_dir()
@@ -112,10 +114,25 @@ class App:
             width=30, state="normal"
         )
         self._window_combo.pack(side=tk.LEFT, padx=5)
+        self._window_combo.bind("<<ComboboxSelected>>", self._on_window_selected)
         tk.Button(window_frame, text="刷新", width=6,
                   command=self._refresh_window_list).pack(side=tk.LEFT, padx=2)
         tk.Label(window_frame, text="(留空为全屏)", fg="gray").pack(side=tk.LEFT)
         self._refresh_window_list()
+
+        mode_frame = tk.Frame(self.root)
+        mode_frame.pack(fill=tk.X, padx=10, pady=2)
+        tk.Label(mode_frame, text="输入模式:").pack(side=tk.LEFT)
+        tk.Radiobutton(
+            mode_frame, text="兼容模式（抢焦点）",
+            variable=self._input_mode, value="fallback",
+            command=lambda: self._apply_input_mode(log_on_switch=True)
+        ).pack(side=tk.LEFT, padx=5)
+        tk.Radiobutton(
+            mode_frame, text="注入模式（后台）",
+            variable=self._input_mode, value="inject",
+            command=lambda: self._apply_input_mode(log_on_switch=True)
+        ).pack(side=tk.LEFT, padx=5)
 
         log_frame = tk.Frame(self.root)
         log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -130,6 +147,105 @@ class App:
     def _refresh_window_list(self):
         titles = [""] + list_window_titles()
         self._window_combo["values"] = titles
+
+    def _on_window_selected(self, event=None):
+        target = self._target_window.get().strip() or None
+        if target:
+            self._option.set_target(target)
+            if self._option.is_ready():
+                self._apply_input_mode(log_on_switch=True)
+                mode_label = "兼容模式（抢焦点）" if self._input_mode.get() == "fallback" else "注入模式（后台）"
+                self.log(f"已绑定目标窗口: {target}（{mode_label}）")
+            else:
+                self.log(f"警告: 找不到窗口「{target}」")
+        else:
+            self.log("未指定目标窗口，使用全屏模式")
+
+    def _apply_input_mode(self, log_on_switch=False):
+        mode = self._input_mode.get()
+        if mode == "inject":
+            if self._is_enabling_inject:
+                self.log("注入模式正在启用中，请稍候...")
+                return
+            self._is_enabling_inject = True
+            self.log("正在启用注入模式，请稍候...")
+
+            import queue
+            log_queue = queue.Queue()
+
+            def _drain_queue():
+                try:
+                    while True:
+                        item = log_queue.get_nowait()
+                        if item is None:
+                            return
+                        kind, payload = item
+                        if kind == "log":
+                            self.log(payload)
+                        elif kind == "done":
+                            if payload:
+                                self._on_inject_enabled(log_on_switch)
+                            else:
+                                pass
+                            return
+                        elif kind == "error":
+                            self._on_inject_failed(payload)
+                            return
+                except queue.Empty:
+                    pass
+                if self._is_enabling_inject:
+                    self.root.after(100, _drain_queue)
+
+            self.root.after(100, _drain_queue)
+
+            def _enable_thread():
+                try:
+                    log_queue.put(("log", "[线程] 注入线程已启动"))
+
+                    def _progress(msg):
+                        log_queue.put(("log", f"  → {msg}"))
+
+                    log_queue.put(("log", "[线程] 正在调用 enable_inject_mode..."))
+                    result = self._option.enable_inject_mode(progress_cb=_progress)
+                    log_queue.put(("log", f"[线程] enable_inject_mode 返回: {result}"))
+                    log_queue.put(("done", True))
+                except Exception as e:
+                    import traceback as tb
+                    err_detail = f"{e}\n{tb.format_exc()}"
+                    log_queue.put(("error", err_detail))
+                except BaseException as e:
+                    err_detail = f"致命错误: {e}"
+                    log_queue.put(("error", err_detail))
+
+            t = threading.Thread(target=_enable_thread, daemon=True)
+            t.start()
+
+            def _watchdog():
+                if self._is_enabling_inject and t.is_alive():
+                    self._is_enabling_inject = False
+                    self.log("启用注入模式超时（超过15秒），已取消")
+                    self._input_mode.set("fallback")
+                    self._option.set_fallback_mode()
+                    log_queue.put(None)
+
+            self.root.after(15000, _watchdog)
+        else:
+            self._option.disable_inject_mode()
+            self._option.set_fallback_mode()
+            self._is_enabling_inject = False
+            if log_on_switch:
+                self.log("已切换到兼容模式（抢焦点）")
+
+    def _on_inject_enabled(self, log_on_switch):
+        self._is_enabling_inject = False
+        if log_on_switch:
+            self.log("已切换到注入模式（后台）")
+
+    def _on_inject_failed(self, error):
+        self._is_enabling_inject = False
+        self.log(f"启用注入模式失败: {error}，回退到兼容模式")
+        self._input_mode.set("fallback")
+        self._option.set_fallback_mode()
 
     def _init_template_dir(self):
         external_dir = os.path.join(exe_dir(), "template")
@@ -212,6 +328,10 @@ class App:
             elif key == keyboard.Key.f2:
                 # self.log("F2 按下")
                 self.root.after(0, self._on_f2)
+            elif key == keyboard.Key.f3:
+                self._option.click_left()
+            elif key == keyboard.Key.f4:
+                self._option.tap_w()
         except AttributeError:
             pass
 
@@ -222,8 +342,12 @@ class App:
             target = self._target_window.get().strip() or None
             if target:
                 self._option.set_target(target)
-                if not self._option.is_ready():
+                if not self._option.has_window():
                     self.log(f"警告: 找不到目标窗口「{target}」，按键可能无效")
+                else:
+                    self._apply_input_mode(log_on_switch=True)
+                    if self._input_mode.get() == "inject" and not self._option.is_ready():
+                        self.log("注入未就绪，正在等待 DLL 连接...")
             self.log("启动自动循环")
             self.show_overlay("● 自动循环已启动")
             self._schedule_job_loop()
@@ -253,7 +377,7 @@ class App:
 
     def _analyze_page(self):
         self.page_name = self._get_current_page_name()
-
+        self.log(f"当前页面: {self.page_name}")
         if self.page_name == PAGE_NAME.BATTLE:
             self._option.start_battle()
             return
@@ -263,9 +387,9 @@ class App:
         if self.page_name == PAGE_NAME.REWARD_EXIT:
             self._option.switch_again()
         elif self.page_name == PAGE_NAME.REWARD_AGAIN:
-            self._option.click_enter()
+            self._option.tap_enter()
         else:
-            self._option.click_enter()
+            self._option.tap_enter()
 
     def _get_current_page_name(self) -> PAGE_NAME:
         if self.screen is None:
