@@ -87,12 +87,16 @@ class TkLogHandler(logging.Handler):
 
     def emit(self, record):
         ts = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
-        if record.name.endswith(".main"):
-            line = f"[{ts}] {record.getMessage()}"
-        else:
-            # 下层模块的消息标出来源和级别，免得和 App 自己的话混作一团
-            source = record.name.split(".", 1)[-1]
-            line = f"[{ts}] {record.levelname} {source}: {record.getMessage()}"
+        parts = [f"[{ts}]"]
+        # INFO 以上一律标出级别 —— 包括 App 自己的告警，否则一条 WARNING 看起来
+        # 和普通叙述一模一样，正好淹掉最该被看见的那句。
+        if record.levelno > logging.INFO:
+            parts.append(record.levelname)
+        # 下层模块的消息标出来源，免得和 App 自己的话混作一团
+        if not record.name.endswith(".main"):
+            parts.append(f"{record.name.split('.', 1)[-1]}:")
+        parts.append(record.getMessage())
+        line = " ".join(parts)
         if record.exc_info:
             # 堆栈留在日志文件里就够了，塞进这个小框只会把别的信息挤没
             line += "（堆栈见日志文件）"
@@ -131,6 +135,8 @@ class App:
         self._input_mode = tk.StringVar(value="fallback")
         self._is_enabling_inject = False
         self._hotkey_error_logged = False
+        self._unknown_streak = 0
+        self._last_logged_page = None
 
         self._build_ui()
         # 日志框建好之后才能接 handler；在此之前的消息只进文件。
@@ -401,6 +407,8 @@ class App:
         if self.job_timer_id is None:
             self._loop_count = 0
             self._has_battle = False
+            self._unknown_streak = 0
+            self._last_logged_page = None
             target = self._target_window.get().strip() or None
             if target:
                 self._option.set_target(target)
@@ -437,21 +445,60 @@ class App:
             return
         self.root.after(10, self._analyze_page)
 
+    # 连续多少帧认不出页面就停止盲按。轮询间隔 3 秒，5 帧约等于 15 秒。
+    MAX_BLIND_TAPS = 5
+
     def _analyze_page(self):
         self.page_name = self._get_current_page_name()
-        self.log(f"当前页面: {self.page_name}")
+
+        # 每帧都记进日志文件，界面上只在页面变化时提一句 —— 否则一分钟 20 行
+        # 一模一样的内容，真正要紧的告警会被埋掉。
+        log.debug("当前页面: %s", self.page_name.value)
+        if self.page_name != self._last_logged_page:
+            self._last_logged_page = self.page_name
+            self.log(f"当前页面: {self.page_name.value}")
+
+        if self.page_name != PAGE_NAME.UNKNOWN and self._unknown_streak:
+            if self._unknown_streak > self.MAX_BLIND_TAPS:
+                log.info("页面识别已恢复: %s", self.page_name.value)
+            self._unknown_streak = 0
+
         if self.page_name == PAGE_NAME.BATTLE:
             self._option.start_battle()
             return
         else:
             self._option.end_battle()
 
-        if self.page_name == PAGE_NAME.REWARD_EXIT:
+        if self.page_name == PAGE_NAME.UNKNOWN:
+            self._advance_unknown_page()
+        elif self.page_name == PAGE_NAME.REWARD_EXIT:
             self._option.switch_again()
-        elif self.page_name == PAGE_NAME.REWARD_AGAIN:
-            self._option.tap_enter()
         else:
+            # REWARD_AGAIN / SCORE / PAUSE 都是认出来的页面，按键推进是有依据的
             self._option.tap_enter()
+
+    def _advance_unknown_page(self):
+        """认不出页面时推进流程，但不允许无限期盲按。
+
+        在 UNKNOWN 上按键是上游有意为之，用来推掉没有建模的对话框（README 写作
+        "按 Enter 推进流程"），所以保留。出事的是检测整体失效的时候 —— 分辨率与
+        模板不匹配，或者模板根本读不到 —— 那时每一帧都是 UNKNOWN，机器人就对着
+        游戏一直敲键，界面上还一个字都不说。这里给它一个上限。
+        """
+        self._unknown_streak += 1
+
+        if self._unknown_streak <= self.MAX_BLIND_TAPS:
+            self._option.tap_enter()
+            return
+
+        # 只在越过阈值的那一帧告警一次，之后安静地什么都不做
+        if self._unknown_streak == self.MAX_BLIND_TAPS + 1:
+            log.warning(
+                "连续 %d 帧无法识别页面，已停止向游戏发送按键。"
+                "常见原因：游戏分辨率与模板图片不匹配，或模板文件读取失败"
+                "（若是后者，上方会有 opencv 的报错）。",
+                self.MAX_BLIND_TAPS,
+            )
 
     def _get_current_page_name(self) -> PAGE_NAME:
         if self.screen is None:
