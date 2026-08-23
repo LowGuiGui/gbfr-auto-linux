@@ -40,5 +40,14 @@ logs/
 *.bak
 *.cache
 
+### 编译产物 ###
+# hook/gbfr_hook.dll 由 hook/gbfr_hook.c 编译生成 (hook/build.bat 或 CI)。
+# 二进制无法 diff、无法审阅，且上游正是因为提交构建产物，才留下 ~96 MB 的
+# 历史记录挂在 ~450 KB 的工作树后面。cl /LD 的中间产物一并忽略。
+hook/gbfr_hook.dll
+hook/gbfr_hook.lib
+hook/gbfr_hook.exp
+hook/gbfr_hook.obj
+
 ### 其他 ###
 icon.png
