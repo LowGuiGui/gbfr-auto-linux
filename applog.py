@@ -99,3 +99,19 @@ def add_handler(handler):
 def log_path():
     """当前日志文件路径；尚未 setup 或无处可写时返回 None。"""
     return getattr(_file_handler, "baseFilename", None)
+
+
+def set_level(level):
+    """启动读到配置之后再调整等级。
+
+    setup() 必须先跑（读配置的过程本身就要记日志），所以等级只能事后设。
+    """
+    logger = logging.getLogger(ROOT_NAME)
+    resolved = logging.getLevelNamesMapping().get(str(level).upper())
+    if resolved is None:
+        logger.warning("日志等级无法识别: %r，保持 %s", level, logging.getLevelName(logger.level))
+        return False
+    logger.setLevel(resolved)
+    if _file_handler is not None:
+        _file_handler.setLevel(resolved)
+    return True

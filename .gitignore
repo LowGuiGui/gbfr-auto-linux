@@ -41,6 +41,9 @@ logs/
 *.cache
 
 ### 运行时生成 ###
+# 从源码运行时 exe_dir() 就是仓库根目录，配置文件会落在这里。内容是本机设置。
+gbfr_auto.toml
+anomalies/
 # 从源码运行时 exe_dir() 就是仓库根目录，模板清单会落进被跟踪的 template/。
 # 记录的是本机状态，不该进版本库；*.new 是升级时给用户对比用的新版内置模板。
 template/.bundled.json

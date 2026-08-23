@@ -3,6 +3,7 @@
 
 import pytest
 
+import config
 import main
 from main import PAGE_NAME
 
@@ -29,9 +30,10 @@ class Loop:
 
     _analyze_page = main.App._analyze_page
     _advance_unknown_page = main.App._advance_unknown_page
-    MAX_BLIND_TAPS = main.App.MAX_BLIND_TAPS
+    MAX_BLIND_TAPS = main.App.MAX_BLIND_TAPS      # property，会读 self.cfg
 
-    def __init__(self, pages):
+    def __init__(self, pages, overrides=None):
+        self.cfg = config.Config(config._merged(overrides or {}))
         self._option = FakeOption()
         self._pages = list(pages)
         self._unknown_streak = 0
@@ -52,7 +54,7 @@ class Loop:
 
 @pytest.fixture
 def cap():
-    return main.App.MAX_BLIND_TAPS
+    return config.DEFAULTS["loop"]["max_blind_taps"]
 
 
 def test_blind_tapping_is_capped(cap, log_file):
@@ -72,6 +74,11 @@ def test_recovery_restores_the_full_budget(cap, log_file):
     ).run()
     assert loop._option.actions.count("tap_enter") == cap * 2
     assert "页面识别已恢复" in log_file()
+
+
+def test_the_cap_is_configurable(log_file):
+    loop = Loop([PAGE_NAME.UNKNOWN] * 40, overrides={"loop": {"max_blind_taps": 2}}).run()
+    assert loop._option.actions == ["tap_enter"] * 2
 
 
 def test_recognised_pages_are_never_capped(log_file):
