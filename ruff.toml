@@ -32,3 +32,22 @@ select = [
 #                       Left off so it does not block work on untouched files,
 #                       but it is the single most valuable thing to fix here.
 #                       Audit with:  ruff check --select BLE,S110 .
+
+# --- Baseline of pre-existing findings (#22) ----------------------------------
+#
+# 13 findings already existed on dev when the CI lint job was added. Suppressing
+# them here keeps that job a REAL gate -- it fails on anything new -- instead of
+# permanently red or defanged with --exit-zero.
+#
+# Deliberately not `# noqa` comments: those would edit upstream's files, and
+# every such line is a future merge conflict. This file is ours.
+#
+# All 13 were checked and are safe to fix; #22 records how, and the tradeoff.
+# Delete each entry as its file is cleared.
+[lint.per-file-ignores]
+"hook/injector.py"    = ["F401"]        # ctypes, threading, ctypes.wintypes
+"hook/pure_inject.py" = ["F401"]        # time, ctypes.wintypes, win32con, win32gui
+"main.py"             = ["F401"]        # pyautogui (window_capture imports it too)
+"opencv.py"           = ["B905", "B007"]  # zip() strict=, unused loop var `idx`
+"option.py"           = ["F401"]        # time
+"window_input.py"     = ["F401"]        # ctypes.wintypes, function-local time
