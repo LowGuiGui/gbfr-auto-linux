@@ -11,6 +11,30 @@ from applog import get_logger
 log = get_logger(__name__)
 
 
+BLANK_FRAME_STD = 1.0
+
+
+def is_blank_frame(image, tolerance=BLANK_FRAME_STD):
+    """判断一帧是不是死图（全黑或纯色）。
+
+    为什么必须单独判：TM_CCOEFF_NORMED 的分母是两边的方差。模板和画面都平坦时
+    分子分母同时趋零，OpenCV 返回 **1.0** —— 满分。而 PrintWindow 对 D3D 窗口
+    经常返回全黑位图。两件事叠起来，得到的不是"认不出页面"，而是一次高置信度的
+    **误判**。所以截图必须自己验，指望匹配环节兜底是错的。
+    """
+    if image is None:
+        return True
+    if isinstance(image, Image.Image):
+        array = np.asarray(image.convert("L"))
+    else:
+        array = np.asarray(image)
+        if array.ndim == 3:
+            array = array.mean(axis=2)
+    if array.size == 0:
+        return True
+    return float(array.std()) < tolerance
+
+
 def _brief(value):
     """日志里只保留有用的部分：路径原样打印，图像对象只留类型名。"""
     return value if isinstance(value, str) else type(value).__name__
@@ -38,7 +62,7 @@ def _cv_read_image(path):
     return image
 
 
-def cv_find_template(full_image: str | Image.Image | np.ndarray, template_image: str | Image.Image | np.ndarray, threshold = 0.8)->tuple[int, int, int, int, float] | None:
+def cv_best_match(full_image: str | Image.Image | np.ndarray, template_image: str | Image.Image | np.ndarray)->tuple[int, int, int, int, float] | None:
     """
     使用OpenCV进行模板匹配，在全图中查找模板图像的位置
     
@@ -94,12 +118,8 @@ def cv_find_template(full_image: str | Image.Image | np.ndarray, template_image:
     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(match_result)
     x, y = max_loc
 
-    # 若匹配得分大于等于阈值，返回匹配信息
-    if max_val >= threshold:
-        return (x, y, w, h, max_val)
-    else:
-        # 匹配得分低于阈值，返回None
-        return None
+    # 无论是否过阈值都把最佳匹配交出去 —— 调参时看不到分数就只能靠猜
+    return (x, y, w, h, max_val)
 
 def cv_match_template(full_image: str | Image.Image | np.ndarray, template_image: str | Image.Image | np.ndarray, threshold = 0.8, min_distance = None)->list[tuple[int, int, int, int, float]] | None:
     """
@@ -204,3 +224,11 @@ def cv_match_template(full_image: str | Image.Image | np.ndarray, template_image
         ret.append((x, y, w, h, score))
 
     return ret
+
+
+def cv_find_template(full_image, template_image, threshold=0.8):
+    """cv_best_match 加一道阈值。历史签名，调用方遍布 main.py。"""
+    result = cv_best_match(full_image, template_image)
+    if result is None or result[4] < threshold:
+        return None
+    return result

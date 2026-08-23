@@ -19,7 +19,7 @@ import applog
 import config as config_module
 from applog import get_logger
 from option import Option
-from opencv import cv_find_template
+from opencv import cv_best_match, is_blank_frame
 from window_capture import capture, list_window_titles
 
 log = get_logger("main")
@@ -146,7 +146,12 @@ class App:
         self.temp_dir: dict[str, str] = {}
         self.job_timer_id = None
         self.overlay_window = None
-        self._option = Option(root, keys=self.cfg.section("keys"))
+        self._option = Option(
+            root,
+            keys=self.cfg.section("keys"),
+            dry_run=self.cfg.get("input.dry_run"),
+        )
+        self._anomalies_saved = 0
 
         self._has_battle = False
         self._loop_count = 0
@@ -545,10 +550,51 @@ class App:
         if target:
             self._option.set_target(target)
         self.screen = capture(target)
-        if self.screen is None and target is not None:
-            self.log(f"找不到窗口: {target}")
+        if self.screen is None:
+            self.log(f"截图失败: {target or '全屏'}")
+            return
+        if is_blank_frame(self.screen):
+            # 空帧不是"认不出页面"，是截图坏了。分开报，否则日志会把人指向
+            # 分辨率和模板，而真正的问题在截图后端。
+            log.error(
+                "截到的是空白帧（全黑或纯色），本轮跳过。"
+                "游戏多半在独占全屏，或者截图后端拿不到这个 D3D 窗口。"
+            )
             return
         self.root.after(10, self._analyze_page)
+
+    def _matches(self, key):
+        """某个模板是否命中。阈值来自配置，分数可选记录。
+
+        分数是调 detect.threshold、以及之后做多尺度匹配的唯一依据。没有它，
+        "它不工作"就只能靠猜。
+        """
+        result = cv_best_match(self.screen, self.temp_dir[key])
+        if result is None:
+            return False
+        score = result[4]
+        if self.cfg.get("detect.log_scores"):
+            log.debug("匹配得分 %-20s %.4f", key, score)
+        return score >= self.cfg.get("detect.threshold")
+
+    def _save_anomaly_frame(self):
+        """认不出页面时把画面存下来 —— 每个失败都变成一张可以用来修模板的样本。"""
+        if not self.cfg.get("detect.save_anomaly_frames"):
+            return
+        limit = self.cfg.get("detect.max_anomaly_frames")
+        if self._anomalies_saved >= limit:
+            return
+        directory = os.path.join(exe_dir(), self.cfg.get("detect.anomaly_dir"))
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        try:
+            os.makedirs(directory, exist_ok=True)
+            path = os.path.join(directory, f"unknown-{stamp}.png")
+            self.screen.save(path)
+        except (OSError, ValueError, AttributeError) as e:
+            log.warning("保存异常帧失败: %s", e)
+            return
+        self._anomalies_saved += 1
+        log.info("已保存异常帧 %s (%d/%d)", path, self._anomalies_saved, limit)
 
     @property
     def MAX_BLIND_TAPS(self):
@@ -593,6 +639,7 @@ class App:
         游戏一直敲键，界面上还一个字都不说。这里给它一个上限。
         """
         self._unknown_streak += 1
+        self._save_anomaly_frame()
 
         if self._unknown_streak <= self.MAX_BLIND_TAPS:
             self._option.tap_enter()
@@ -610,21 +657,23 @@ class App:
     def _get_current_page_name(self) -> PAGE_NAME:
         if self.screen is None:
             return PAGE_NAME.UNKNOWN
-        if cv_find_template(self.screen, self.temp_dir["flag_battle"]) is not None:
+        # 判定优先级就是这里的书写顺序：flag_battle 先于 flag_battleresult，仅仅
+        # 因为它写在前面。这条规则是承重的 —— 调换顺序会改变行为（#16）。
+        if self._matches("flag_battle"):
             self._has_battle = True
             return PAGE_NAME.BATTLE
-        elif cv_find_template(self.screen, self.temp_dir["flag_battleresult"]) is not None:
+        elif self._matches("flag_battleresult"):
             if self._has_battle:
                 self._loop_count += 1
                 self._has_battle = False
                 self.log(f"完成第 {self._loop_count} 次战斗")
-            if cv_find_template(self.screen, self.temp_dir["flag_again"]) is not None:
+            if self._matches("flag_again"):
                 return PAGE_NAME.REWARD_AGAIN
-            elif cv_find_template(self.screen, self.temp_dir["flag_exit"]) is not None:
+            elif self._matches("flag_exit"):
                 return PAGE_NAME.REWARD_EXIT
             else:
                 return PAGE_NAME.SCORE
-        elif cv_find_template(self.screen, self.temp_dir["flag_continue"]) is not None:
+        elif self._matches("flag_continue"):
             return PAGE_NAME.PAUSE
         else:
             return PAGE_NAME.UNKNOWN

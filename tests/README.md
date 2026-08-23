@@ -18,6 +18,9 @@ Only the boundary is stubbed. The code under test is the real code.
 | `test_hotkeys.py` | #13 — the listener must survive any exception, and must not flood the log |
 | `test_page_dispatch.py` | #14 — blind-tap cap, recovery, and that recognised pages are untouched |
 | `test_template_refresh.py` | #3 — refresh untouched files, never clobber edited ones, source-checkout no-op |
+| `test_config.py` | config load/merge/validate, and that `DEFAULT_TOML` and `DEFAULTS` haven't drifted |
+| `test_option_keys.py` | keybinds come from config; dry-run sends nothing |
+| `test_diagnostics.py` | blank-frame guard, match-score reporting, anomaly frame capture |
 
 ## What is NOT covered, and why
 
