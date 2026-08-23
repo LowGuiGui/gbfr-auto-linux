@@ -1,0 +1,34 @@
+# Ruff configuration for gbfr_auto.
+#
+# Deliberately scoped to REAL PROBLEMS, not style. This repo is a fork tracking
+# an active upstream: every stylistic rule we enable becomes a diff on upstream's
+# files the moment we touch one, and every such diff is a future merge conflict.
+# So we lint for bugs and leave upstream's formatting alone.
+
+line-length = 100
+target-version = "py310"   # README states Python 3.10+
+
+[lint]
+select = [
+    "E4",   # imports
+    "E7",   # statement-level errors (== None, multiple statements per line)
+    "E9",   # syntax / IO errors
+    "F",    # pyflakes: undefined names, unused imports, f-string bugs
+    "B",    # bugbear: mutable default args, loop-variable capture, etc.
+]
+
+# Deliberately NOT enabled, and why:
+#
+#   "I", "UP", "SIM"  - import sorting, pyupgrade, simplifications. All good
+#                       rules, all pure style. Turn them on once you have
+#                       decided how much divergence from upstream you want to
+#                       carry.
+#
+#   "BLE", "S110"     - blind-except and try-except-pass. These flag 22 real
+#                       pre-existing issues: the codebase silently swallows
+#                       exceptions in 15 places. That matters a lot for an
+#                       automation script, because a failure surfaces as the
+#                       bot quietly doing nothing rather than as an error.
+#                       Left off so it does not block work on untouched files,
+#                       but it is the single most valuable thing to fix here.
+#                       Audit with:  ruff check --select BLE,S110 .
