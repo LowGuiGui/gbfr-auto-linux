@@ -84,3 +84,39 @@ def test_tap_enter_does_not_tap_enter(opt):
     o = opt()
     o.tap_enter()
     assert o._wi.events == [("tap", "a")]
+
+
+class TestDryRun:
+    """空跑：照常识别、照常记录，但一个按键都不发出去。"""
+
+    def test_no_input_is_sent(self, opt, log_file):
+        o = opt()
+        o._dry_run = True
+        o.start_battle()
+        o.end_battle()
+        o.switch_again()
+        o.tap_enter()
+        assert o._wi.events == []
+
+    def test_it_says_what_it_would_have_done(self, opt, log_file):
+        o = opt()
+        o._dry_run = True
+        o.switch_again()
+        text = log_file()
+        assert "[空跑]" in text
+        assert "switch_again" in text
+
+    def test_battle_state_still_tracks(self, opt, log_file):
+        """空跑不能把状态机也停掉 —— 页面判定还得照常跑。"""
+        o = opt()
+        o._dry_run = True
+        o.start_battle()
+        assert o._is_battle_ing is True
+        o.end_battle()
+        assert o._is_battle_ing is False
+
+    def test_enabling_it_is_announced_loudly(self, opt, log_file):
+        opt({"move": "w"})._dry_run = False
+        from option import Option
+        Option(root=None, dry_run=True)
+        assert "空跑模式" in log_file()

@@ -30,10 +30,13 @@ class Loop:
 
     _analyze_page = main.App._analyze_page
     _advance_unknown_page = main.App._advance_unknown_page
+    _save_anomaly_frame = main.App._save_anomaly_frame
     MAX_BLIND_TAPS = main.App.MAX_BLIND_TAPS      # property，会读 self.cfg
 
     def __init__(self, pages, overrides=None):
         self.cfg = config.Config(config._merged(overrides or {}))
+        self._anomalies_saved = 0
+        self.screen = None
         self._option = FakeOption()
         self._pages = list(pages)
         self._unknown_streak = 0

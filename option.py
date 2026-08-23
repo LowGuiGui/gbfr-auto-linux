@@ -8,10 +8,15 @@ log = get_logger(__name__)
 
 
 class Option:
-    def __init__(self, root: tk.Tk, keys=None):
+    def __init__(self, root: tk.Tk, keys=None, dry_run=False):
         self.root = root
         self._is_battle_ing = False
         self._wi = WindowInput()
+        # 空跑：照常识别、照常记录，但一个按键都不发出去。调模板和看流程时用，
+        # 免得对着游戏乱按。
+        self._dry_run = bool(dry_run)
+        if self._dry_run:
+            log.warning("空跑模式：不会向游戏发送任何输入")
         # 按键原本是散在各方法里的字面量。传 None 保留原值，方便单独构造。
         keys = keys or {}
         self._key_move = keys.get("move", "w")
@@ -40,10 +45,18 @@ class Option:
     def input_mode(self):
         return self._wi.mode
 
+    def _blocked(self, what):
+        if self._dry_run:
+            log.info("[空跑] 本应执行: %s", what)
+            return True
+        return False
+
     def start_battle(self):
         if self._is_battle_ing:
             return
         self._is_battle_ing = True
+        if self._blocked("start_battle 按住 %s + 中键" % self._key_move):
+            return
         self._wi.key_press(self._key_move)
         rect = self._get_center()
         if rect:
@@ -54,6 +67,8 @@ class Option:
         if not self._is_battle_ing:
             return
         self._is_battle_ing = False
+        if self._blocked("end_battle 松开 %s + 中键" % self._key_move):
+            return
         self._wi.key_release(self._key_move)
         rect = self._get_center()
         if rect:
@@ -61,11 +76,15 @@ class Option:
             self._wi.mouse_release(cx, cy, "middle")
 
     def switch_again(self):
+        if self._blocked("switch_again 按 %s" % self._key_again):
+            return
         self._wi.key_tap(self._key_again)
 
     def tap_enter(self):
         # 名字是继承来的：它按的是 keys.confirm（默认 "a"），不是 Enter。改名会
         # 动到上游文件的多处调用点，留给 #15。
+        if self._blocked("tap_enter 按 %s" % self._key_confirm):
+            return
         self._wi.key_tap(self._key_confirm)
 
     def clear_all(self):
