@@ -16,6 +16,7 @@ from pynput import keyboard
 from PIL import Image
 
 import applog
+import config as config_module
 from applog import get_logger
 from option import Option
 from opencv import cv_find_template
@@ -133,7 +134,8 @@ class PAGE_NAME(Enum):
     PAUSE = "pause"
 
 class App:
-    def __init__(self, root):
+    def __init__(self, root, cfg=None):
+        self.cfg = cfg or config_module.Config(config_module._merged({}))
         self.root = root
         self.root.title("GBFR Auto")
         self.root.geometry("500x300")
@@ -144,12 +146,12 @@ class App:
         self.temp_dir: dict[str, str] = {}
         self.job_timer_id = None
         self.overlay_window = None
-        self._option = Option(root)
+        self._option = Option(root, keys=self.cfg.section("keys"))
 
         self._has_battle = False
         self._loop_count = 0
         self._target_window = tk.StringVar(value="")
-        self._input_mode = tk.StringVar(value="fallback")
+        self._input_mode = tk.StringVar(value=self.cfg.get("input.mode"))
         self._is_enabling_inject = False
         self._hotkey_error_logged = False
         self._unknown_streak = 0
@@ -299,7 +301,7 @@ class App:
                     self._option.set_fallback_mode()
                     log_queue.put(None)
 
-            self.root.after(15000, _watchdog)
+            self.root.after(self.cfg.get("inject.watchdog_ms"), _watchdog)
         else:
             self._option.disable_inject_mode()
             self._option.set_fallback_mode()
@@ -534,7 +536,9 @@ class App:
 
     def _schedule_job_loop(self):
         self.job_loop()
-        self.job_timer_id = self.root.after(3000, self._schedule_job_loop)
+        self.job_timer_id = self.root.after(
+            self.cfg.get("loop.poll_interval_ms"), self._schedule_job_loop
+        )
 
     def job_loop(self):
         target = self._target_window.get().strip() or None
@@ -546,8 +550,10 @@ class App:
             return
         self.root.after(10, self._analyze_page)
 
-    # 连续多少帧认不出页面就停止盲按。轮询间隔 3 秒，5 帧约等于 15 秒。
-    MAX_BLIND_TAPS = 5
+    @property
+    def MAX_BLIND_TAPS(self):
+        """连续多少帧认不出页面就停止盲按。默认 5 帧，按 3 秒轮询约等于 15 秒。"""
+        return self.cfg.get("loop.max_blind_taps")
 
     def _analyze_page(self):
         self.page_name = self._get_current_page_name()
@@ -628,8 +634,11 @@ if __name__ == "__main__":
     # 必须在 run_as_admin() 之前 —— 提权失败是启动期最早、也最需要留痕的失败。
     applog.setup(exe_dir())
     log.info("=== GBFR Auto 启动 ===")
+    # 配置要在 setup() 之后读 —— 读配置的过程本身就会记日志。
+    _cfg = config_module.load(exe_dir())
+    applog.set_level(_cfg.get("log.level"))
     if not run_as_admin():
         sys.exit(0)
     root = tk.Tk()
-    app = App(root)
+    app = App(root, cfg=_cfg)
     root.mainloop()

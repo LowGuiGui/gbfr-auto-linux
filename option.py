@@ -8,10 +8,15 @@ log = get_logger(__name__)
 
 
 class Option:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, keys=None):
         self.root = root
         self._is_battle_ing = False
         self._wi = WindowInput()
+        # 按键原本是散在各方法里的字面量。传 None 保留原值，方便单独构造。
+        keys = keys or {}
+        self._key_move = keys.get("move", "w")
+        self._key_again = keys.get("again", "3")
+        self._key_confirm = keys.get("confirm", "a")
 
     def set_target(self, hwnd_or_title):
         self._wi.set_target(hwnd_or_title)
@@ -39,7 +44,7 @@ class Option:
         if self._is_battle_ing:
             return
         self._is_battle_ing = True
-        self._wi.key_press("w")
+        self._wi.key_press(self._key_move)
         rect = self._get_center()
         if rect:
             cx, cy = rect
@@ -49,18 +54,19 @@ class Option:
         if not self._is_battle_ing:
             return
         self._is_battle_ing = False
-        self._wi.key_release("w")
+        self._wi.key_release(self._key_move)
         rect = self._get_center()
         if rect:
             cx, cy = rect
             self._wi.mouse_release(cx, cy, "middle")
 
     def switch_again(self):
-        self._wi.key_tap("3")
+        self._wi.key_tap(self._key_again)
 
     def tap_enter(self):
-        # self._wi.key_tap("enter")
-        self._wi.key_tap("a")
+        # 名字是继承来的：它按的是 keys.confirm（默认 "a"），不是 Enter。改名会
+        # 动到上游文件的多处调用点，留给 #15。
+        self._wi.key_tap(self._key_confirm)
 
     def clear_all(self):
         self.end_battle()
