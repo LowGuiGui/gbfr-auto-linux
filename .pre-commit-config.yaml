@@ -1,0 +1,31 @@
+# Pre-commit hooks for gbfr_auto.
+#
+# Design rule: NO HOOK REWRITES A FILE. Every hook here only reports.
+# pre-commit runs against staged files, so an auto-formatting hook would rewrite
+# upstream's files the moment you touched one, producing large diffs that
+# conflict with every future upstream merge. Checks are safe; mutations are not.
+#
+# Install once:
+#     uvx pre-commit install
+# Run against everything on demand:
+#     uvx pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.4
+    hooks:
+      - id: ruff              # report only -- no --fix, nothing silently rewritten
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+
+      # Upstream committed build artifacts and later deleted them, leaving a
+      # ~96 MB history behind a ~450 KB working tree. This stops a repeat.
+      - id: check-added-large-files
+        args: [--maxkb=512]
+
+      # Target platform is Windows, whose filesystem is case-insensitive: two
+      # files differing only in case break a checkout there but not here.
+      - id: check-case-conflict
