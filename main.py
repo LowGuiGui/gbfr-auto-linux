@@ -1,4 +1,5 @@
 import ctypes
+import logging
 import os
 import shutil
 import sys
@@ -12,9 +13,13 @@ from tkinter import ttk
 from pynput import keyboard
 from PIL import Image
 
+import applog
+from applog import get_logger
 from option import Option
 from opencv import cv_find_template
 from window_capture import capture, list_window_titles
+
+log = get_logger("main")
 
 
 def resource_path(relative_path):
@@ -61,7 +66,41 @@ def run_as_admin():
         )
         return False
     except Exception:
+        # 注意返回值把两件事混为一谈：上面的 return False 是"已重新以管理员启动，
+        # 本进程该退出"，这里的是"提权失败"。区分它们是 #1 的事；这里至少先让
+        # 失败留下痕迹，否则 #1 连诊断的依据都没有。
+        log.exception("以管理员身份重新启动失败")
         return False
+
+
+class TkLogHandler(logging.Handler):
+    """把日志送进界面的日志框。
+
+    logging 可能从任意线程被调用（pynput 监听线程、注入线程），而 Tk 只能在主
+    线程碰。root.after 是 Tkinter 里少数几个跨线程安全的调用，用它做编组。
+    """
+
+    def __init__(self, root, sink, level=logging.INFO):
+        super().__init__(level)
+        self._root = root
+        self._sink = sink
+
+    def emit(self, record):
+        ts = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
+        if record.name.endswith(".main"):
+            line = f"[{ts}] {record.getMessage()}"
+        else:
+            # 下层模块的消息标出来源和级别，免得和 App 自己的话混作一团
+            source = record.name.split(".", 1)[-1]
+            line = f"[{ts}] {record.levelname} {source}: {record.getMessage()}"
+        if record.exc_info:
+            # 堆栈留在日志文件里就够了，塞进这个小框只会把别的信息挤没
+            line += "（堆栈见日志文件）"
+        try:
+            self._root.after(0, self._sink, line)
+        except Exception:
+            # 窗口已销毁。丢掉即可 —— 文件 handler 那边照样记着。
+            pass
 
 
 class PAGE_NAME(Enum):
@@ -93,6 +132,14 @@ class App:
         self._is_enabling_inject = False
 
         self._build_ui()
+        # 日志框建好之后才能接 handler；在此之前的消息只进文件。
+        applog.add_handler(TkLogHandler(self.root, self._append_log))
+        log_path = applog.log_path()
+        if log_path:
+            self.log(f"日志文件: {log_path}")
+        else:
+            self.log("警告: 找不到可写目录，本次运行不会留下日志文件")
+
         self._init_template_dir()
         self._load_temp_data()
         self._start_listener()
@@ -288,9 +335,17 @@ class App:
         listener_thread.start()
 
     def log(self, message):
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        """界面日志。
+
+        走 logging 而不是直接写控件，这样同一条消息也会落进日志文件 —— 挂机时
+        没人盯着窗口，事后能翻的只有文件。这里的 log 是模块级 logger，不是本方法。
+        """
+        log.info(message)
+
+    def _append_log(self, line):
+        """真正写控件的地方，只由 TkLogHandler 在主线程调用。"""
         self.log_text.configure(state=tk.NORMAL)
-        self.log_text.insert(tk.END, f"[{timestamp}] {message}\n")
+        self.log_text.insert(tk.END, line + "\n")
         self.log_text.see(tk.END)
         self.log_text.configure(state=tk.DISABLED)
 
@@ -415,6 +470,9 @@ class App:
 
 
 if __name__ == "__main__":
+    # 必须在 run_as_admin() 之前 —— 提权失败是启动期最早、也最需要留痕的失败。
+    applog.setup(exe_dir())
+    log.info("=== GBFR Auto 启动 ===")
     if not run_as_admin():
         sys.exit(0)
     root = tk.Tk()

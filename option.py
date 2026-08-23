@@ -1,7 +1,10 @@
 import time
 import tkinter as tk
 
+from applog import get_logger
 from window_input import WindowInput
+
+log = get_logger(__name__)
 
 
 class Option:
@@ -63,14 +66,17 @@ class Option:
         self.end_battle()
 
     def _get_center(self):
+        # 返回 None 时 start_battle/end_battle 会直接跳过鼠标事件 —— 战斗照跑，
+        # 但中键不会按下。原先这条路径一声不吭，看起来就像"按键没生效"。
         try:
             from window_capture import get_window_rect
             rect = get_window_rect(self._wi.hwnd)
             if rect:
                 left, top, right, bottom = rect
                 return ((right - left) // 2, (bottom - top) // 2)
+            log.warning("取窗口矩形失败 (hwnd=%s)，本次跳过鼠标事件", self._wi.hwnd)
         except Exception:
-            pass
+            log.exception("计算窗口中心失败 (hwnd=%s)", getattr(self._wi, "hwnd", None))
         return None
 
     def press_w(self):

@@ -6,11 +6,36 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from applog import get_logger
+
+log = get_logger(__name__)
+
+
+def _brief(value):
+    """日志里只保留有用的部分：路径原样打印，图像对象只留类型名。"""
+    return value if isinstance(value, str) else type(value).__name__
+
+
 def _cv_read_image(path):
+    # 用 np.fromfile + imdecode 而不是 cv2.imread：后者遇到中文路径会静默失败。
+    #
+    # 这个函数原本把所有异常吞成 None。模板读不到 -> 匹配返回 None -> 页面判成
+    # UNKNOWN -> 机器人对着游戏一直敲键。整条链路上一个字都不会说，所以这里的
+    # 每条失败路径都必须留下记录。
     try:
-        return cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
+        data = np.fromfile(path, dtype=np.uint8)
     except Exception:
+        log.exception("读取图片失败: %s", path)
         return None
+
+    if data.size == 0:
+        log.error("图片为空或不存在: %s", path)
+        return None
+
+    image = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if image is None:
+        log.error("图片解码失败（文件损坏或格式不支持）: %s", path)
+    return image
 
 
 def cv_find_template(full_image: str | Image.Image | np.ndarray, template_image: str | Image.Image | np.ndarray, threshold = 0.8)->tuple[int, int, int, int, float] | None:
@@ -53,7 +78,12 @@ def cv_find_template(full_image: str | Image.Image | np.ndarray, template_image:
 
     # 检查输入是否有效，若转换失败则返回None
     if full_cv is None or temp_cv is None:
-        print("Invalid input types for full_image or template_image.")
+        # 原本是 print()，而打包后是 --windowed，没有控制台，这行谁也看不见。
+        # 实际最常见的原因也不是"类型不对"，而是模板文件读不到。
+        log.error(
+            "模板匹配输入无效（读取失败或类型不支持）: full_image=%s, template_image=%s",
+            _brief(full_image), _brief(template_image),
+        )
         return None
 
     # 获取模板图像的尺寸（OpenCV中图像shape为(高度, 宽度, 通道数)）
@@ -112,7 +142,12 @@ def cv_match_template(full_image: str | Image.Image | np.ndarray, template_image
 
     # 检查输入是否有效，若转换失败则返回None
     if full_cv is None or temp_cv is None:
-        print("Invalid input types for full_image or template_image.")
+        # 原本是 print()，而打包后是 --windowed，没有控制台，这行谁也看不见。
+        # 实际最常见的原因也不是"类型不对"，而是模板文件读不到。
+        log.error(
+            "模板匹配输入无效（读取失败或类型不支持）: full_image=%s, template_image=%s",
+            _brief(full_image), _brief(template_image),
+        )
         return None
 
     # 获取模板图像的尺寸（OpenCV中图像shape为(高度, 宽度, 通道数)）
@@ -128,9 +163,9 @@ def cv_match_template(full_image: str | Image.Image | np.ndarray, template_image
         score = match_result[y, x]
         points.append((x, y, score))
 
-    # 若没有找到任何匹配点，打印提示并返回None
+    # 若没有找到任何匹配点，返回None（没匹配上是正常结果，记 debug 即可）
     if not points:
-        print(f"未找到匹配项（阈值: {threshold}）")
+        log.debug("未找到匹配项（阈值: %s, 模板: %s）", threshold, _brief(template_image))
         return None
 
     # 未指定最小距离时，默认使用模板宽高最小值的一半作为去重距离
