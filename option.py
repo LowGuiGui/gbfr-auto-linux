@@ -78,15 +78,3 @@ class Option:
         except Exception:
             log.exception("计算窗口中心失败 (hwnd=%s)", getattr(self._wi, "hwnd", None))
         return None
-
-    def press_w(self):
-        self._wi.key_press("w")
-    
-    def release_w(self):
-        self._wi.key_release("w")
-    
-    def tap_w(self):
-        self._wi.key_tap("w")
-    
-    def click_left(self):
-        self._wi.mouse_click("left")

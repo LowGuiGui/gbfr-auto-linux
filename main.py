@@ -130,6 +130,7 @@ class App:
         self._target_window = tk.StringVar(value="")
         self._input_mode = tk.StringVar(value="fallback")
         self._is_enabling_inject = False
+        self._hotkey_error_logged = False
 
         self._build_ui()
         # 日志框建好之后才能接 handler；在此之前的消息只进文件。
@@ -376,19 +377,25 @@ class App:
             self.overlay_window = None
 
     def _on_press(self, key):
+        # 这个回调跑在 pynput 的监听线程上，任何逸出的异常都会让 Listener 直接停掉
+        # —— 连 F1/F2 一起失效。原先这里只兜 AttributeError，而 F3 抛的是
+        # TypeError，于是按一次 F3 整套热键就全废了（#13）。一律兜住。
+        #
+        # 所有动作都经 root.after 交回主线程：Tk 不是线程安全的。F3/F4 原本是直接
+        # 在监听线程上调的，这个隐患随它们一并消失。
         try:
             if key == keyboard.Key.f1:
-                # self.log("F1 按下")
                 self.root.after(0, self._on_f1)
             elif key == keyboard.Key.f2:
-                # self.log("F2 按下")
                 self.root.after(0, self._on_f2)
-            elif key == keyboard.Key.f3:
-                self._option.click_left()
-            elif key == keyboard.Key.f4:
-                self._option.tap_w()
-        except AttributeError:
-            pass
+        except Exception:
+            # 全局监听会收到用户在任何窗口里的每一次按键。持续失败会把日志刷满，
+            # 所以第一次记 ERROR，之后降级到 DEBUG。
+            if not self._hotkey_error_logged:
+                self._hotkey_error_logged = True
+                log.exception("热键处理失败（监听器继续运行）")
+            else:
+                log.debug("热键处理再次失败", exc_info=True)
 
     def _on_f1(self):
         if self.job_timer_id is None:
