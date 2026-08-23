@@ -40,6 +40,12 @@ logs/
 *.bak
 *.cache
 
+### 运行时生成 ###
+# 从源码运行时 exe_dir() 就是仓库根目录，模板清单会落进被跟踪的 template/。
+# 记录的是本机状态，不该进版本库；*.new 是升级时给用户对比用的新版内置模板。
+template/.bundled.json
+template/*.new
+
 ### 编译产物 ###
 # hook/gbfr_hook.dll 由 hook/gbfr_hook.c 编译生成 (hook/build.bat 或 CI)。
 # 二进制无法 diff、无法审阅，且上游正是因为提交构建产物，才留下 ~96 MB 的

@@ -1,4 +1,6 @@
 import ctypes
+import hashlib
+import json
 import logging
 import os
 import shutil
@@ -34,6 +36,21 @@ def exe_dir():
     if hasattr(sys, "_MEIPASS"):
         return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
+
+
+# 记录"我们上一次写进 template/ 的内容"，用来分辨哪些文件被用户改过。
+TEMPLATE_MANIFEST = ".bundled.json"
+
+
+def file_sha256(path):
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.hexdigest()
 
 
 TEMPLATE_FILES = [
@@ -302,25 +319,109 @@ class App:
         self._option.set_fallback_mode()
 
     def _init_template_dir(self):
+        """把内置模板铺到 exe 旁边的 template/，并在升级时刷新没被改过的那些。
+
+        原先只在文件不存在时复制，于是外部目录一旦生成就永久遮蔽内置版本：新版
+        改了模板，跑过老版本的人永远拿不到（#3）。
+
+        但这个目录同时是用户按自己分辨率替换模板的地方（#12），直接覆盖会毁掉他
+        们的修改。所以用一份清单记下"我们上次写进去的是什么"：文件内容仍与清单
+        一致 —— 也就是没被动过 —— 才刷新；动过的原样保留，把新版内置模板放成
+        同名 .new 搁在旁边，用不用由人决定。
+        """
         external_dir = os.path.join(exe_dir(), "template")
         try:
             os.makedirs(external_dir, exist_ok=True)
         except OSError as e:
             self.log(f"创建 template 目录失败: {e}")
             return
+
+        manifest_path = os.path.join(external_dir, TEMPLATE_MANIFEST)
+        manifest = self._read_template_manifest(manifest_path)
+
         copied = 0
+        refreshed = []
+        kept = []
+
         for filename in TEMPLATE_FILES:
+            internal_path = resource_path(f"template/{filename}")
             external_path = os.path.join(external_dir, filename)
+
+            bundled_hash = file_sha256(internal_path)
+            if bundled_hash is None:
+                log.warning("内置模板读取失败，跳过: %s", internal_path)
+                continue
+
             if not os.path.exists(external_path):
-                internal_path = resource_path(f"template/{filename}")
-                if os.path.exists(internal_path):
-                    try:
-                        shutil.copy2(internal_path, external_path)
-                        copied += 1
-                    except OSError as e:
-                        self.log(f"复制模板 {filename} 失败: {e}")
-        if copied > 0:
+                if self._copy_template(internal_path, external_path):
+                    manifest[filename] = bundled_hash
+                    copied += 1
+                continue
+
+            external_hash = file_sha256(external_path)
+            if external_hash == bundled_hash:
+                # 已经是最新，只把账记上（老版本升上来时补一次清单）
+                manifest[filename] = bundled_hash
+                continue
+
+            if manifest.get(filename) == external_hash:
+                # 内容仍是我们上次写进去的，说明用户没动过，可以安全刷新
+                if self._copy_template(internal_path, external_path):
+                    manifest[filename] = bundled_hash
+                    refreshed.append(filename)
+            else:
+                # 用户改过，或者来自还没有清单的旧版本 —— 两种情况都不许覆盖
+                kept.append(filename)
+                self._offer_new_template(internal_path, external_path + ".new")
+
+        if copied:
             self.log(f"已生成 {copied} 个模板文件到 template 目录")
+        if refreshed:
+            self.log(f"已更新 {len(refreshed)} 个未修改的模板: {'、'.join(refreshed)}")
+        if kept:
+            log.warning(
+                "内置模板有更新，但以下文件与我们写入的版本不一致，已原样保留："
+                "%s。新版已另存为同名 .new 文件，需要时自行替换。",
+                "、".join(kept),
+            )
+
+        self._write_template_manifest(manifest_path, manifest)
+
+    def _copy_template(self, internal_path, external_path):
+        try:
+            shutil.copy2(internal_path, external_path)
+            return True
+        except OSError as e:
+            self.log(f"复制模板 {os.path.basename(external_path)} 失败: {e}")
+            return False
+
+    def _offer_new_template(self, internal_path, sidecar_path):
+        """把新版内置模板放到用户文件旁边，不动用户的文件。"""
+        if file_sha256(sidecar_path) == file_sha256(internal_path):
+            return          # 已经放过同样的内容，不必重写
+        try:
+            shutil.copy2(internal_path, sidecar_path)
+        except OSError as e:
+            log.warning("写入 %s 失败: %s", sidecar_path, e)
+
+    def _read_template_manifest(self, path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            return {}      # 首次运行，或从没有清单的旧版本升上来
+        except (OSError, ValueError) as e:
+            log.warning("模板清单读取失败，将视为全部已被修改: %s", e)
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _write_template_manifest(self, path, manifest):
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, indent=2, sort_keys=True)
+        except OSError as e:
+            # 写不进去不致命，只是下次升级时会把所有文件当成"被改过"
+            log.warning("模板清单写入失败: %s", e)
 
     def _load_temp_data(self):
         external_dir = os.path.join(exe_dir(), "template")
