@@ -13,11 +13,22 @@ import vigem
 
 class TestBundlePaths:
     def test_source_run_resolves_next_to_the_repo(self):
-        assert vigem.client_dll_path().endswith(os.path.join("vigem", "ViGEmClient.dll"))
+        assert vigem.client_dll_path().endswith(
+            os.path.join(vigem.BUNDLE_SUBDIR, "ViGEmClient.dll")
+        )
 
     def test_frozen_run_resolves_under_meipass(self, monkeypatch, tmp_path):
         monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
-        assert vigem.client_dll_path() == str(tmp_path / "vigem" / "ViGEmClient.dll")
+        assert vigem.client_dll_path() == str(
+            tmp_path / vigem.BUNDLE_SUBDIR / "ViGEmClient.dll"
+        )
+
+    def test_the_bundle_dir_does_not_collide_with_the_module_name(self):
+        """PyInstaller 6 的冻结模块走 sys.path_hooks，_MEIPASS 下同名目录会和本
+        模块抢 `import vigem`。哪边赢取决于 finder 内部顺序 —— 不如让它不可能发生。
+        """
+        assert vigem.BUNDLE_SUBDIR != "vigem"
+        assert vigem.BUNDLE_SUBDIR != os.path.splitext(os.path.basename(vigem.__file__))[0]
 
 
 class TestDriverDetection:
