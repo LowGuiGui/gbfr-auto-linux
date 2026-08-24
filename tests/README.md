@@ -22,6 +22,7 @@ Only the boundary is stubbed. The code under test is the real code.
 | `test_option_keys.py` | keybinds come from config; dry-run sends nothing |
 | `test_diagnostics.py` | blank-frame guard, match-score reporting, anomaly frame capture |
 | `test_vigem.py` | bundle path resolution, driver detection, the XUSB_REPORT ABI, and that we never install the driver ourselves |
+| `test_probe_output.py` | the probe writes its report incrementally and survives a crash mid-run |
 
 ## What is NOT covered, and why
 
