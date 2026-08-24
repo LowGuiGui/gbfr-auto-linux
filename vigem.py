@@ -6,15 +6,16 @@
 开关只存在于还没发布的 GitHub HEAD。在 CI 里 pip install 它，等于往构建机上装内核
 驱动，要么卡住要么装上，两种都不能接受。
 
-所以直接带两个二进制走：
-    vigem/ViGEmClient.dll        130 KB  客户端库，用 ctypes 调
-    vigem/ViGEmBusSetup_x64.msi  876 KB  驱动安装包，用户明确要求时才运行
+所以只带一个用户态库走：
+    vigem/ViGEmClient.dll   130 KB   客户端库，用 ctypes 调
 
-两个都从 vgamepad 的 sdist 里取（MIT，与本仓库的 GPL-2.0 兼容），由 CI 在构建时
-下载解包，**不进版本库** —— 和 #6 把预编译 DLL 移出仓库是同一条规矩。
+从 vgamepad 的 sdist 里取（MIT，与本仓库的 GPL-2.0 兼容），CI 构建时下载解包，
+**不进版本库** —— 和 #6 把预编译 DLL 移出仓库是同一条规矩。
 
-ViGEmBus 本身是内核驱动。装它是一件重量级、不该悄悄发生的事，所以这里只提供
-"检测"和"在明确要求下启动官方安装包"，绝不自动安装。
+**驱动安装包不内置。** 曾经内置过，是个错误：vgamepad 0.1.0 里的 MSI 是
+ViGEmBus 1.17.333.0（2021 年），而官方最新是 1.22.0。散发一个五年前的内核驱动
+装到别人机器上，既有兼容性风险，又会和别的工具装的新版本打架。检测到没装时，
+直接给出官方下载地址，由用户自己装 —— 一个 exe，双击即可，同样不需要 Python。
 """
 
 import ctypes
@@ -26,8 +27,15 @@ from ctypes import Structure, c_byte, c_short, c_uint, c_ushort, c_void_p
 VIGEM_ERROR_NONE = 0x20000000
 VIGEM_ERROR_BUS_NOT_FOUND = 0xE0000001
 
-XUSB_GAMEPAD_A = 0x1000
 STICK_MAX = 32767
+
+# 官方 ViGEmBus 发行版。仓库 2023-11 归档，1.22.0 是最后一版，仍可下载，
+# 单个签名 exe，含 x64/x86/arm64。
+DRIVER_VERSION = "1.22.0"
+DRIVER_DOWNLOAD_URL = (
+    "https://github.com/ViGEm/ViGEmBus/releases/download/"
+    f"v{DRIVER_VERSION}/ViGEmBus_{DRIVER_VERSION}_x64_x86_arm64.exe"
+)
 
 
 class XUSB_REPORT(Structure):
@@ -53,10 +61,6 @@ def _bundle_dir():
 
 def client_dll_path():
     return os.path.join(_bundle_dir(), "vigem", "ViGEmClient.dll")
-
-
-def installer_path():
-    return os.path.join(_bundle_dir(), "vigem", "ViGEmBusSetup_x64.msi")
 
 
 def driver_installed():
@@ -85,21 +89,6 @@ def driver_installed():
         if len(parts) >= 3:
             version = parts[2]
     return True, version
-
-
-def launch_installer():
-    """启动官方 MSI。会弹 UAC 和安装向导 —— 用户自己点。
-
-    只在调用方明确要求时才调。返回 (是否启动成功, 说明)。
-    """
-    msi = installer_path()
-    if not os.path.exists(msi):
-        return False, f"找不到内置安装包: {msi}"
-    try:
-        subprocess.call(["msiexec", "/i", msi])
-    except OSError as e:
-        return False, f"启动 msiexec 失败: {e}"
-    return True, "安装程序已退出。装完通常需要重启一次再试。"
 
 
 class VirtualGamepad:
@@ -164,9 +153,6 @@ class VirtualGamepad:
 
     def left_stick_forward(self):
         self.send(XUSB_REPORT(sThumbLY=STICK_MAX))
-
-    def press_a(self):
-        self.send(XUSB_REPORT(wButtons=XUSB_GAMEPAD_A))
 
     def neutral(self):
         self.send(XUSB_REPORT())

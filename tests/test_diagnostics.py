@@ -37,12 +37,23 @@ class TestBlankFrameGuard:
         frame[40:60, 40:60] = 40
         assert not is_blank_frame(frame)
 
-    def test_tolerance_is_the_documented_constant(self):
-        frame = np.zeros((50, 50, 3), dtype=np.uint8)
-        frame[0, 0] = 255
-        assert is_blank_frame(frame, tolerance=BLANK_FRAME_STD) is (
-            float(frame.mean(axis=2).std()) < BLANK_FRAME_STD
-        )
+    def test_the_threshold_sits_between_noise_and_content(self):
+        """原来这条测试把函数自己的算式抄了一遍再断言相等 —— 永远不会失败。
+
+        真正要钉住的是阈值放在哪：压缩噪点该被判成空白，一小块真实内容不该。
+        """
+        rng = np.random.default_rng(11)
+        noise = np.full((100, 100, 3), 8, dtype=np.uint8)
+        noise[rng.random((100, 100)) < 0.02] = 9      # 极轻微的抖动
+        assert is_blank_frame(noise), "近乎纯色的画面应判为空白"
+
+        content = np.full((100, 100, 3), 8, dtype=np.uint8)
+        content[45:55, 45:55] = 200                   # 一小块真实内容
+        assert not is_blank_frame(content), "有内容的画面不该被误杀"
+
+    def test_the_default_tolerance_is_the_documented_constant(self):
+        frame = np.zeros((20, 20, 3), dtype=np.uint8)
+        assert is_blank_frame(frame) == is_blank_frame(frame, tolerance=BLANK_FRAME_STD)
 
     def test_the_guard_is_what_stops_the_false_positive(self, tmp_path):
         """守卫存在的理由：黑帧 + 低纹理模板 = 1.0 满分误判。"""

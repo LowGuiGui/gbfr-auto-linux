@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""tools/vigem.py —— Windows 才能真的连驱动，但路径解析和失败路径可以在这里测。"""
+"""vigem.py —— Windows 才能真的连驱动，但路径解析和失败路径可以在这里测。"""
 
 import ctypes
 import os
@@ -8,19 +8,16 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
-import vigem  # noqa: E402
+import vigem
 
 
 class TestBundlePaths:
     def test_source_run_resolves_next_to_the_repo(self):
         assert vigem.client_dll_path().endswith(os.path.join("vigem", "ViGEmClient.dll"))
-        assert vigem.installer_path().endswith(os.path.join("vigem", "ViGEmBusSetup_x64.msi"))
 
     def test_frozen_run_resolves_under_meipass(self, monkeypatch, tmp_path):
         monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
         assert vigem.client_dll_path() == str(tmp_path / "vigem" / "ViGEmClient.dll")
-        assert vigem.installer_path() == str(tmp_path / "vigem" / "ViGEmBusSetup_x64.msi")
 
 
 class TestDriverDetection:
@@ -53,32 +50,27 @@ class TestDriverDetection:
         assert vigem.driver_installed() == (None, None)
 
 
-class TestInstallerLaunch:
-    def test_missing_msi_is_reported_not_raised(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
-        ok, message = vigem.launch_installer()
-        assert ok is False
-        assert "找不到内置安装包" in message
+class TestWeNeverInstallTheDriver:
+    """内核驱动由用户从官方渠道自己装。这里不碰。"""
 
-    def test_present_msi_is_launched_via_msiexec(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
-        (tmp_path / "vigem").mkdir()
-        (tmp_path / "vigem" / "ViGEmBusSetup_x64.msi").write_bytes(b"not really an msi")
-        calls = []
-        monkeypatch.setattr(subprocess, "call", lambda cmd: calls.append(cmd))
-        ok, _ = vigem.launch_installer()
-        assert ok is True
-        assert calls[0][0] == "msiexec" and calls[0][1] == "/i"
-
-    def test_it_is_never_launched_implicitly(self, monkeypatch, tmp_path):
-        """装内核驱动必须是显式动作。构造手柄对象不能触发它。"""
+    def test_no_installer_is_bundled_or_launched(self, monkeypatch, tmp_path):
+        assert not hasattr(vigem, "launch_installer")
+        assert not hasattr(vigem, "installer_path")
         monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
         calls = []
-        monkeypatch.setattr(subprocess, "call", lambda cmd: calls.append(cmd))
+        monkeypatch.setattr(subprocess, "call", lambda *a, **k: calls.append(a))
         pad = vigem.VirtualGamepad()
         with pytest.raises(FileNotFoundError):
             pad.connect()
         assert calls == []
+
+    def test_the_download_url_points_at_the_official_release(self):
+        """曾经内置过 vgamepad 里的 1.17.333.0（2021 年），比官方最新落后一大截。"""
+        assert vigem.DRIVER_VERSION == "1.22.0"
+        assert vigem.DRIVER_DOWNLOAD_URL.startswith(
+            "https://github.com/ViGEm/ViGEmBus/releases/download/"
+        )
+        assert vigem.DRIVER_VERSION in vigem.DRIVER_DOWNLOAD_URL
 
 
 class TestReportStruct:
