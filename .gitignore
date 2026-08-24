@@ -55,7 +55,7 @@ gbfr-build/
 
 # CI 构建时下载解包的 ViGEm 二进制（ViGEmClient.dll / ViGEmBusSetup_x64.msi）。
 # 和 hook DLL 同一条规矩：二进制不进版本库，构建时取。
-vigem/
+vigem_bin/
 vgamepad.tar.gz
 vgamepad-*/
 

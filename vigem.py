@@ -7,7 +7,12 @@
 驱动，要么卡住要么装上，两种都不能接受。
 
 所以只带一个用户态库走：
-    vigem/ViGEmClient.dll   130 KB   客户端库，用 ctypes 调
+    vigem_bin/ViGEmClient.dll   130 KB   客户端库，用 ctypes 调
+
+目录叫 vigem_bin 而不是 vigem，是**故意**的：PyInstaller 6 的冻结模块走的是
+sys.path_hooks 而不是 sys.meta_path，所以 _MEIPASS 下一个叫 vigem 的目录会和
+本模块 vigem 争同一个名字。哪个赢取决于 PyiFrozenFinder 的内部顺序 —— 与其推理，
+不如让它不可能发生。
 
 从 vgamepad 的 sdist 里取（MIT，与本仓库的 GPL-2.0 兼容），CI 构建时下载解包，
 **不进版本库** —— 和 #6 把预编译 DLL 移出仓库是同一条规矩。
@@ -59,8 +64,11 @@ def _bundle_dir():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+BUNDLE_SUBDIR = "vigem_bin"
+
+
 def client_dll_path():
-    return os.path.join(_bundle_dir(), "vigem", "ViGEmClient.dll")
+    return os.path.join(_bundle_dir(), BUNDLE_SUBDIR, "ViGEmClient.dll")
 
 
 def driver_installed():
