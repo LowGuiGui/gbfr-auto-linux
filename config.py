@@ -11,6 +11,8 @@
 # 读取用 tomllib（3.11+ 标准库）。我们从不以程序方式写配置，只在文件不存在时把下
 # 面那份带注释的默认模板整个写出去，之后完全交给用户手改。
 
+import codecs
+import locale
 import os
 import tomllib
 
@@ -57,9 +59,14 @@ DEFAULTS = {
 }
 
 DEFAULT_TOML = """\
-# gbfr_auto 配置文件。
+# gbfr_auto configuration / gbfr_auto 配置文件
 #
-# 删掉某一行就会用回默认值；删掉整个文件，下次启动会重新生成这份带注释的模板。
+# Save this file as UTF-8. Notepad's "ANSI" will break the comments below.
+# Delete any line to fall back to its default; delete the whole file and it is
+# regenerated on next start. Unknown keys are ignored and reported in the log.
+#
+# 存盘请选 UTF-8，记事本的「ANSI」会让下面的注释读不出来。
+# 删掉某一行就会用回默认值；删掉整个文件，下次启动会重新生成这份模板。
 # 认不出的键会被忽略并在日志里报出来，不会让程序起不来。
 
 [loop]
@@ -151,12 +158,43 @@ def _merged(user):
 
 def _write_default(path):
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        # utf-8-sig：这个文件是给人用记事本改的。不带 BOM 的话记事本按本地代码页
+        # 解释，中文注释全是乱码；而且它另存时多半会补上 BOM，于是下次就读不了。
+        # 一开始就带上，来回都稳。
+        with open(path, "w", encoding="utf-8-sig") as f:
             f.write(DEFAULT_TOML)
         return True
     except OSError as e:
         log.warning("写入默认配置失败 %s: %s", path, e)
         return False
+
+
+def _decode(raw):
+    """把配置文件的字节解成文本，容忍记事本会做的两件事。
+
+    返回 (文本, 提示) —— 提示不为空时说明文件不是标准的 UTF-8，应当告诉用户。
+
+    两个坑都很常见：
+      1. 记事本存 UTF-8 默认加 BOM，而 tomllib 不认 BOM，直接报语法错误；
+      2. 记事本也可能按 ANSI（简中就是 GBK）存，那是 UnicodeDecodeError。
+    两种情况原来都会退回默认值，于是用户改了半天配置一点不生效 —— 比报错更糟。
+    """
+    if raw.startswith(codecs.BOM_UTF8):
+        raw = raw[len(codecs.BOM_UTF8):]
+    try:
+        return raw.decode("utf-8"), None
+    except UnicodeDecodeError:
+        pass
+
+    fallback = locale.getpreferredencoding(False) or "cp1252"
+    try:
+        text = raw.decode(fallback)
+    except (UnicodeDecodeError, LookupError):
+        return None, f"配置文件既不是 UTF-8，也不是本地编码 {fallback}"
+    return text, (
+        f"配置文件不是 UTF-8（已按本地编码 {fallback} 读取）。"
+        "请用记事本「另存为」并把编码选成 UTF-8，否则下次可能读不出来。"
+    )
 
 
 def load(directory):
@@ -173,10 +211,20 @@ def load(directory):
 
     try:
         with open(path, "rb") as f:
-            user = tomllib.load(f)
+            raw = f.read()
     except OSError as e:
         log.warning("读取配置失败，使用默认值 %s: %s", path, e)
         return Config(_merged({}), path)
+
+    text, note = _decode(raw)
+    if text is None:
+        log.warning("%s：%s。本次使用默认值。", path, note)
+        return Config(_merged({}), path)
+    if note:
+        log.warning("%s：%s", path, note)
+
+    try:
+        user = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         log.warning("配置文件格式错误，使用默认值 %s: %s", path, e)
         return Config(_merged({}), path)

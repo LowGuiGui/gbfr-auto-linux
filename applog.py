@@ -79,7 +79,10 @@ def setup(preferred_dir=None, level=logging.DEBUG):
     path = os.path.join(log_dir, LOG_FILENAME)
     try:
         handler = RotatingFileHandler(
-            path, maxBytes=_MAX_BYTES, backupCount=_BACKUPS, encoding="utf-8"
+            # utf-8-sig 而不是 utf-8：不带 BOM 的话，Windows 记事本会把中文按
+            # 本地代码页解释，打开就是乱码 —— 文件"能读"，实际没法看。追加模式
+            # 下 BOM 只写一次，不会每次启动都插一个。
+            path, maxBytes=_MAX_BYTES, backupCount=_BACKUPS, encoding="utf-8-sig"
         )
     except OSError:
         return None

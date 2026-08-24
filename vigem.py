@@ -80,9 +80,14 @@ def driver_installed():
     try:
         out = subprocess.check_output(
             ["reg", "query", r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "/s"],
-            text=True, stderr=subprocess.DEVNULL, timeout=60,
+            # 这棵子树里是全系统的软件名，什么语言都有。text=True 会按本地代码页
+            # 解码，撞上解不出的字节就抛 UnicodeDecodeError —— 那是 ValueError 的
+            # 子类，既不是 OSError 也不是 SubprocessError，不 replace 的话会直接
+            # 逃出去把整个探测干掉。
+            text=True, errors="replace",
+            stderr=subprocess.DEVNULL, timeout=60,
         ).lower()
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return None, None          # 查不了，不等于没装
 
     marker = "nefarius virtual gamepad emulation bus driver"

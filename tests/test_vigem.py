@@ -111,3 +111,32 @@ class TestCleanup:
         pad = vigem.VirtualGamepad()
         pad.close()
         pad.close()
+
+
+class TestRegistryDecodingCannotCrashUs:
+    """reg query 扫的是全系统软件名，什么语言都有。text=True 按本地代码页解码，
+    撞上解不出的字节就抛 UnicodeDecodeError —— 它是 ValueError 的子类，既不是
+    OSError 也不是 SubprocessError，漏掉的话会直接把整个探测干掉。
+    """
+
+    def test_a_decode_error_is_treated_as_unknown(self, monkeypatch):
+        def undecodable(*a, **k):
+            raise UnicodeDecodeError("gbk", b"\xff", 0, 1, "illegal multibyte")
+        monkeypatch.setattr(subprocess, "check_output", undecodable)
+        assert vigem.driver_installed() == (None, None)
+
+    def test_replacement_characters_do_not_break_detection(self, monkeypatch):
+        blob = (
+            "    DisplayName    REG_SZ    ��� garbled product\n"
+            "    DisplayVersion    REG_SZ    1.22.0\n"
+            "    DisplayName    REG_SZ    Nefarius Virtual Gamepad Emulation Bus Driver\n"
+        )
+        monkeypatch.setattr(subprocess, "check_output", lambda *a, **k: blob)
+        installed, version = vigem.driver_installed()
+        assert installed is True and version == "1.22.0"
+
+    def test_errors_replace_is_actually_requested(self):
+        """靠 errors='replace' 才不会抛。这条防止有人把它删掉。"""
+        import inspect
+        src = inspect.getsource(vigem.driver_installed)
+        assert 'errors="replace"' in src
