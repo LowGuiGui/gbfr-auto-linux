@@ -50,6 +50,15 @@ template/.bundled.json
 template/*.new
 
 ### 编译产物 ###
+# 从 CI 下载解压的发行包放这里，别提交回去（就是 #6 要避免的那种事）。
+gbfr-build/
+
+# CI 构建时下载解包的 ViGEm 二进制（ViGEmClient.dll / ViGEmBusSetup_x64.msi）。
+# 和 hook DLL 同一条规矩：二进制不进版本库，构建时取。
+vigem/
+vgamepad.tar.gz
+vgamepad-*/
+
 # hook/gbfr_hook.dll 由 hook/gbfr_hook.c 编译生成 (hook/build.bat 或 CI)。
 # 二进制无法 diff、无法审阅，且上游正是因为提交构建产物，才留下 ~96 MB 的
 # 历史记录挂在 ~450 KB 的工作树后面。cl /LD 的中间产物一并忽略。
