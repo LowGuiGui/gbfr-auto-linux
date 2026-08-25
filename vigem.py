@@ -71,10 +71,30 @@ def client_dll_path():
     return os.path.join(_bundle_dir(), BUNDLE_SUBDIR, "ViGEmClient.dll")
 
 
-def driver_installed():
-    """查注册表判断 ViGEmBus 驱动在不在。
+def driver_service_present():
+    """看驱动服务键在不在。
 
-    与 vgamepad 的 setup.py 用的是同一个判据（卸载项里找驱动显示名）。
+    比卸载项可靠：不管是 MSI 装的还是 nefconw 手动装的，只要驱动进了系统，
+    SYSTEM\\CurrentControlSet\\Services\\ViGEmBus 就会存在。
+    """
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SYSTEM\CurrentControlSet\Services\ViGEmBus"):
+            return True
+    except FileNotFoundError:
+        return False
+    except (OSError, ImportError):
+        return None
+
+
+def driver_installed():
+    """查卸载项判断 ViGEmBus 在不在。
+
+    **只是一条线索，不是结论。** 它找的是 MSI 安装留下的卸载条目；用 nefconw
+    手动装驱动（官方支持的方式）根本不写这个条目，于是驱动明明装好了却被判成
+    "没装"。判断装没装的唯一可靠办法是真的去连一次 —— 见 probe_gamepad。
+
     返回 (是否已装, 版本或 None)。
     """
     try:
