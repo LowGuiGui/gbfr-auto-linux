@@ -185,3 +185,112 @@ class TestCleanup:
         pad = vigem.VirtualGamepad()
         pad.close()
         pad.close()
+
+
+class TestDuplicateBusDetection:
+    """两份 ViGEmBus 会留下重复的总线设备实例。
+
+    表现正是 Howard 听到的：插入音响了，一两秒后又是拔出音 —— 客户端连上其中
+    一个总线，设备却在另一个上枚举。
+    """
+
+    def _enum(self, monkeypatch, instances):
+        import types
+        fake = types.ModuleType("winreg")
+        fake.HKEY_LOCAL_MACHINE = 0x80000002
+
+        class Key:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def open_key(root, path, *a, **k):
+            if instances is None:
+                raise FileNotFoundError(path)
+            return Key()
+
+        def enum_key(key, index):
+            if index >= len(instances):
+                raise OSError("no more")
+            return instances[index]
+
+        fake.OpenKey, fake.EnumKey = open_key, enum_key
+        fake.QueryValueEx = lambda *a: (None, 1)
+        monkeypatch.setitem(sys.modules, "winreg", fake)
+
+    def test_one_instance_is_healthy(self, monkeypatch):
+        self._enum(monkeypatch, ["ROOT&0000"])
+        assert vigem.bus_device_instances() == ["ROOT&0000"]
+
+    def test_two_instances_are_reported(self, monkeypatch):
+        self._enum(monkeypatch, ["ROOT&0000", "ROOT&0001"])
+        assert len(vigem.bus_device_instances()) == 2
+
+    def test_no_key_means_no_instances_not_an_error(self, monkeypatch):
+        self._enum(monkeypatch, None)
+        assert vigem.bus_device_instances() == []
+
+
+class TestErrorNames:
+    def test_the_observed_failure_is_named(self):
+        """0xE0000007 是 Howard 那次真实失败的返回码。"""
+        assert "TARGET_NOT_PLUGGED_IN" in vigem.error_name(0xE0000007)
+        assert "0xE0000007" in vigem.error_name(0xE0000007)
+
+    def test_bus_version_mismatch_is_named(self):
+        assert "BUS_VERSION_MISMATCH" in vigem.error_name(0xE0000008)
+
+    def test_an_unknown_code_still_shows_the_hex(self):
+        assert "0xDEADBEEF" in vigem.error_name(0xDEADBEEF)
+        assert "unknown" in vigem.error_name(0xDEADBEEF)
+
+
+class TestConnectRetries:
+    """ViGEmClient 自己的源码注释就说这条路径有竞态、建议调用方重试。"""
+
+    def test_it_retries_before_giving_up(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+        monkeypatch.setattr(vigem, "RETRY_DELAY_S", 0)
+        calls = []
+
+        class FakeDLL:
+            def __getattr__(self, name):
+                def fn(*a, **k):
+                    if name == "vigem_target_add":
+                        calls.append(1)
+                        return 0xE0000007
+                    if name in ("vigem_alloc", "vigem_target_x360_alloc"):
+                        return 1234
+                    return vigem.VIGEM_ERROR_NONE
+                fn.argtypes = fn.restype = None
+                return fn
+
+        monkeypatch.setattr(vigem.os.path, "exists", lambda p: True)
+        monkeypatch.setattr(vigem.ctypes, "CDLL", lambda p: FakeDLL())
+        pad = vigem.VirtualGamepad()
+        with pytest.raises(RuntimeError) as excinfo:
+            pad.connect()
+        assert len(calls) == vigem.RETRY_ATTEMPTS
+        assert "TARGET_NOT_PLUGGED_IN" in str(excinfo.value), "错误码要翻成名字"
+
+    def test_a_later_attempt_succeeding_is_recorded(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+        monkeypatch.setattr(vigem, "RETRY_DELAY_S", 0)
+        state = {"n": 0}
+
+        class FakeDLL:
+            def __getattr__(self, name):
+                def fn(*a, **k):
+                    if name == "vigem_target_add":
+                        state["n"] += 1
+                        return vigem.VIGEM_ERROR_NONE if state["n"] == 2 else 0xE0000007
+                    if name in ("vigem_alloc", "vigem_target_x360_alloc"):
+                        return 1234
+                    return vigem.VIGEM_ERROR_NONE
+                fn.argtypes = fn.restype = None
+                return fn
+
+        monkeypatch.setattr(vigem.os.path, "exists", lambda p: True)
+        monkeypatch.setattr(vigem.ctypes, "CDLL", lambda p: FakeDLL())
+        pad = vigem.VirtualGamepad()
+        pad.connect()
+        assert pad.attempts_used == 2
