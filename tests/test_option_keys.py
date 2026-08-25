@@ -120,3 +120,79 @@ class TestDryRun:
         from option import Option
         Option(root=None, dry_run=True)
         assert "空跑模式" in log_file()
+
+
+# --- #46：中键要落在客户区中心，不是窗口中心 ---------------------------------
+
+WINDOW = (629, 315, 3211, 1811)      # 真机实测，窗口化 2K
+CLIENT_SIZE = (2560, 1440)
+CLIENT_ORIGIN = (640, 360)
+
+
+class RecordingInput(FakeInput):
+    """连坐标一起记下来 —— 这一组测的就是坐标。"""
+
+    def __init__(self):
+        super().__init__()
+        self.hwnd = 1234
+        self.points = []
+
+    def mouse_press(self, x, y, button="left"):
+        self.points.append(("press", x, y, button))
+
+    def mouse_release(self, x, y, button="left"):
+        self.points.append(("release", x, y, button))
+
+
+class TestClientCentre:
+    @pytest.fixture
+    def opt_with_window(self, monkeypatch):
+        import option as option_module
+        monkeypatch.setattr("option.WindowInput", RecordingInput)
+
+        def build(measured=(WINDOW, CLIENT_SIZE, CLIENT_ORIGIN)):
+            monkeypatch.setattr(option_module.geometry, "read", lambda hwnd: measured)
+            return Option(root=None, keys=None)
+
+        return build
+
+    def test_centre_is_the_client_centre(self, opt_with_window):
+        assert opt_with_window()._get_center() == (1291, 765)
+
+    def test_not_the_old_window_centre(self, opt_with_window):
+        """旧值是 (1291, 748)。差的那 17 像素就是这个 issue。"""
+        assert opt_with_window()._get_center() != (1291, 748)
+
+    def test_middle_click_lands_on_the_client_centre(self, opt_with_window):
+        """走完整条路径：start_battle -> _get_center -> mouse_press。"""
+        o = opt_with_window()
+        o.start_battle()
+        assert o._wi.points == [("press", 1291, 765, "middle")]
+
+    def test_release_uses_the_same_point(self, opt_with_window):
+        o = opt_with_window()
+        o.start_battle()
+        o.end_battle()
+        assert [p[1:3] for p in o._wi.points] == [(1291, 765), (1291, 765)]
+
+    def test_borderless_is_unaffected(self, opt_with_window):
+        """无边框时客户区和窗口区重合，落点不该有任何变化。"""
+        o = opt_with_window(((0, 0, 2560, 1440), (2560, 1440), (0, 0)))
+        assert o._get_center() == (1280, 720)
+
+    def test_unreadable_window_skips_the_mouse_instead_of_crashing(self, opt_with_window):
+        o = opt_with_window(None)
+        assert o._get_center() is None
+        o.start_battle()
+        assert o._wi.points == [], "拿不到几何就不该按中键"
+        assert ("press", "w") in o._wi.events, "但按键照发，战斗还是要开始"
+
+    def test_geometry_raising_is_swallowed(self, monkeypatch):
+        import option as option_module
+        monkeypatch.setattr("option.WindowInput", RecordingInput)
+
+        def boom(hwnd):
+            raise RuntimeError("window vanished")
+
+        monkeypatch.setattr(option_module.geometry, "read", boom)
+        assert Option(root=None, keys=None)._get_center() is None

@@ -1,6 +1,7 @@
 import time
 import tkinter as tk
 
+import geometry
 from applog import get_logger
 from window_input import WindowInput
 
@@ -91,15 +92,21 @@ class Option:
         self.end_battle()
 
     def _get_center(self):
-        # 返回 None 时 start_battle/end_battle 会直接跳过鼠标事件 —— 战斗照跑，
-        # 但中键不会按下。原先这条路径一声不吭，看起来就像"按键没生效"。
+        """客户区中心，用窗口相对坐标表达（WindowInput._screen_pos 收的就是这个）。
+
+        原来这里取的是**窗口**中心。窗口化时标题栏只在上面，上下边框不对称
+        （实测上 45 下 11），于是中键落点比客户区中心高 17 像素 —— 见 #46。
+        左右边框是对称的，所以 x 一直是对的，只有 y 错。无边框模式下两者本来
+        就重合，这个改动对它没有任何影响。
+
+        返回 None 时 start_battle/end_battle 会直接跳过鼠标事件 —— 战斗照跑，
+        但中键不会按下。原先这条路径一声不吭，看起来就像"按键没生效"。
+        """
         try:
-            from window_capture import get_window_rect
-            rect = get_window_rect(self._wi.hwnd)
-            if rect:
-                left, top, right, bottom = rect
-                return ((right - left) // 2, (bottom - top) // 2)
-            log.warning("取窗口矩形失败 (hwnd=%s)，本次跳过鼠标事件", self._wi.hwnd)
+            measured = geometry.read(self._wi.hwnd)
+            if measured:
+                return geometry.client_centre(*measured)
+            log.warning("取窗口几何失败 (hwnd=%s)，本次跳过鼠标事件", self._wi.hwnd)
         except Exception:
             log.exception("计算窗口中心失败 (hwnd=%s)", getattr(self._wi, "hwnd", None))
         return None
