@@ -190,44 +190,84 @@ class TestCleanup:
 class TestDuplicateBusDetection:
     """两份 ViGEmBus 会留下重复的总线设备实例。
 
-    表现正是 Howard 听到的：插入音响了，一两秒后又是拔出音 —— 客户端连上其中
-    一个总线，设备却在另一个上枚举。
+    第一版去开 Enum\\Nefarius\\ViGEmBus\\Gen1，在真机上数出 0 个 —— 而手柄
+    明明连上了。那是硬件 ID，不是枚举路径；设备是 root 枚举的，实例在
+    Enum\\ROOT 底下。这几条测试钉住正确的走法。
     """
 
-    def _enum(self, monkeypatch, instances):
+    def _registry(self, monkeypatch, tree):
+        """tree: {family: {instance: {"HardwareID": [...]}}}；None 表示 ROOT 键不存在。"""
         import types
         fake = types.ModuleType("winreg")
         fake.HKEY_LOCAL_MACHINE = 0x80000002
 
         class Key:
+            def __init__(self, data):
+                self.data = data
             def __enter__(self): return self
             def __exit__(self, *a): return False
 
         def open_key(root, path, *a, **k):
-            if instances is None:
+            if isinstance(root, Key):
+                if path not in root.data:
+                    raise FileNotFoundError(path)
+                return Key(root.data[path])
+            if tree is None:
                 raise FileNotFoundError(path)
-            return Key()
+            return Key(tree)
 
         def enum_key(key, index):
-            if index >= len(instances):
+            names = [k for k in key.data if not isinstance(key.data[k], list)]
+            if index >= len(names):
                 raise OSError("no more")
-            return instances[index]
+            return names[index]
 
-        fake.OpenKey, fake.EnumKey = open_key, enum_key
-        fake.QueryValueEx = lambda *a: (None, 1)
+        def query(key, name):
+            if name not in key.data:
+                raise FileNotFoundError(name)
+            return (key.data[name], 7)
+
+        fake.OpenKey, fake.EnumKey, fake.QueryValueEx = open_key, enum_key, query
         monkeypatch.setitem(sys.modules, "winreg", fake)
 
-    def test_one_instance_is_healthy(self, monkeypatch):
-        self._enum(monkeypatch, ["ROOT&0000"])
-        assert vigem.bus_device_instances() == ["ROOT&0000"]
+    def test_it_matches_on_hardware_id_under_ROOT(self, monkeypatch):
+        self._registry(monkeypatch, {
+            "SYSTEM": {"0001": {"HardwareID": ["Nefarius\\ViGEmBus\\Gen1"]}},
+            "OTHER": {"0000": {"HardwareID": ["Something\\Else"]}},
+        })
+        assert vigem.bus_device_instances() == ["ROOT\\SYSTEM\\0001"]
 
     def test_two_instances_are_reported(self, monkeypatch):
-        self._enum(monkeypatch, ["ROOT&0000", "ROOT&0001"])
+        self._registry(monkeypatch, {
+            "SYSTEM": {
+                "0001": {"HardwareID": ["Nefarius\\ViGEmBus\\Gen1"]},
+                "0002": {"HardwareID": ["Nefarius\\ViGEmBus\\Gen1"]},
+            },
+        })
         assert len(vigem.bus_device_instances()) == 2
 
-    def test_no_key_means_no_instances_not_an_error(self, monkeypatch):
-        self._enum(monkeypatch, None)
+    def test_the_match_is_case_insensitive(self, monkeypatch):
+        """注册表里的大小写不保证。"""
+        self._registry(monkeypatch, {
+            "SYSTEM": {"0001": {"HardwareID": ["NEFARIUS\\VIGEMBUS\\GEN1"]}},
+        })
+        assert len(vigem.bus_device_instances()) == 1
+
+    def test_a_single_string_hardware_id_is_handled(self, monkeypatch):
+        """HardwareID 通常是 REG_MULTI_SZ，但不能假设一定是列表。"""
+        self._registry(monkeypatch, {
+            "SYSTEM": {"0001": {"HardwareID": "Nefarius\\ViGEmBus\\Gen1"}},
+        })
+        assert len(vigem.bus_device_instances()) == 1
+
+    def test_no_matching_device_is_an_empty_list(self, monkeypatch):
+        self._registry(monkeypatch, {"SYSTEM": {"0001": {"HardwareID": ["Other\\Thing"]}}})
         assert vigem.bus_device_instances() == []
+
+    def test_unreadable_registry_is_none_not_zero(self, monkeypatch):
+        """0 和"读不到"必须分开 —— 报 0 会让人以为驱动没装。"""
+        self._registry(monkeypatch, None)
+        assert vigem.bus_device_instances() is None
 
 
 class TestErrorNames:
