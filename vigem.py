@@ -36,6 +36,10 @@ STICK_MAX = 32767
 
 # 官方 ViGEmBus 发行版。仓库 2023-11 归档，1.22.0 是最后一版，仍可下载，
 # 单个签名 exe，含 x64/x86/arm64。
+#
+# 注意这个 exe 是**安装程序**，直接双击就装。带 /extract 参数只会把驱动文件
+# （ViGEmBus.inf/.sys/.cat + nefconw.exe）解出来，什么都不装 —— 解压出来的
+# 那个文件夹很容易被误当成"装好了"。
 DRIVER_VERSION = "1.22.0"
 DRIVER_DOWNLOAD_URL = (
     "https://github.com/ViGEm/ViGEmBus/releases/download/"
