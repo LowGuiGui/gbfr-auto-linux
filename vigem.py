@@ -200,32 +200,56 @@ def driver_installed():
 def bus_device_instances():
     """列出 ViGEmBus 的设备实例。
 
-    **多于一个就是问题。** 装过两次 ViGEmBus（比如自己装了一遍，Sunshine 的
-    安装器又带了一遍）会留下重复的总线设备，客户端连上其中一个、设备却在另一个
-    上枚举，表现就是"插入音响了，一两秒后又拔出"。
+    **多于一个就是问题**：装过两遍 ViGEmBus 会留下重复的总线设备，客户端连上
+    其中一个、设备却在另一个上枚举。
 
-    设备实例在注册表 Enum 树下，键名就是 INF 里的硬件 ID。
+    第一版直接去开 Enum\\Nefarius\\ViGEmBus\\Gen1，结果在真机上数出 0 个 ——
+    而手柄明明连上了。那是硬件 ID，不是枚举路径：这个设备是 root 枚举的，实例
+    在 Enum\\ROOT 底下，硬件 ID 只是它的一个属性。所以改成遍历 ROOT 子树、按
+    HardwareID 匹配。
+
+    返回实例路径列表；读不到注册表时返回 None。
     """
     try:
         import winreg
     except ImportError:
         return None
-    path = r"SYSTEM\CurrentControlSet\Enum\Nefarius\ViGEmBus\Gen1"
+
+    target = "nefarius\\vigembus\\gen1"
+    found = []
     try:
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
-            instances = []
-            index = 0
-            while True:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SYSTEM\CurrentControlSet\Enum\ROOT") as root:
+            for family in _subkeys(winreg, root):
                 try:
-                    instances.append(winreg.EnumKey(key, index))
+                    with winreg.OpenKey(root, family) as family_key:
+                        for instance in _subkeys(winreg, family_key):
+                            try:
+                                with winreg.OpenKey(family_key, instance) as dev:
+                                    ids = winreg.QueryValueEx(dev, "HardwareID")[0]
+                            except OSError:
+                                continue
+                            if isinstance(ids, str):
+                                ids = [ids]
+                            if any(target == str(i).lower() for i in ids or ()):
+                                found.append(f"ROOT\\{family}\\{instance}")
                 except OSError:
-                    break
-                index += 1
-            return instances
-    except FileNotFoundError:
-        return []
+                    continue
     except OSError:
         return None
+    return found
+
+
+def _subkeys(winreg, key):
+    names = []
+    index = 0
+    while True:
+        try:
+            names.append(winreg.EnumKey(key, index))
+        except OSError:
+            break
+        index += 1
+    return names
 
 
 def loaded_driver_path():
