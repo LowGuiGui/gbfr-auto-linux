@@ -25,7 +25,6 @@ ViGEmBus 1.17.333.0（2021 年），而官方最新是 1.22.0。散发一个五�
 
 import ctypes
 import os
-import subprocess
 import sys
 from ctypes import Structure, c_byte, c_short, c_uint, c_ushort, c_void_p
 
@@ -92,40 +91,77 @@ def driver_service_present():
         return None
 
 
+# 卸载项里可能出现的显示名。1.22.0 的 ProductName 是 "ViGEm Bus Driver"；
+# 老的 1.17.333 MSI 用的是长名字（vgamepad 的 setup.py 就是照那个写的，
+# 我们最初也照抄了 —— 于是在 1.22.0 上永远匹配不上）。
+_UNINSTALL_MARKERS = (
+    "vigem bus driver",
+    "nefarius virtual gamepad emulation bus driver",
+    "vigembus",
+)
+
+_UNINSTALL_PATHS = (
+    r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+    r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+)
+
+
 def driver_installed():
-    """查卸载项判断 ViGEmBus 在不在。
+    """在卸载项里找 ViGEmBus。
 
-    **只是一条线索，不是结论。** 它找的是 MSI 安装留下的卸载条目；用 nefconw
-    手动装驱动（官方支持的方式）根本不写这个条目，于是驱动明明装好了却被判成
-    "没装"。判断装没装的唯一可靠办法是真的去连一次 —— 见 probe_gamepad。
+    **只是一条线索，不是结论。** 用 nefconw 手动装驱动根本不写卸载项，而驱动
+    照样是装好的。判断装没装的唯一可靠办法是真的去连一次 —— 见 probe_gamepad。
 
-    返回 (是否已装, 版本或 None)。
+    返回 (是否已装, 显示版本或 None)；读不到注册表时返回 (None, None)。
+
+    两件事必须做对，之前两件都错了：
+      1. **两个注册表视图都要查。** 官方安装器是 32 位的，它的卸载项落在
+         WOW6432Node 下；64 位进程默认看不到那一半。
+      2. **显示名不止一个。** 见 _UNINSTALL_MARKERS。
     """
     try:
-        out = subprocess.check_output(
-            ["reg", "query", r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall", "/s"],
-            # 这棵子树里是全系统的软件名，什么语言都有。text=True 会按本地代码页
-            # 解码，撞上解不出的字节就抛 UnicodeDecodeError —— 那是 ValueError 的
-            # 子类，既不是 OSError 也不是 SubprocessError，不 replace 的话会直接
-            # 逃出去把整个探测干掉。
-            text=True, errors="replace",
-            stderr=subprocess.DEVNULL, timeout=60,
-        ).lower()
-    except (OSError, subprocess.SubprocessError, UnicodeError):
-        return None, None          # 查不了，不等于没装
+        import winreg
+    except ImportError:
+        return None, None
 
-    marker = "nefarius virtual gamepad emulation bus driver"
-    at = out.find(marker)
-    if at < 0:
-        return False, None
+    views = [0]
+    for flag in ("KEY_WOW64_64KEY", "KEY_WOW64_32KEY"):
+        value = getattr(winreg, flag, None)
+        if value:
+            views.append(value)
 
-    version = None
-    before = out[:at].rfind("displayversion")
-    if before != -1:
-        parts = out[before:at].split()
-        if len(parts) >= 3:
-            version = parts[2]
-    return True, version
+    readable = False
+    for path in _UNINSTALL_PATHS:
+        for view in views:
+            try:
+                root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path,
+                                      0, winreg.KEY_READ | view)
+            except OSError:
+                continue
+            readable = True
+            with root:
+                index = 0
+                while True:
+                    try:
+                        name = winreg.EnumKey(root, index)
+                    except OSError:
+                        break
+                    index += 1
+                    try:
+                        with winreg.OpenKey(root, name, 0,
+                                            winreg.KEY_READ | view) as entry:
+                            display = str(winreg.QueryValueEx(entry, "DisplayName")[0])
+                            if not any(m in display.lower() for m in _UNINSTALL_MARKERS):
+                                continue
+                            try:
+                                version = str(winreg.QueryValueEx(entry, "DisplayVersion")[0])
+                            except OSError:
+                                version = None
+                            return True, version
+                    except (OSError, ValueError):
+                        continue
+
+    return (False, None) if readable else (None, None)
 
 
 class VirtualGamepad:

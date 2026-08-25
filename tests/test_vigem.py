@@ -32,33 +32,107 @@ class TestBundlePaths:
 
 
 class TestDriverDetection:
-    def test_missing_reg_command_reports_unknown_not_absent(self, monkeypatch):
-        """查不了 != 没装。把两者混同会让人去装一个已经装好的驱动。"""
-        def boom(*a, **k):
-            raise FileNotFoundError("reg")
-        monkeypatch.setattr(subprocess, "check_output", boom)
-        assert vigem.driver_installed() == (None, None)
+    """卸载项检测曾经两处都错，在一个装得好好的 1.22.0 上报"没装"。"""
+
+    def _fake_winreg(self, monkeypatch, entries, views_seen=None):
+        """entries: {(path, view): {subkey: {value: data}}}"""
+        import types
+        fake = types.ModuleType("winreg")
+        fake.HKEY_LOCAL_MACHINE = 0x80000002
+        fake.KEY_READ = 0x20019
+        fake.KEY_WOW64_64KEY = 0x0100
+        fake.KEY_WOW64_32KEY = 0x0200
+
+        class Key:
+            def __init__(self, data):
+                self.data = data
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+
+        def open_key(root, path, reserved=0, access=0):
+            if isinstance(root, Key):                 # 打开子键
+                if path not in root.data:
+                    raise FileNotFoundError(path)
+                return Key(root.data[path])
+            view = access & (fake.KEY_WOW64_64KEY | fake.KEY_WOW64_32KEY)
+            if views_seen is not None:
+                views_seen.append((path, view))
+            if (path, view) not in entries:
+                raise FileNotFoundError(path)
+            return Key(entries[(path, view)])
+
+        def enum_key(key, index):
+            names = list(key.data)
+            if index >= len(names):
+                raise OSError("no more")
+            return names[index]
+
+        def query(key, name):
+            if name not in key.data:
+                raise FileNotFoundError(name)
+            return (key.data[name], 1)
+
+        fake.OpenKey, fake.EnumKey, fake.QueryValueEx = open_key, enum_key, query
+        monkeypatch.setitem(sys.modules, "winreg", fake)
+        return fake
+
+    UNINSTALL = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+    WOW = r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+
+    def test_a_32bit_install_under_wow6432node_is_found(self, monkeypatch):
+        """官方安装器是 32 位的，卸载项落在 WOW6432Node —— 64 位进程默认看不到。"""
+        self._fake_winreg(monkeypatch, {
+            (self.UNINSTALL, 0): {},
+            (self.WOW, 0): {"{guid}": {"DisplayName": "ViGEm Bus Driver",
+                                       "DisplayVersion": "1.22.0"}},
+        })
+        assert vigem.driver_installed() == (True, "1.22.0")
+
+    def test_the_modern_product_name_is_recognised(self, monkeypatch):
+        """1.22.0 叫 "ViGEm Bus Driver"，不是老 MSI 那个长名字。"""
+        self._fake_winreg(monkeypatch, {
+            (self.UNINSTALL, 0): {"{g}": {"DisplayName": "ViGEm Bus Driver",
+                                          "DisplayVersion": "1.22.0"}},
+        })
+        assert vigem.driver_installed()[0] is True
+
+    def test_the_legacy_product_name_still_matches(self, monkeypatch):
+        self._fake_winreg(monkeypatch, {
+            (self.UNINSTALL, 0): {"{g}": {
+                "DisplayName": "Nefarius Virtual Gamepad Emulation Bus Driver",
+                "DisplayVersion": "1.17.333"}},
+        })
+        assert vigem.driver_installed() == (True, "1.17.333")
+
+    def test_both_registry_views_are_queried(self, monkeypatch):
+        seen = []
+        self._fake_winreg(monkeypatch, {(self.UNINSTALL, 0): {}}, views_seen=seen)
+        vigem.driver_installed()
+        paths = {p for p, _ in seen}
+        assert self.UNINSTALL in paths and self.WOW in paths
 
     def test_absent_driver_is_reported_absent(self, monkeypatch):
-        monkeypatch.setattr(subprocess, "check_output", lambda *a, **k: "some other software")
+        self._fake_winreg(monkeypatch, {
+            (self.UNINSTALL, 0): {"{x}": {"DisplayName": "Some Other Product"}},
+        })
         assert vigem.driver_installed() == (False, None)
 
-    def test_present_driver_and_version_are_parsed(self, monkeypatch):
-        blob = (
-            "    DisplayName    REG_SZ    Something Else\n"
-            "    DisplayVersion    REG_SZ    1.17.333.0\n"
-            "    DisplayName    REG_SZ    Nefarius Virtual Gamepad Emulation Bus Driver\n"
-        )
-        monkeypatch.setattr(subprocess, "check_output", lambda *a, **k: blob)
-        installed, version = vigem.driver_installed()
-        assert installed is True
-        assert version == "1.17.333.0"
-
-    def test_timeout_is_treated_as_unknown(self, monkeypatch):
-        def slow(*a, **k):
-            raise subprocess.TimeoutExpired("reg", 60)
-        monkeypatch.setattr(subprocess, "check_output", slow)
+    def test_unreadable_registry_is_unknown_not_absent(self, monkeypatch):
+        """查不了 != 没装。混同会让人去装一个已经装好的驱动。"""
+        self._fake_winreg(monkeypatch, {})
         assert vigem.driver_installed() == (None, None)
+
+    def test_missing_winreg_is_unknown(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "winreg", None)
+        assert vigem.driver_installed() == (None, None)
+
+    def test_an_entry_without_a_version_still_counts(self, monkeypatch):
+        self._fake_winreg(monkeypatch, {
+            (self.UNINSTALL, 0): {"{g}": {"DisplayName": "ViGEm Bus Driver"}},
+        })
+        assert vigem.driver_installed() == (True, None)
 
 
 class TestWeNeverInstallTheDriver:
@@ -111,32 +185,3 @@ class TestCleanup:
         pad = vigem.VirtualGamepad()
         pad.close()
         pad.close()
-
-
-class TestRegistryDecodingCannotCrashUs:
-    """reg query 扫的是全系统软件名，什么语言都有。text=True 按本地代码页解码，
-    撞上解不出的字节就抛 UnicodeDecodeError —— 它是 ValueError 的子类，既不是
-    OSError 也不是 SubprocessError，漏掉的话会直接把整个探测干掉。
-    """
-
-    def test_a_decode_error_is_treated_as_unknown(self, monkeypatch):
-        def undecodable(*a, **k):
-            raise UnicodeDecodeError("gbk", b"\xff", 0, 1, "illegal multibyte")
-        monkeypatch.setattr(subprocess, "check_output", undecodable)
-        assert vigem.driver_installed() == (None, None)
-
-    def test_replacement_characters_do_not_break_detection(self, monkeypatch):
-        blob = (
-            "    DisplayName    REG_SZ    ��� garbled product\n"
-            "    DisplayVersion    REG_SZ    1.22.0\n"
-            "    DisplayName    REG_SZ    Nefarius Virtual Gamepad Emulation Bus Driver\n"
-        )
-        monkeypatch.setattr(subprocess, "check_output", lambda *a, **k: blob)
-        installed, version = vigem.driver_installed()
-        assert installed is True and version == "1.22.0"
-
-    def test_errors_replace_is_actually_requested(self):
-        """靠 errors='replace' 才不会抛。这条防止有人把它删掉。"""
-        import inspect
-        src = inspect.getsource(vigem.driver_installed)
-        assert 'errors="replace"' in src
