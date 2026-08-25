@@ -26,12 +26,45 @@ ViGEmBus 1.17.333.0（2021 年），而官方最新是 1.22.0。散发一个五�
 import ctypes
 import os
 import sys
+import time
 from ctypes import Structure, c_byte, c_short, c_uint, c_ushort, c_void_p
 
 VIGEM_ERROR_NONE = 0x20000000
 VIGEM_ERROR_BUS_NOT_FOUND = 0xE0000001
 
+# 报告里给名字而不是裸十六进制。取自 ViGEmClient 的 include/ViGEm/Client.h。
+VIGEM_ERRORS = {
+    0x20000000: "VIGEM_ERROR_NONE",
+    0xE0000001: "VIGEM_ERROR_BUS_NOT_FOUND",
+    0xE0000002: "VIGEM_ERROR_NO_FREE_SLOT",
+    0xE0000003: "VIGEM_ERROR_INVALID_TARGET",
+    0xE0000004: "VIGEM_ERROR_REMOVAL_FAILED",
+    0xE0000005: "VIGEM_ERROR_ALREADY_CONNECTED",
+    0xE0000006: "VIGEM_ERROR_TARGET_UNINITIALIZED",
+    0xE0000007: "VIGEM_ERROR_TARGET_NOT_PLUGGED_IN",
+    0xE0000008: "VIGEM_ERROR_BUS_VERSION_MISMATCH",
+    0xE0000009: "VIGEM_ERROR_BUS_ACCESS_FAILED",
+    0xE0000010: "VIGEM_ERROR_CALLBACK_ALREADY_REGISTERED",
+    0xE0000011: "VIGEM_ERROR_CALLBACK_NOT_FOUND",
+    0xE0000012: "VIGEM_ERROR_BUS_ALREADY_CONNECTED",
+    0xE0000013: "VIGEM_ERROR_BUS_INVALID_HANDLE",
+    0xE0000014: "VIGEM_ERROR_XUSB_USERINDEX_OUT_OF_RANGE",
+    0xE0000015: "VIGEM_ERROR_INVALID_PARAMETER",
+    0xE0000016: "VIGEM_ERROR_NOT_SUPPORTED",
+    0xE0000017: "VIGEM_ERROR_WINAPI",
+    0xE0000018: "VIGEM_ERROR_TIMED_OUT",
+    0xE0000019: "VIGEM_ERROR_IS_DISPOSING",
+}
+
+
+def error_name(code):
+    return VIGEM_ERRORS.get(code, "unknown") + f" (0x{code:08X})"
+
 STICK_MAX = 32767
+
+# 见 connect()：设备就绪的等待本来就是有竞态的，客户端源码建议重试。
+RETRY_ATTEMPTS = 3
+RETRY_DELAY_S = 1.0
 
 # 官方 ViGEmBus 发行版。仓库 2023-11 归档，1.22.0 是最后一版，仍可下载，
 # 单个签名 exe，含 x64/x86/arm64。
@@ -164,6 +197,84 @@ def driver_installed():
     return (False, None) if readable else (None, None)
 
 
+def bus_device_instances():
+    """列出 ViGEmBus 的设备实例。
+
+    **多于一个就是问题。** 装过两次 ViGEmBus（比如自己装了一遍，Sunshine 的
+    安装器又带了一遍）会留下重复的总线设备，客户端连上其中一个、设备却在另一个
+    上枚举，表现就是"插入音响了，一两秒后又拔出"。
+
+    设备实例在注册表 Enum 树下，键名就是 INF 里的硬件 ID。
+    """
+    try:
+        import winreg
+    except ImportError:
+        return None
+    path = r"SYSTEM\CurrentControlSet\Enum\Nefarius\ViGEmBus\Gen1"
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path) as key:
+            instances = []
+            index = 0
+            while True:
+                try:
+                    instances.append(winreg.EnumKey(key, index))
+                except OSError:
+                    break
+                index += 1
+            return instances
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return None
+
+
+def loaded_driver_path():
+    """注册的驱动服务指向哪个 .sys。
+
+    装了两遍时，服务指向的文件和驱动仓库里实际加载的可能对不上。
+    """
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SYSTEM\CurrentControlSet\Services\ViGEmBus") as key:
+            return str(winreg.QueryValueEx(key, "ImagePath")[0])
+    except (OSError, ImportError):
+        return None
+
+
+# 已知会同时使用 ViGEmBus 的软件。它们不是"冲突"本身，但装了两份驱动、
+# 或者服务把总线占住，都会表现成我们这种失败。
+KNOWN_VIGEM_USERS = (
+    ("SunshineService", "Sunshine (game streaming host)"),
+    ("HidHide", "HidHide (hides physical controllers)"),
+    ("DS4Windows", "DS4Windows"),
+)
+
+
+def other_vigem_users():
+    """查一下本机还有谁在用 ViGEmBus。返回 [(服务名, 说明, 是否在运行)]。"""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    found = []
+    for service, description in KNOWN_VIGEM_USERS:
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                rf"SYSTEM\CurrentControlSet\Services\{service}",
+            ) as key:
+                try:
+                    start = winreg.QueryValueEx(key, "Start")[0]
+                except OSError:
+                    start = None
+                # Start: 2=自动 3=手动 4=禁用
+                found.append((service, description, start))
+        except (OSError, ValueError):
+            continue
+    return found
+
+
 class VirtualGamepad:
     """一个虚拟 Xbox360 手柄。用 with 语句保证一定会拔掉。"""
 
@@ -171,6 +282,7 @@ class VirtualGamepad:
         self._dll = None
         self._client = None
         self._target = None
+        self.attempts_used = 0
 
     def __enter__(self):
         self.connect()
@@ -214,10 +326,29 @@ class VirtualGamepad:
             raise RuntimeError(f"vigem_connect 失败: 0x{err:08X}")
 
         self._target = d.vigem_target_x360_alloc()
-        err = d.vigem_target_add(self._client, self._target)
-        if err != VIGEM_ERROR_NONE:
-            self.close()
-            raise RuntimeError(f"vigem_target_add 失败: 0x{err:08X}")
+
+        # vigem_target_add 会先 PLUGIN_TARGET（此时 Windows 已经响了插入音），
+        # 再发 WAIT_DEVICE_READY 等设备就绪。等待失败时客户端会自己把设备拔掉
+        # （拔出音），并把 **vigem_target_remove 的** 返回值交出来 —— 于是错误码
+        # 常常是 TARGET_NOT_PLUGGED_IN，掩盖了真正失败的那一步。
+        #
+        # ViGEmClient 的源码注释就写着这条路径"不是 100% 可靠……希望调用方忽略
+        # 这些错误并重试"。所以这里重试，而不是一次就放弃。
+        last = None
+        for attempt in range(RETRY_ATTEMPTS):
+            err = d.vigem_target_add(self._client, self._target)
+            if err == VIGEM_ERROR_NONE:
+                self.attempts_used = attempt + 1
+                return
+            last = err
+            if attempt + 1 < RETRY_ATTEMPTS:
+                time.sleep(RETRY_DELAY_S)
+
+        self.close()
+        raise RuntimeError(
+            f"vigem_target_add failed after {RETRY_ATTEMPTS} attempts: "
+            f"{error_name(last)}"
+        )
 
     def send(self, report):
         err = self._dll.vigem_target_x360_update(self._client, self._target, report)
