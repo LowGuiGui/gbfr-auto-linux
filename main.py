@@ -202,6 +202,8 @@ class App:
         self._loop_count = 0
         self._target_window = tk.StringVar(value="")
         self._input_mode = tk.StringVar(value=self.cfg.get("input.mode"))
+        self._backend_mode = tk.StringVar(value=self.cfg.get("input.backend"))
+        self._last_input_status = None
         self._is_enabling_inject = False
         # 注入是异步的，而看门狗会在超时后把界面切回兼容模式 —— 但那条工作线程
         # 是 daemon 且没人能取消它。这两个编号让"迟到的成功"可以被认出来：
@@ -264,6 +266,20 @@ class App:
             command=lambda: self._apply_input_mode(log_on_switch=True)
         ).pack(side=tk.LEFT, padx=5)
 
+        backend_frame = tk.Frame(self.root)
+        backend_frame.pack(fill=tk.X, padx=10, pady=2)
+        tk.Label(backend_frame, text="操作方式:").pack(side=tk.LEFT)
+        tk.Radiobutton(
+            backend_frame, text="键鼠", variable=self._backend_mode, value="kmb",
+            command=lambda: self._apply_backend_mode(log_on_switch=True)
+        ).pack(side=tk.LEFT, padx=5)
+        tk.Radiobutton(
+            backend_frame, text="虚拟手柄", variable=self._backend_mode, value="pad",
+            command=lambda: self._apply_backend_mode(log_on_switch=True)
+        ).pack(side=tk.LEFT, padx=5)
+        self._status_label = tk.Label(backend_frame, text="", fg="gray")
+        self._status_label.pack(side=tk.LEFT, padx=10)
+
         log_frame = tk.Frame(self.root)
         log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
@@ -290,6 +306,48 @@ class App:
                 self.log(f"警告: 找不到窗口「{target}」")
         else:
             self.log("未指定目标窗口，使用全屏模式")
+
+    def _apply_backend_mode(self, log_on_switch=False):
+        """人选了键鼠还是手柄。
+
+        选手柄要真的把虚拟手柄接上；接不上就说清楚并退回键鼠，而不是留着一个
+        选中了却什么都不做的单选框 —— 那是"界面说一套、实际做另一套"。
+        """
+        mode = self._backend_mode.get()
+        if mode == "pad":
+            try:
+                self._option.enable_pad()
+            except Exception as e:
+                log.warning("接虚拟手柄失败", exc_info=True)
+                self.log(f"接虚拟手柄失败: {e}；退回键鼠")
+                self._backend_mode.set("kmb")
+                self._option.set_preferred_mode("kmb")
+                return
+        else:
+            self._option.disable_pad()
+        self._option.set_preferred_mode(mode)
+        if log_on_switch:
+            self.log(f"操作方式: {'虚拟手柄' if mode == 'pad' else '键鼠'}")
+
+    def _sync_input_status(self):
+        """把调和结果显示出来。
+
+        退让、暂停、让开都必须看得见 —— 悄悄换模式和悄悄不干活一样糟，而这两种
+        情况在界面上长得都像"脚本没反应"。
+        """
+        try:
+            self._option.poll()
+        except Exception:
+            log.warning("输入状态调和失败", exc_info=True)
+            return
+        status = self._option.status
+        if status != self._last_input_status:
+            self._last_input_status = status
+            self.log(f"[输入] {status}")
+        try:
+            self._status_label.config(text=status)
+        except Exception:
+            log.debug("更新状态标签失败", exc_info=True)
 
     def _apply_input_mode(self, log_on_switch=False):
         mode = self._input_mode.get()
@@ -590,6 +648,8 @@ class App:
                 self.root.after(0, self._on_f1)
             elif key == keyboard.Key.f2:
                 self.root.after(0, self._on_f2)
+            elif key == keyboard.Key.f12:
+                self.root.after(0, self._on_panic)
         except Exception:
             # 全局监听会收到用户在任何窗口里的每一次按键。持续失败会把日志刷满，
             # 所以第一次记 ERROR，之后降级到 DEBUG。
@@ -598,6 +658,21 @@ class App:
                 log.exception("热键处理失败（监听器继续运行）")
             else:
                 log.debug("热键处理再次失败", exc_info=True)
+
+    def _on_panic(self):
+        """F12 —— 全部松开、关掉焦点伪装、停下。
+
+        存在的理由很具体：键鼠模式下开焦点伪装，游戏会把光标锁在窗口中央，那时
+        鼠标点不动任何东西，只剩键盘可用（2026-08-26 t_kmb 实测）。伪装现在只在
+        手柄模式下才开，但救命开关不能依赖"我们已经想到了所有情况"。
+        """
+        self.log("F12 紧急停止：松开全部输入、关闭焦点伪装")
+        try:
+            self._option.panic()
+        except Exception:
+            log.exception("紧急停止失败")
+        if self.job_timer_id is not None:
+            self._on_f1()          # 复用现有的停止逻辑
 
     def _on_f1(self):
         if self.job_timer_id is None:
@@ -637,6 +712,10 @@ class App:
         target = self._target_window.get().strip() or None
         if target:
             self._option.set_target(target)
+        # 先调和再动作：窗口可能刚被拖过、管道可能刚断、人可能刚拿起手柄。
+        self._sync_input_status()
+        if self._option.paused:
+            return
         self.screen = capture(target)
         if self.screen is None:
             self.log(f"截图失败: {target or '全屏'}")

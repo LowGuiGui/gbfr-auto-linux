@@ -40,8 +40,18 @@ DEFAULTS = {
     },
     "input": {
         "mode": "fallback",
+        # 用键鼠还是虚拟手柄。mode 是键鼠**通道**（抢焦点 / 注入），跟这个是
+        # 两件事：手柄走 XInput 设备状态，跟窗口焦点无关。
+        "backend": "kmb",
         # 空跑：照常识别、照常记录，但**不向游戏发送任何按键**。
         "dry_run": False,
+    },
+    # 手柄按键映射。**默认值是未经验证的猜测** —— 没人在 Relink 里核对过，
+    # TESTING.md 有一条专门去确认。名字见 vigem.BUTTONS。
+    "pad": {
+        "battle": "right_thumb",
+        "again": "y",
+        "confirm": "a",
     },
     "inject": {
         "watchdog_ms": 15000,
@@ -81,8 +91,15 @@ anomaly_dir         = "anomalies"
 max_anomaly_frames  = 50    # 存满就不再存，避免把磁盘塞爆
 
 [input]
-mode    = "fallback"        # "fallback"（抢焦点）或 "inject"（DLL 注入）
+mode    = "fallback"        # 键鼠通道: "fallback"（抢焦点）或 "inject"（DLL 注入）
+backend = "kmb"             # "kmb"（键鼠）或 "pad"（虚拟手柄）
 dry_run = false             # true = 照常识别与记录，但不向游戏发送任何按键
+
+[pad]
+# 虚拟手柄的按键映射。**未经验证** —— 见 TESTING.md 的 E1。
+battle  = "right_thumb"     # 键鼠那边是中键
+again   = "y"
+confirm = "a"
 
 [inject]
 watchdog_ms = 15000         # 启用注入模式的超时
