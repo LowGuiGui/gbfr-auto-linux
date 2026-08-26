@@ -1,0 +1,50 @@
+Copyright and licensing
+=======================
+
+This project is a fork of zhiyual/gbfr_auto and is distributed under the GNU
+General Public License, version 2. The full licence text is in LICENSE.
+
+
+Upstream
+--------
+
+The original work is by the upstream author(s):
+
+    https://github.com/zhiyual/gbfr_auto
+
+No copyright over that work is claimed here.
+
+
+This fork
+---------
+
+Changes made in this fork:
+
+    Copyright (C) 2026 LowGuiGui
+
+They are licensed under the same terms as the original -- GPL-2.0 -- which is
+what section 2(b) requires of a derived work.
+
+
+Why this is a separate file
+---------------------------
+
+LICENSE is the verbatim GPL-2.0 text. The only
+
+    Copyright (C) <year>  <name of author>
+
+line in it belongs to the licence's own "How to Apply These Terms to Your New
+Programs" appendix. That is an example intended to be copied into your own
+files -- not a blank to be filled in inside the licence. Editing it would
+modify the licence text itself, which is not something a licensee should do.
+
+GPL-2.0 section 1 expects each source file to carry a notice. Per-file headers
+are deliberately not used here: this fork tracks an active upstream, and a
+header added to every file would conflict with essentially any future upstream
+change. The same reasoning keeps stylistic lint rules off (see ruff.toml) and
+keeps every pre-commit hook read-only.
+
+A single file naming the holder of this fork's changes is the version of that
+notice which survives an upstream sync.
+
+See issue #7.
