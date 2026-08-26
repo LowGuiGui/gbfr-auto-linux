@@ -44,8 +44,24 @@ select = [
 #
 # All 13 were checked and are safe to fix; #22 records how, and the tradeoff.
 # Delete each entry as its file is cleared.
+#
+# 12 of 13 are now cleared. The rule #22 set was "wait for a moment when the file
+# is being touched anyway", and that moment arrived for each:
+#
+#   opencv.py    both findings were INSIDE cv_match_template; deleting that dead
+#                function (#15) removed them without editing a live line
+#   option.py    `import time`, dropped alongside the tap_confirm rename (#15)
+#   main.py      `pyautogui`, unused -- window_capture imports and uses it, and
+#                main.py imports window_capture, so the import-time side effects
+#                still happen, 11 lines later. Touched by #1, #2 and #16.
+#   window_input.py   `wintypes`, plus a function-local `import time as _time`
+#                     that shadowed the module-level one and was never used.
+#                     Touched by the #45 focus spoof.
+#   hook/injector.py  ctypes, threading, wintypes -- each appeared only on its
+#                     own import line. pywintypes is a DIFFERENT module and is
+#                     genuinely used; it stays. Touched by the #45 focus spoof.
+#
+# hook/pure_inject.py is the last one, and stays: nothing has needed to touch it,
+# so clearing it would be a pure upstream-conflict cost for no benefit.
 [lint.per-file-ignores]
-"hook/injector.py"    = ["F401"]        # ctypes, threading, ctypes.wintypes
 "hook/pure_inject.py" = ["F401"]        # time, ctypes.wintypes, win32con, win32gui
-"main.py"             = ["F401"]        # pyautogui (window_capture imports it too)
-"window_input.py"     = ["F401"]        # ctypes.wintypes, function-local time
