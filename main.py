@@ -70,25 +70,58 @@ def is_admin():
         return False
 
 
+# run_as_admin() 的三种结果。原来用一个 bool 表示，而 False 同时意味着"已经用
+# 管理员重开了、本进程该正常退出"和"提权失败了" —— 于是两者都 exit(0)。
+ELEVATION_ALREADY = "already"        # 本来就是管理员，继续跑
+ELEVATION_RELAUNCHED = "relaunched"  # 已重新启动，本进程正常退出（0 是对的）
+ELEVATION_FAILED = "failed"          # 提权失败，必须非零退出
+
+# ShellExecuteW 的返回值：> 32 才是成功，<= 32 是错误码。
+# 用户点"否"的 UAC 提示返回 SE_ERR_ACCESSDENIED (5)。
+SE_SUCCESS_THRESHOLD = 32
+_SE_ERRORS = {
+    0: "out of memory or resources",
+    2: "file not found",
+    3: "path not found",
+    5: "access denied -- the UAC prompt was refused",
+    8: "out of memory",
+    26: "a sharing violation occurred",
+    27: "incomplete or invalid file association",
+    31: "no application associated with this file type",
+    32: "the required DLL was not found",
+}
+
+
 def run_as_admin():
+    """返回 ELEVATION_* 之一。
+
+    原来这里**不看 ShellExecuteW 的返回值**，所以"用户在 UAC 弹窗上点了否"和
+    "成功以管理员重开"是完全一样的结果：两者都 return False，调用方都 exit(0)。
+    #1 说的"失败却报告成功"，根源就在这里 —— 不只是退出码写错了。
+    """
     if is_admin():
-        return True
+        return ELEVATION_ALREADY
     try:
         if hasattr(sys, "_MEIPASS"):
             exe_path = sys.executable
         else:
             exe_path = sys.argv[0]
         params = " ".join([f'"{arg}"' for arg in sys.argv[1:]])
-        ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", f'"{exe_path}"', params, None, 1
-        )
-        return False
+        # HINSTANCE 在 64 位上是指针宽度。默认 restype 是 c_int，会把高位截掉；
+        # 虽然错误码都很小、截断后照样 <= 32，但没有理由把判断建在截断上。
+        shell_execute = ctypes.windll.shell32.ShellExecuteW
+        shell_execute.restype = ctypes.c_void_p
+        result = shell_execute(None, "runas", f'"{exe_path}"', params, None, 1)
+        code = int(result or 0)
+        if code > SE_SUCCESS_THRESHOLD:
+            log.info("已请求以管理员身份重新启动，本进程退出")
+            return ELEVATION_RELAUNCHED
+        reason = _SE_ERRORS.get(code, "see ShellExecuteW return values")
+        log.error("提权失败：ShellExecuteW 返回 %d (%s)", code, reason)
+        return ELEVATION_FAILED
     except Exception:
-        # 注意返回值把两件事混为一谈：上面的 return False 是"已重新以管理员启动，
-        # 本进程该退出"，这里的是"提权失败"。区分它们是 #1 的事；这里至少先让
-        # 失败留下痕迹，否则 #1 连诊断的依据都没有。
         log.exception("以管理员身份重新启动失败")
-        return False
+        return ELEVATION_FAILED
 
 
 class TkLogHandler(logging.Handler):
@@ -686,8 +719,15 @@ if __name__ == "__main__":
     # 配置要在 setup() 之后读 —— 读配置的过程本身就会记日志。
     _cfg = config_module.load(exe_dir())
     applog.set_level(_cfg.get("log.level"))
-    if not run_as_admin():
+    _elevation = run_as_admin()
+    if _elevation == ELEVATION_RELAUNCHED:
+        # 这一条退 0 是对的：活儿交给新起的管理员进程了，本进程正常收场。
         sys.exit(0)
+    if _elevation == ELEVATION_FAILED:
+        # 而这一条必须非零。包装它的启动器、批处理或 CI 步骤，靠的就是退出码来
+        # 区分"跑完了"和"根本没起来"。
+        log.error("=== GBFR Auto 未能以管理员身份启动，退出 ===")
+        sys.exit(1)
     root = tk.Tk()
     app = App(root, cfg=_cfg)
     root.mainloop()
