@@ -25,7 +25,7 @@ class Option:
     """
 
     def __init__(self, root: tk.Tk, keys=None, dry_run=False, pad_mapping=None,
-                 clock=time.monotonic):
+                 prefer=MODE_KMB, clock=time.monotonic):
         self.root = root
         self._is_battle_ing = False
         self._wi = WindowInput()
@@ -48,7 +48,9 @@ class Option:
         self._padbe = None          # PadBackend，跟着 self._pad 一起建/拆
         self._known_hwnd = None
         self._pad_watch = None
-        self._prefer = MODE_KMB
+        # 偏好来自配置。默认成 kmb 而不管配置说什么，会让界面上选中的那一项和
+        # 实际行为对不上 —— 界面说一套、程序做另一套。
+        self._prefer = prefer if prefer in (MODE_KMB, MODE_PAD) else MODE_KMB
         self._title = None          # 记住是怎么找到窗口的，好在游戏重启后再找一次
         self._paused = False
         self._status = "未开始"
@@ -124,7 +126,14 @@ class Option:
 
         接之前先记下已占用的 XInput 槽位 —— 接完之后多出来的那个就是我们自己的，
         这是"人在用实体手柄"能认对的前提。
+
+        已经接上了就直接返回。Tk 的单选框**每次点击**都会触发 command，包括点
+        已经选中的那一项；不挡住的话每点一次就多插一个虚拟手柄，旧的那个还留在
+        系统里拔不掉，摇杆可能正推着。
         """
+        if self._pad is not None:
+            return True
+
         import vigem as _vigem
         vigem_module = vigem_module or _vigem
         if xinput_module is None:
@@ -210,9 +219,10 @@ class Option:
         elif want == MODE_KMB:
             self._backend = self._kmb
         else:
-            # NullBackend 每次都新建是故意的：它只在第一次动作时喊一声，重建就
-            # 等于换了一个原因重新喊。
-            if not isinstance(self._backend, backend_mod.NullBackend):
+            # 原因变了就重建，原因没变就留着。留着是为了"只喊一次"；重建是因为
+            # 拿旧原因去解释新情况，比不解释更容易误导。
+            if (not isinstance(self._backend, backend_mod.NullBackend)
+                    or self._backend.reason != decision.reason):
                 self._backend = backend_mod.NullBackend(decision.reason)
 
         self._known_hwnd = obs.hwnd
@@ -226,7 +236,7 @@ class Option:
         """缓存的手柄后端。**不能**每次调和都新建 —— 新对象不知道现在按着什么，
         摇杆会在下一次 release_all 时被漏掉。手柄换了才重建。"""
         import vigem
-        if self._padbe is None or self._padbe._pad is not self._pad:
+        if self._padbe is None or self._padbe.pad is not self._pad:
             self._padbe = backend_mod.PadBackend(self._pad, vigem, self._pad_mapping)
         return self._padbe
 

@@ -287,3 +287,116 @@ class TestMainWiring:
         block = self.SOURCE[self.SOURCE.index("self._option = Option("):]
         block = block[:block.index("self._anomalies_saved")]
         assert 'pad_mapping=self.cfg.section("pad")' in block
+
+
+class TestEnablePad:
+    """enable_pad 之前没有任何测试，而它有一处**顺序**要求：必须先记下已占用的
+    XInput 槽位，再插虚拟手柄。搞反了，"哪个槽位是我们自己的"就永远是错的，
+    于是要么永远不让开，要么把自己的输入当成人在操作。而且不会报错。
+    """
+
+    def _mods(self, slots_before=(0,), slots_after=(0, 1), connect_raises=None):
+        events = []
+
+        class FakePad:
+            def connect(self):
+                events.append("connect")
+                if connect_raises:
+                    raise connect_raises
+
+            def close(self):
+                events.append("close")
+
+        vig = type("V", (), {"VirtualGamepad": FakePad})
+
+        class FakeXI:
+            @staticmethod
+            def available_libraries():
+                return ["xinput1_4.dll"]
+
+            @staticmethod
+            def load_library(name):
+                return object()
+
+            @staticmethod
+            def connected_slots(dll, count=4):
+                events.append("slots")
+                return list(slots_after if "connect" in events else slots_before)
+
+            @staticmethod
+            def read(dll, index=0):
+                return index
+
+            @staticmethod
+            def is_neutral(r):
+                return True
+
+        return vig, FakeXI, events
+
+    def test_slots_are_recorded_before_the_pad_is_plugged_in(self, opt):
+        vig, xi, events = self._mods()
+        opt().enable_pad(vigem_module=vig, xinput_module=xi)
+        assert events.index("slots") < events.index("connect"), \
+            "先插再数的话，我们自己的槽位就认不出来了"
+
+    def test_our_slot_is_identified(self, opt):
+        vig, xi, _ = self._mods(slots_before=(0,), slots_after=(0, 1))
+        o = opt()
+        o.enable_pad(vigem_module=vig, xinput_module=xi)
+        assert o._pad_watch._ours == 1
+
+    def test_calling_it_twice_does_not_plug_in_a_second_pad(self, opt):
+        """Tk 单选框每次点击都触发 command，包括点已经选中的那一项。挡不住的话
+        每点一次就多一个拔不掉的虚拟手柄，摇杆可能还推着。"""
+        vig, xi, events = self._mods()
+        o = opt()
+        o.enable_pad(vigem_module=vig, xinput_module=xi)
+        o.enable_pad(vigem_module=vig, xinput_module=xi)
+        assert events.count("connect") == 1
+
+    def test_a_failed_connect_propagates_so_the_caller_can_fall_back(self, opt):
+        vig, xi, _ = self._mods(connect_raises=RuntimeError("没有 ViGEmBus"))
+        o = opt()
+        with pytest.raises(RuntimeError):
+            o.enable_pad(vigem_module=vig, xinput_module=xi)
+        assert o._pad is None, "接失败了就不能假装接上了"
+
+    def test_missing_xinput_does_not_stop_the_pad_from_working(self, opt):
+        """认不出实体手柄只是少了"让开"这个能力，不该连虚拟手柄都用不了。"""
+        vig, _, _ = self._mods()
+
+        class NoXI:
+            @staticmethod
+            def available_libraries():
+                raise OSError("没有 XInput")
+
+        o = opt()
+        assert o.enable_pad(vigem_module=vig, xinput_module=NoXI) is True
+        assert o._pad is not None
+
+
+class TestConfiguredBackendReachesOption:
+    def test_prefer_comes_from_the_constructor(self, opt, monkeypatch):
+        from option import Option
+        monkeypatch.setattr("option.WindowInput", lambda: FakeWI())
+        assert Option(root=None, prefer="pad").preferred_mode == "pad"
+
+    def test_a_nonsense_value_falls_back_to_kmb(self, opt, monkeypatch):
+        """配置是人手写的。写错一个词不该让整个程序进入一个不存在的模式。"""
+        from option import Option
+        monkeypatch.setattr("option.WindowInput", lambda: FakeWI())
+        assert Option(root=None, prefer="joystick").preferred_mode == "kmb"
+
+
+class TestNullBackendReason:
+    def test_a_changed_reason_is_reported(self, opt):
+        """拿旧原因解释新情况，比不解释更容易把人带偏。"""
+        o = opt()
+        o._wi.hwnd = None
+        o.poll()
+        first = o._backend.reason
+        o._wi.hwnd = 1234
+        o._pad_watch = type("W", (), {"active": lambda self, now: True})()
+        o.poll()
+        assert o._backend.reason != first
+        assert "实体手柄" in o._backend.reason

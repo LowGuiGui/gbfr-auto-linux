@@ -149,15 +149,26 @@ class PadBackend(InputBackend):
         self._stick_max = stick_max if stick_max is not None else vigem_module.STICK_MAX
         self._buttons = 0
         self._move = False
+        self._warned = set()
+
+    @property
+    def pad(self):
+        """底下那个虚拟手柄对象。Option 用它判断要不要重建后端。"""
+        return self._pad
 
     def is_ready(self):
         return self._pad is not None
 
     def _mask(self, action):
         mask = self._vigem.button_mask(self._mapping.get(action, ""))
-        if not mask:
-            # 名字拼错不会报错，只会静悄悄地什么都不按 —— 说一声。
-            log.warning("手柄映射 %s=%r 不认识，这个动作发不出去",
+        if not mask and action not in self._warned:
+            # 名字拼错不会报错，只会静悄悄地什么都不按 —— 要说。
+            #
+            # 但每个动作只说一次：一次点击会走 _hold + _drop 两趟，循环里跑起来
+            # 就是每秒几十条同样的告警，把真正要看的东西冲掉。而映射配错恰恰是
+            # G1 最可能遇到的情况 —— 那时候日志正需要是能读的。
+            self._warned.add(action)
+            log.warning("手柄映射 %s=%r 不认识，这个动作发不出去（同样的问题不再重复告警）",
                         action, self._mapping.get(action))
         return mask
 
@@ -231,6 +242,10 @@ class NullBackend(InputBackend):
     def __init__(self, reason="没有可用的输入后端"):
         self._reason = reason
         self._said = False
+
+    @property
+    def reason(self):
+        return self._reason
 
     def is_ready(self):
         return False

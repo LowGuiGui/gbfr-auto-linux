@@ -198,6 +198,9 @@ class App:
             # 不接上的话 [pad] 那一段就是个摆设：改了配置没有任何效果，而且
             # 不会有任何提示 —— 正好是 G1 要靠它来改映射的那一段。
             pad_mapping=self.cfg.section("pad"),
+            # 只设 StringVar 的话，配置里写 pad 会让单选框显示"虚拟手柄"而
+            # Option 仍然停在 kmb —— 界面说一套，程序做另一套。
+            prefer=self.cfg.get("input.backend"),
         )
         self._anomalies_saved = 0
 
@@ -220,6 +223,9 @@ class App:
         self._last_logged_page = None
 
         self._build_ui()
+        # 配置选了手柄就真的把它接上。放在 _build_ui 之后，是因为接失败要回退并
+        # 写日志，而那两样都要界面已经建好。
+        self._apply_backend_mode(log_on_switch=False)
         # 日志框建好之后才能接 handler；在此之前的消息只进文件。
         applog.add_handler(TkLogHandler(self.root, self._append_log))
         log_path = applog.log_path()

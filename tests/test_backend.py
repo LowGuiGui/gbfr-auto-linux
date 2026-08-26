@@ -228,3 +228,53 @@ class TestNullBackend:
             logger.removeHandler(h)
             logger.setLevel(old)
         assert len(records) == 1, "要说，但只说一次"
+
+
+class TestBadMappingDoesNotFloodTheLog:
+    """映射配错正是 G1 最可能碰到的情况 —— 那时候日志恰恰最需要能读。
+    一次 tap 会走 _hold + _drop 两趟，不挡的话循环里每秒几十条同样的告警。
+    """
+
+    def _warnings(self, fn, times):
+        import logging
+        recs = []
+
+        class Collect(logging.Handler):
+            def emit(self, record):
+                recs.append(record)
+
+        logger = logging.getLogger("gbfr")
+        h = Collect(level=logging.WARNING)
+        old = logger.level
+        logger.setLevel(logging.DEBUG)
+        logger.addHandler(h)
+        try:
+            for _ in range(times):
+                fn()
+        finally:
+            logger.removeHandler(h)
+            logger.setLevel(old)
+        return recs
+
+    def test_it_warns_once_per_action_not_once_per_call(self):
+        import vigem
+        b = backend_mod.PadBackend(FakePad(), vigem, mapping={"confirm": "typo"})
+        assert len(self._warnings(b.confirm, 20)) == 1
+
+    def test_each_broken_action_gets_its_own_warning(self):
+        """两个都配错了，只报一个会让人以为修好一个就够了。"""
+        import vigem
+        b = backend_mod.PadBackend(
+            FakePad(), vigem, mapping={"confirm": "typo", "again": "alsotypo"})
+        recs = self._warnings(lambda: (b.confirm(), b.again()), 5)
+        assert len(recs) == 2
+
+    def test_a_good_mapping_warns_never(self):
+        import vigem
+        b = backend_mod.PadBackend(FakePad(), vigem)
+        assert self._warnings(b.confirm, 20) == []
+
+    def test_the_pad_is_reachable_without_touching_a_private_attribute(self):
+        import vigem
+        p = FakePad()
+        assert backend_mod.PadBackend(p, vigem).pad is p
