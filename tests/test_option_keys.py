@@ -42,7 +42,7 @@ def test_defaults_match_the_original_literals(opt):
     o.start_battle()
     o.end_battle()
     o.switch_again()
-    o.tap_enter()
+    o.tap_confirm()
     assert o._wi.events == [
         ("press", "w"), ("release", "w"), ("tap", "3"), ("tap", "a"),
     ]
@@ -53,7 +53,7 @@ def test_keys_come_from_config(opt):
     o.start_battle()
     o.end_battle()
     o.switch_again()
-    o.tap_enter()
+    o.tap_confirm()
     assert o._wi.events == [
         ("press", "up"), ("release", "up"), ("tap", "5"), ("tap", "space"),
     ]
@@ -79,11 +79,30 @@ def test_end_battle_without_start_does_nothing(opt):
     assert o._wi.events == []
 
 
-def test_tap_enter_does_not_tap_enter(opt):
-    """#15 —— 名字是继承来的，按的其实是 keys.confirm。这里把现状钉住。"""
+def test_tap_confirm_taps_the_confirm_key(opt):
+    """#15 —— 改名之前这条叫 test_tap_enter_does_not_tap_enter。
+
+    名字和行为现在对得上了，所以这条测的不再是"名字在骗人"，而是普通的行为：
+    按下去的是 keys.confirm。
+    """
     o = opt()
-    o.tap_enter()
+    o.tap_confirm()
     assert o._wi.events == [("tap", "a")]
+
+
+def test_no_tap_enter_call_sites_remain(opt):
+    """旧名字不能残留在**调用点或定义**上 —— 半改的重命名比不改更糟。
+
+    只查用法，不查字符串：option.py 的 docstring 里还提着旧名字，那是在解释这次
+    改名，是文档而不是残留。
+    """
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    usage = re.compile(r"(def\s+tap_enter\b|\.tap_enter\b)")
+    for name in ("option.py", "main.py"):
+        text = (root / name).read_text(encoding="utf-8")
+        assert not usage.search(text), f"{name} 里还有 tap_enter 的用法"
 
 
 class TestDryRun:
@@ -95,7 +114,7 @@ class TestDryRun:
         o.start_battle()
         o.end_battle()
         o.switch_again()
-        o.tap_enter()
+        o.tap_confirm()
         assert o._wi.events == []
 
     def test_it_says_what_it_would_have_done(self, opt, log_file):

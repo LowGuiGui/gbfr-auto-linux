@@ -1,4 +1,3 @@
-import time
 import tkinter as tk
 
 import geometry
@@ -81,10 +80,14 @@ class Option:
             return
         self._wi.key_tap(self._key_again)
 
-    def tap_enter(self):
-        # 名字是继承来的：它按的是 keys.confirm（默认 "a"），不是 Enter。改名会
-        # 动到上游文件的多处调用点，留给 #15。
-        if self._blocked("tap_enter 按 %s" % self._key_confirm):
+    def tap_confirm(self):
+        """按 keys.confirm（默认 "a"）。
+
+        原名是 tap_enter，但它从来没按过 Enter —— 上游把 key_tap("enter") 注释
+        掉换成了 "a"，名字留在原地。这个名字在 _analyze_page 里是承重的：读派发
+        逻辑的人会以为这里发的是 Enter，而它不是。#15。
+        """
+        if self._blocked("tap_confirm 按 %s" % self._key_confirm):
             return
         self._wi.key_tap(self._key_confirm)
 

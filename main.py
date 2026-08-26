@@ -704,7 +704,7 @@ class App:
             self._option.switch_again()
         else:
             # REWARD_AGAIN / SCORE / PAUSE 都是认出来的页面，按键推进是有依据的
-            self._option.tap_enter()
+            self._option.tap_confirm()
 
     def _advance_unknown_page(self):
         """认不出页面时推进流程，但不允许无限期盲按。
@@ -718,7 +718,7 @@ class App:
         self._save_anomaly_frame()
 
         if self._unknown_streak <= self.MAX_BLIND_TAPS:
-            self._option.tap_enter()
+            self._option.tap_confirm()
             return
 
         # 只在越过阈值的那一帧告警一次，之后安静地什么都不做
