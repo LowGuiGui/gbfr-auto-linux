@@ -671,8 +671,11 @@ class App:
             self._option.panic()
         except Exception:
             log.exception("紧急停止失败")
+        # F1 是**启动**，F2 才是停止 —— 而 _on_f1 里那句 `if job_timer_id is None`
+        # 会让它在循环正在跑的时候什么都不做。也就是说写成 _on_f1 的话，这个急停
+        # 根本停不下循环，还看不出来。
         if self.job_timer_id is not None:
-            self._on_f1()          # 复用现有的停止逻辑
+            self._on_f2()
 
     def _on_f1(self):
         if self.job_timer_id is None:

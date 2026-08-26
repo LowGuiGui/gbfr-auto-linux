@@ -272,3 +272,11 @@ class TestMainWiring:
         block = block[:block.index("def _sync_input_status")]
         assert '_backend_mode.set("kmb")' in block
         assert "self.log(" in block
+
+    def test_panic_stops_the_loop_rather_than_starting_it(self):
+        """F1 是启动、F2 才是停止，而 _on_f1 在循环已经在跑时是空操作 ——
+        急停里写成 _on_f1 的话，它根本停不下循环，而且看不出来。"""
+        block = self.SOURCE[self.SOURCE.index("def _on_panic"):]
+        block = block[:block.index("def _on_f1")]
+        assert "self._on_f2()" in block
+        assert "self._on_f1()" not in block
