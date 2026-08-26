@@ -18,6 +18,7 @@ import applog
 import config as config_module
 from applog import get_logger
 from option import Option
+import pages
 from opencv import cv_best_match, is_blank_frame
 from window_capture import capture, list_window_titles
 
@@ -176,6 +177,25 @@ PAGE_ACTIONS = {
     PAGE_NAME.SCORE: "tap_confirm",
     PAGE_NAME.PAUSE: "tap_confirm",
 }
+
+# 这是哪一页。#16 第二部分：判定优先级原来就是 if/elif 的书写顺序 —— 承重、
+# 无声、调换两行就改行为。现在**顺序就是这个元组的顺序**，看得见也测得到。
+#
+# 结算页要再分一层：先看有没有"再来一次"，再看有没有"退出"，都没有就是纯结算页。
+PAGE_RULES = (
+    pages.Rule("flag_battle", PAGE_NAME.BATTLE),
+    pages.Rule("flag_battleresult", children=(
+        pages.Rule("flag_again", PAGE_NAME.REWARD_AGAIN),
+        pages.Rule("flag_exit", PAGE_NAME.REWARD_EXIT),
+    ), fallback=PAGE_NAME.SCORE),
+    pages.Rule("flag_continue", PAGE_NAME.PAUSE),
+)
+
+# 结算页家族。战斗计数在进到其中任意一页时 +1，和原来 flag_battleresult 命中
+# 就计数是同一条规则。
+RESULT_PAGES = frozenset({
+    PAGE_NAME.REWARD_AGAIN, PAGE_NAME.REWARD_EXIT, PAGE_NAME.SCORE,
+})
 
 
 class App:
@@ -853,28 +873,27 @@ class App:
             )
 
     def _get_current_page_name(self) -> PAGE_NAME:
+        """现在是哪一页。判定本身在 pages.resolve 里，是纯函数。"""
         if self.screen is None:
             return PAGE_NAME.UNKNOWN
-        # 判定优先级就是这里的书写顺序：flag_battle 先于 flag_battleresult，仅仅
-        # 因为它写在前面。这条规则是承重的 —— 调换顺序会改变行为（#16）。
-        if self._matches("flag_battle"):
+        page = pages.resolve(PAGE_RULES, self._matches, PAGE_NAME.UNKNOWN)
+        self._note_battle_transition(page)
+        return page
+
+    def _note_battle_transition(self, page):
+        """战斗计数。
+
+        原来这段藏在判定分支里，于是"问一下现在是哪一页"这个动作会顺手改状态、
+        还往界面写日志 —— 既不能重复调用，也没法在 Tk 之外测。计数是**转移**的
+        性质，不是识别的性质，所以它属于这里。
+        """
+        if page == PAGE_NAME.BATTLE:
             self._has_battle = True
-            return PAGE_NAME.BATTLE
-        elif self._matches("flag_battleresult"):
-            if self._has_battle:
-                self._loop_count += 1
-                self._has_battle = False
-                self.log(f"完成第 {self._loop_count} 次战斗")
-            if self._matches("flag_again"):
-                return PAGE_NAME.REWARD_AGAIN
-            elif self._matches("flag_exit"):
-                return PAGE_NAME.REWARD_EXIT
-            else:
-                return PAGE_NAME.SCORE
-        elif self._matches("flag_continue"):
-            return PAGE_NAME.PAUSE
-        else:
-            return PAGE_NAME.UNKNOWN
+            return
+        if page in RESULT_PAGES and self._has_battle:
+            self._loop_count += 1
+            self._has_battle = False
+            self.log(f"完成第 {self._loop_count} 次战斗")
 
 
 if __name__ == "__main__":
