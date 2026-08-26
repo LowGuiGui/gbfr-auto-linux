@@ -166,6 +166,19 @@ class PAGE_NAME(Enum):
     REWARD_AGAIN = "reward_again"
     PAUSE = "pause"
 
+# 认出来的页面各自该做什么。#16：加一个页面从"改 if/elif 链"变成"加一行"。
+#
+# BATTLE 和 UNKNOWN 不在表里，因为它们不是"按个键推进"这类动作：
+#   BATTLE   要按住 W + 中键，并且**不做**后续动作
+#   UNKNOWN  走 _advance_unknown_page 的盲按上限逻辑
+PAGE_ACTIONS = {
+    PAGE_NAME.REWARD_EXIT: "switch_again",
+    PAGE_NAME.REWARD_AGAIN: "tap_confirm",
+    PAGE_NAME.SCORE: "tap_confirm",
+    PAGE_NAME.PAUSE: "tap_confirm",
+}
+
+
 class App:
     def __init__(self, root, cfg=None):
         self.cfg = cfg or config_module.Config(config_module._merged({}))
@@ -692,19 +705,38 @@ class App:
                 log.info("页面识别已恢复: %s", self.page_name.value)
             self._unknown_streak = 0
 
+        # 两件事分开：先决定进不进战斗，再决定这一页做什么。原来它们缠在同一
+        # 条 if/elif 里，于是每加一个页面都得同时想清楚两边（#16）。
+        if self._toggle_battle():
+            return
+        self._act_on_page()
+
+    def _toggle_battle(self):
+        """进入/退出战斗。返回 True 表示这一帧到此为止。
+
+        战斗页要按住 W + 中键并**不再**做别的；其余页面一律先松开。
+        """
         if self.page_name == PAGE_NAME.BATTLE:
             self._option.start_battle()
-            return
-        else:
-            self._option.end_battle()
+            return True
+        self._option.end_battle()
+        return False
 
+    def _act_on_page(self):
+        """这一页该按什么。表驱动，见 PAGE_ACTIONS。"""
         if self.page_name == PAGE_NAME.UNKNOWN:
             self._advance_unknown_page()
-        elif self.page_name == PAGE_NAME.REWARD_EXIT:
-            self._option.switch_again()
-        else:
-            # REWARD_AGAIN / SCORE / PAUSE 都是认出来的页面，按键推进是有依据的
-            self._option.tap_confirm()
+            return
+
+        action = PAGE_ACTIONS.get(self.page_name)
+        if action is None:
+            # 以前这里是 `else: tap_confirm`，也就是任何新加的页面都会被默默地
+            # 按一下确认键 —— 对一个谁也没想过的页面乱按，正是 PLANNING §2 功能4
+            # 第 5 条说的那种失败。现在它会被说出来。
+            log.warning("页面 %s 没有配置动作，本次不操作（见 PAGE_ACTIONS）",
+                        self.page_name.value)
+            return
+        getattr(self._option, action)()
 
     def _advance_unknown_page(self):
         """认不出页面时推进流程，但不允许无限期盲按。
