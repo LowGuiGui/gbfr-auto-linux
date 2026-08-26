@@ -85,6 +85,20 @@ static HWND     g_subclassed  = NULL;
  * next steps. */
 static volatile LONG g_iatPatched    = 0;
 
+/* What actually arrived down the pipe, as counted at the far end.
+ *
+ * This is the only number that can tell "we sent nothing" apart from "we sent
+ * it and the DLL never got it". Everything on the Python side can only report
+ * that a write returned success, which is not the same claim -- a send that is
+ * accepted by the pipe and then dropped, or garbled, looks identical from
+ * there. If Python has sent commands and cmds is still 0, the channel is dead
+ * whatever the write calls said.
+ *
+ * bad counts lines that matched no command. A line split across two reads and
+ * reassembled wrongly lands here, so it is the corruption detector. */
+static volatile LONG g_nCommands     = 0;
+static volatile LONG g_nUnknown      = 0;
+
 static volatile LONG g_nForeground   = 0;
 static volatile LONG g_nActiveWindow = 0;
 static volatile LONG g_nGetFocus     = 0;
@@ -248,9 +262,10 @@ static void spoof_stats(void) {
     if (g_hPipe == INVALID_HANDLE_VALUE) return;
     char buf[256];
     int len = _snprintf_s(buf, sizeof(buf), _TRUNCATE,
-        "STATS on=%ld iat=%ld sub=%d fg=%ld active=%ld focus=%ld "
-        "kill=%ld act=%ld actapp=%ld\n",
+        "STATS on=%ld iat=%ld sub=%d cmds=%ld bad=%ld "
+        "fg=%ld active=%ld focus=%ld kill=%ld act=%ld actapp=%ld\n",
         (long)g_spoofOn, (long)g_iatPatched, g_subclassed ? 1 : 0,
+        (long)g_nCommands, (long)g_nUnknown,
         (long)g_nForeground, (long)g_nActiveWindow, (long)g_nGetFocus,
         (long)g_nKillFocus, (long)g_nActivate, (long)g_nActivateApp);
     DWORD written;
@@ -379,7 +394,19 @@ static void process_cmd(char *line) {
         const char *resp = "PONG\n";
         DWORD written;
         WriteFile(g_hPipe, resp, (DWORD)strlen(resp), &written, NULL);
+    } else {
+        /* Matched nothing. Either the two sides disagree on a command name, or
+         * the line arrived damaged. Silently ignoring it is how a broken pipe
+         * looks exactly like an idle one. */
+        char msg[192];
+        _snprintf_s(msg, sizeof(msg), _TRUNCATE, "unknown command: %.120s", line);
+        log_write(msg);
+        InterlockedIncrement(&g_nUnknown);
+        return;
     }
+    /* Only the unknown branch above returns early, so getting here means some
+     * branch accepted the line. */
+    InterlockedIncrement(&g_nCommands);
 }
 
 static DWORD WINAPI pipe_thread(LPVOID param) {
