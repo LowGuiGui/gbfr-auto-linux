@@ -21,8 +21,8 @@ class FakeOption:
     def switch_again(self):
         self.actions.append("switch_again")
 
-    def tap_enter(self):
-        self.actions.append("tap_enter")
+    def tap_confirm(self):
+        self.actions.append("tap_confirm")
 
 
 class Loop:
@@ -62,7 +62,7 @@ def cap():
 
 def test_blind_tapping_is_capped(cap, log_file):
     loop = Loop([PAGE_NAME.UNKNOWN] * 40).run()
-    assert loop._option.actions == ["tap_enter"] * cap
+    assert loop._option.actions == ["tap_confirm"] * cap
     assert "已停止向游戏发送按键" in log_file()
 
 
@@ -75,20 +75,20 @@ def test_recovery_restores_the_full_budget(cap, log_file):
     loop = Loop(
         [PAGE_NAME.UNKNOWN] * 8 + [PAGE_NAME.BATTLE] * 2 + [PAGE_NAME.UNKNOWN] * 8
     ).run()
-    assert loop._option.actions.count("tap_enter") == cap * 2
+    assert loop._option.actions.count("tap_confirm") == cap * 2
     assert "页面识别已恢复" in log_file()
 
 
 def test_the_cap_is_configurable(log_file):
     loop = Loop([PAGE_NAME.UNKNOWN] * 40, overrides={"loop": {"max_blind_taps": 2}}).run()
-    assert loop._option.actions == ["tap_enter"] * 2
+    assert loop._option.actions == ["tap_confirm"] * 2
 
 
 def test_recognised_pages_are_never_capped(log_file):
     """SCORE / PAUSE / REWARD_* 都是认出来的页面，按键有依据。"""
     pages = [PAGE_NAME.PAUSE] * 20
     loop = Loop(pages).run()
-    assert loop._option.actions == ["tap_enter"] * 20
+    assert loop._option.actions == ["tap_confirm"] * 20
 
 
 def test_normal_cycle_is_unchanged(log_file):
@@ -97,8 +97,8 @@ def test_normal_cycle_is_unchanged(log_file):
         PAGE_NAME.REWARD_EXIT, PAGE_NAME.REWARD_AGAIN, PAGE_NAME.PAUSE,
     ]).run()
     assert loop._option.actions == [
-        "start_battle", "start_battle", "tap_enter",
-        "switch_again", "tap_enter", "tap_enter",
+        "start_battle", "start_battle", "tap_confirm",
+        "switch_again", "tap_confirm", "tap_confirm",
     ]
 
 

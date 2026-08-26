@@ -48,6 +48,4 @@ select = [
 "hook/injector.py"    = ["F401"]        # ctypes, threading, ctypes.wintypes
 "hook/pure_inject.py" = ["F401"]        # time, ctypes.wintypes, win32con, win32gui
 "main.py"             = ["F401"]        # pyautogui (window_capture imports it too)
-"opencv.py"           = ["B905", "B007"]  # zip() strict=, unused loop var `idx`
-"option.py"           = ["F401"]        # time
 "window_input.py"     = ["F401"]        # ctypes.wintypes, function-local time
