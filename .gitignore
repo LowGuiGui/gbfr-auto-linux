@@ -68,4 +68,26 @@ hook/gbfr_hook.exp
 hook/gbfr_hook.obj
 
 ### 其他 ###
+# 初始提交里带过 icon.png，65e591b 把它当构建产物移出了版本库。仓库里跟踪的是
+# icon.ico。保留这条规则，免得那张 png 又被谁提交回来。
 icon.png
+
+### 补漏 (#17) ###
+# 上面 "虚拟环境" 一节忽略的是 `.env/` 这个**目录**，而 `.env` 这个**文件**才是
+# 放本机密钥的通用约定 —— 它一直是被跟踪的。现在不存在这个文件，所以这条纯粹是
+# 预防：等到真有人写了一个，就来不及了。
+.env
+.env.*
+!.env.example
+
+# Windows 构建产物。hook/gbfr_hook.dll 上面已单列，这里覆盖其余的 ——
+# 二进制无法 diff、无法审阅，上游正是因此留下了 ~96 MB 的历史。
+*.dll
+*.pyd
+# 和已有的 *.so 对称，补上 macOS 的
+*.dylib
+
+# 工具缓存。仓库现在用 ruff 和 pytest，两者都会在根目录留下缓存目录。
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
