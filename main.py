@@ -195,6 +195,9 @@ class App:
             root,
             keys=self.cfg.section("keys"),
             dry_run=self.cfg.get("input.dry_run"),
+            # 不接上的话 [pad] 那一段就是个摆设：改了配置没有任何效果，而且
+            # 不会有任何提示 —— 正好是 G1 要靠它来改映射的那一段。
+            pad_mapping=self.cfg.section("pad"),
         )
         self._anomalies_saved = 0
 

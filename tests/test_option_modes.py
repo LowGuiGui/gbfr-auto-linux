@@ -280,3 +280,10 @@ class TestMainWiring:
         block = block[:block.index("def _on_f1")]
         assert "self._on_f2()" in block
         assert "self._on_f1()" not in block
+
+    def test_the_pad_mapping_is_actually_read_from_config(self):
+        """不接上的话 [pad] 就是个摆设：改了配置没效果，也没有任何提示。
+        G1 正是要靠改这一段来修映射的。"""
+        block = self.SOURCE[self.SOURCE.index("self._option = Option("):]
+        block = block[:block.index("self._anomalies_saved")]
+        assert 'pad_mapping=self.cfg.section("pad")' in block
