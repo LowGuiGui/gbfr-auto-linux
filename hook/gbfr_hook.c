@@ -58,9 +58,16 @@ static void log_init(void) {
  *   already used for other things and must stay boring.
  *
  *   The counters run even while spoofing is off. That gives us the observer
- *   build for free and without risk: inject, leave it off, alt-tab, and read
- *   SPOOF_STATS to learn which of the two mechanisms the game actually uses.
- *   If a hook shows zero calls it was never the answer.
+ *   build for free and without risk: inject, send SPOOF_WATCH, alt-tab, and
+ *   read SPOOF_STATS to learn which of the two mechanisms the game actually
+ *   uses. If a hook shows zero calls it was never the answer.
+ *
+ *   SPOOF_WATCH is what makes that true for BOTH mechanisms. The IAT patches
+ *   go in as soon as the pipe thread starts, so the poll counters run from the
+ *   beginning -- but the subclass needs an hwnd, and until SPOOF_WATCH existed
+ *   it only went in on SPOOF_ON. Observing without spoofing therefore pinned
+ *   the three message counters at zero and could only ever answer "polls" or
+ *   "nothing at all", whatever the game was really doing.
  *
  *   Everything is restored on SPOOF_OFF and on DLL unload.
  * ===================================================================== */
@@ -71,6 +78,13 @@ static WNDPROC  g_origWndProc = NULL;
 static HWND     g_subclassed  = NULL;
 
 /* Diagnosis. Which mechanism does the game actually use? */
+
+/* Installed-or-not, which is a different question from called-or-not. Without
+ * these two, all-zero counters have two readings -- "the game does not use
+ * these APIs" and "our hooks never went in" -- and they call for opposite
+ * next steps. */
+static volatile LONG g_iatPatched    = 0;
+
 static volatile LONG g_nForeground   = 0;
 static volatile LONG g_nActiveWindow = 0;
 static volatile LONG g_nGetFocus     = 0;
@@ -190,6 +204,7 @@ static void install_hooks(void) {
     for (i = 0; i < 3; i++) {
         BOOL ok = patch_iat("user32.dll", wanted[i].name,
                             wanted[i].repl, wanted[i].orig);
+        if (ok) InterlockedIncrement(&g_iatPatched);
         char msg[128];
         _snprintf_s(msg, sizeof(msg), _TRUNCATE, "IAT %s: %s",
                     wanted[i].name, ok ? "patched" : "NOT FOUND in main module");
@@ -199,7 +214,7 @@ static void install_hooks(void) {
 
 static void subclass_window(HWND hwnd) {
     if (g_subclassed == hwnd) return;
-    if (!IsWindow(hwnd)) { log_write("SPOOF_ON: not a window"); return; }
+    if (!IsWindow(hwnd)) { log_write("subclass: not a window"); return; }
     g_origWndProc = (WNDPROC)(ULONG_PTR)SetWindowLongPtrW(
         hwnd, GWLP_WNDPROC, (LONG_PTR)my_WndProc);
     if (g_origWndProc) {
@@ -233,10 +248,11 @@ static void spoof_stats(void) {
     if (g_hPipe == INVALID_HANDLE_VALUE) return;
     char buf[256];
     int len = _snprintf_s(buf, sizeof(buf), _TRUNCATE,
-        "STATS on=%ld fg=%ld active=%ld focus=%ld kill=%ld act=%ld actapp=%ld\n",
-        (long)g_spoofOn, (long)g_nForeground, (long)g_nActiveWindow,
-        (long)g_nGetFocus, (long)g_nKillFocus, (long)g_nActivate,
-        (long)g_nActivateApp);
+        "STATS on=%ld iat=%ld sub=%d fg=%ld active=%ld focus=%ld "
+        "kill=%ld act=%ld actapp=%ld\n",
+        (long)g_spoofOn, (long)g_iatPatched, g_subclassed ? 1 : 0,
+        (long)g_nForeground, (long)g_nActiveWindow, (long)g_nGetFocus,
+        (long)g_nKillFocus, (long)g_nActivate, (long)g_nActivateApp);
     DWORD written;
     WriteFile(g_hPipe, buf, (DWORD)len, &written, NULL);
     log_write(buf);
@@ -320,6 +336,26 @@ static void process_cmd(char *line) {
         int x = 0, y = 0; char b[32] = "1";
         sscanf(arg, "%d,%d,%31s", &x, &y, b);
         do_mouse_up(x, y, parse_button(b));
+    } else if (_stricmp(line, "SPOOF_WATCH") == 0 && arg) {
+        /* Observe only: install the subclass, leave spoofing off.
+         *
+         * Without this, stage 1 is a measurement that can only ever return one
+         * answer. The subclass used to go in only on SPOOF_ON, and stage 1
+         * never sends SPOOF_ON -- so kill/act/actapp were structurally pinned
+         * at zero, and "the game is told by window messages" could not come
+         * back even when it was the truth. The verdict could only land on
+         * polls or no-hooks-hit.
+         *
+         * Installing the subclass changes no behaviour: with spoofing off
+         * my_WndProc only counts and forwards every message untouched. */
+        HWND hwnd = (HWND)(ULONG_PTR)_strtoui64(arg, NULL, 0);
+        if (!hwnd || !IsWindow(hwnd)) {
+            log_write("SPOOF_WATCH rejected: bad hwnd");
+        } else {
+            g_spoofWnd = hwnd;
+            subclass_window(hwnd);
+            log_write("SPOOF_WATCH: counting only, nothing is spoofed");
+        }
     } else if (_stricmp(line, "SPOOF_ON") == 0 && arg) {
         /* The injector passes the hwnd -- it already knows which window it
          * targeted, and guessing from inside the process would be worse. */
@@ -381,9 +417,19 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
         WriteFile(g_hPipe, hello, (DWORD)strlen(hello), &written, NULL);
         log_write("Sent HELLO to server");
 
+        /* `used` is how much of buf holds a line that has not been
+         * terminated yet. The old loop moved that remainder to the front and
+         * then read the next chunk over the top of it at buf[0], so a command
+         * split across two reads was silently corrupted rather than
+         * reassembled -- the memmove could never do anything. */
+        DWORD used = 0;
         memset(buf, 0, sizeof(buf));
-        while (g_running && ReadFile(g_hPipe, buf, sizeof(buf) - 1, &read, NULL)) {
-            buf[read] = '\0';
+        while (g_running &&
+               ReadFile(g_hPipe, buf + used, (DWORD)(sizeof(buf) - 1 - used),
+                        &read, NULL) && read > 0) {
+            used += read;
+            buf[used] = '\0';
+
             char *start = buf;
             char *nl;
             while ((nl = strchr(start, '\n')) != NULL) {
@@ -391,10 +437,18 @@ static DWORD WINAPI pipe_thread(LPVOID param) {
                 if (*start) process_cmd(start);
                 start = nl + 1;
             }
-            if (start != buf) {
-                memmove(buf, start, strlen(start) + 1);
+
+            used = (DWORD)strlen(start);
+            memmove(buf, start, used + 1);
+
+            if (used >= sizeof(buf) - 1) {
+                /* A full buffer with no newline in it. Keeping it would leave
+                 * the next ReadFile asking for zero bytes forever; dropping it
+                 * loses one malformed command instead of wedging the thread. */
+                log_write("no newline in a full buffer; dropping it");
+                used = 0;
+                buf[0] = '\0';
             }
-            memset(buf + strlen(buf), 0, sizeof(buf) - strlen(buf));
         }
 
         CloseHandle(g_hPipe);
