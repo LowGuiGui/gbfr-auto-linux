@@ -158,6 +158,13 @@ class App:
         self._target_window = tk.StringVar(value="")
         self._input_mode = tk.StringVar(value=self.cfg.get("input.mode"))
         self._is_enabling_inject = False
+        # 注入是异步的，而看门狗会在超时后把界面切回兼容模式 —— 但那条工作线程
+        # 是 daemon 且没人能取消它。这两个编号让"迟到的成功"可以被认出来：
+        #   _inject_attempt  最新一次尝试的编号，用来识别被更新尝试取代的旧线程
+        #   _inject_wanted   仍然想要其结果的那一次；看门狗超时后清零
+        # 见 #2。
+        self._inject_attempt = 0
+        self._inject_wanted = 0
         self._hotkey_error_logged = False
         self._unknown_streak = 0
         self._last_logged_page = None
@@ -246,6 +253,9 @@ class App:
                 self.log("注入模式正在启用中，请稍候...")
                 return
             self._is_enabling_inject = True
+            self._inject_attempt += 1
+            attempt = self._inject_attempt
+            self._inject_wanted = attempt
             self.log("正在启用注入模式，请稍候...")
 
             import queue
@@ -261,17 +271,22 @@ class App:
                         if kind == "log":
                             self.log(payload)
                         elif kind == "done":
-                            if payload:
-                                self._on_inject_enabled(log_on_switch)
-                            else:
-                                pass
+                            self._on_inject_finished(bool(payload), attempt,
+                                                     log_on_switch)
                             return
                         elif kind == "error":
-                            self._on_inject_failed(payload)
+                            if self._inject_wanted == attempt:
+                                self._on_inject_failed(payload)
+                            else:
+                                log.debug("注入线程在超时后才报错，忽略: %s", payload)
                             return
                 except queue.Empty:
                     pass
-                if self._is_enabling_inject:
+                # 条件是"有没有被更新的尝试取代"，不是 _is_enabling_inject。
+                # 看门狗超时会把后者清掉，若照旧以它为准，排空就此停住，线程晚到
+                # 的 done 永远没人看见 —— 注入于是在后台悄悄成功，而界面显示兼容
+                # 模式。那正是 #2。
+                if self._inject_attempt == attempt:
                     self.root.after(100, _drain_queue)
 
             self.root.after(100, _drain_queue)
@@ -299,12 +314,14 @@ class App:
             t.start()
 
             def _watchdog():
-                if self._is_enabling_inject and t.is_alive():
+                if self._inject_wanted == attempt and t.is_alive():
+                    # 结果不再被需要，但**不要**停掉排空：线程还活着，它的结果
+                    # 仍然可能到来，而那时我们需要把它拆掉。
+                    self._inject_wanted = 0
                     self._is_enabling_inject = False
                     self.log("启用注入模式超时（超过15秒），已取消")
                     self._input_mode.set("fallback")
                     self._option.set_fallback_mode()
-                    log_queue.put(None)
 
             self.root.after(self.cfg.get("inject.watchdog_ms"), _watchdog)
         else:
@@ -313,6 +330,32 @@ class App:
             self._is_enabling_inject = False
             if log_on_switch:
                 self.log("已切换到兼容模式（抢焦点）")
+
+    def _on_inject_finished(self, ok, attempt, log_on_switch):
+        """注入线程出结果了 —— 可能比看门狗还晚。
+
+        这是 #2 的关键分支。看门狗超时后界面已经切回兼容模式，可线程照样在跑；
+        它要是随后成功了，钩子就是活的，而界面说的是另一回事。两条输入路径同时
+        存在，且没有任何地方能看出哪条是真的。
+
+        所以迟到的成功必须**拆掉**，而不是接受。界面是用户看到的东西，让实际
+        状态去迁就它，比反过来悄悄改界面要诚实。
+        """
+        if self._inject_wanted == attempt:
+            if ok:
+                self._on_inject_enabled(log_on_switch)
+            return
+
+        if not ok:
+            log.debug("注入线程在超时后报告失败，无需处理")
+            return
+
+        self.log("注入在超时之后才完成，已拆除以保持与界面一致")
+        try:
+            self._option.disable_inject_mode()
+        except Exception:
+            log.exception("拆除迟到的注入失败")
+        self._option.set_fallback_mode()
 
     def _on_inject_enabled(self, log_on_switch):
         self._is_enabling_inject = False
