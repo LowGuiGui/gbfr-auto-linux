@@ -29,6 +29,8 @@ class Loop:
     """借用真实的 _analyze_page / _advance_unknown_page，喂一串预设页面。"""
 
     _analyze_page = main.App._analyze_page
+    _toggle_battle = main.App._toggle_battle
+    _act_on_page = main.App._act_on_page
     _advance_unknown_page = main.App._advance_unknown_page
     _save_anomaly_frame = main.App._save_anomaly_frame
     MAX_BLIND_TAPS = main.App.MAX_BLIND_TAPS      # property，会读 self.cfg
@@ -111,3 +113,60 @@ def test_ui_log_shows_transitions_not_every_tick(log_file):
 def test_every_tick_still_reaches_the_log_file(log_file):
     Loop([PAGE_NAME.BATTLE] * 5).run()
     assert log_file().count("当前页面: battle") == 5
+
+
+# --- #16：表驱动派发 ------------------------------------------------------
+#
+# 表的价值不在于少写几个 elif，而在于"漏了一个页面"可以被机器发现。原来的
+# `else: tap_confirm` 会把任何新页面都默默按一下确认键。
+
+class TestPageActionTable:
+    def test_every_page_has_a_home(self):
+        """新增 PAGE_NAME 却忘了配动作，就该在这里红。
+
+        而不是在游戏里对着一个谁也没想过的页面反复按键 —— 那是 PLANNING §2
+        功能 4 第 5 条描述的失败模式。
+        """
+        handled = set(main.PAGE_ACTIONS) | {PAGE_NAME.BATTLE, PAGE_NAME.UNKNOWN}
+        missing = set(PAGE_NAME) - handled
+        assert not missing, f"这些页面没有归宿: {sorted(p.value for p in missing)}"
+
+    def test_battle_and_unknown_are_deliberately_absent(self):
+        """它们不是"按个键推进"，被排除是有意的，不是漏了。"""
+        assert PAGE_NAME.BATTLE not in main.PAGE_ACTIONS
+        assert PAGE_NAME.UNKNOWN not in main.PAGE_ACTIONS
+
+    def test_every_action_names_a_real_option_method(self):
+        """表里写的是方法名字符串，拼错了只会在真机上炸。"""
+        from option import Option
+        for page, action in main.PAGE_ACTIONS.items():
+            assert hasattr(Option, action), \
+                f"{page.value} 指向了 Option 上不存在的 {action!r}"
+
+    def test_an_unmapped_page_warns_instead_of_pressing_something(self, caplog):
+        """漏配的页面必须是"什么都不做 + 告警"，不能沿用旧的默认按确认键。"""
+        loop = Loop([])
+        loop.page_name = PAGE_NAME.SCORE
+        with caplog.at_level("WARNING"):
+            original = main.PAGE_ACTIONS.pop(PAGE_NAME.SCORE)
+            try:
+                loop._act_on_page()
+            finally:
+                main.PAGE_ACTIONS[PAGE_NAME.SCORE] = original
+        assert loop._option.actions == [], "漏配的页面不该触发任何输入"
+        assert any("没有配置动作" in r.getMessage() for r in caplog.records)
+
+
+class TestConcernsAreSeparated:
+    """#16 的另一半：进出战斗和"这一页做什么"不该缠在一条 if/elif 里。"""
+
+    def test_battle_stops_the_frame(self):
+        loop = Loop([])
+        loop.page_name = PAGE_NAME.BATTLE
+        assert loop._toggle_battle() is True, "战斗页要到此为止，不再做别的"
+        assert loop._option.actions == ["start_battle"]
+
+    def test_any_other_page_releases_and_continues(self):
+        loop = Loop([])
+        loop.page_name = PAGE_NAME.SCORE
+        assert loop._toggle_battle() is False
