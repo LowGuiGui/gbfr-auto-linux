@@ -128,3 +128,45 @@ class TestUniformRegionsAreDegenerate:
 def test_brief_keeps_paths_and_collapses_objects():
     assert _brief("template/flag_battle.png") == "template/flag_battle.png"
     assert _brief(np.zeros((2, 2, 3), dtype=np.uint8)) == "ndarray"
+
+
+# --- #9：我们真正依赖的 cv2 表面 -------------------------------------------
+
+CV2_SURFACE = (
+    "imdecode", "imread", "imwrite", "cvtColor", "resize",
+    "matchTemplate", "minMaxLoc",
+    "IMREAD_COLOR", "INTER_LINEAR", "INTER_AREA", "TM_CCOEFF_NORMED",
+    "COLOR_RGB2BGR", "COLOR_BGR2RGB",
+)
+
+
+class TestCv2ApiSurface:
+    """本仓库只用到 cv2 的 13 个符号，全是多年未变的核心 API。
+
+    4.14.0.94 和 5.0.0.93 实测行为完全一致（见 requirements.txt 的注释），所以
+    pin 版本不影响结果。真正会在升级时炸掉的，是某个符号被挪走或改名 —— 这条
+    就守这个，而且不依赖任何具体版本号。
+
+    刻意**不**断言具体的匹配分数：SIMD 路径在不同 CPU 上可能有末位差异，把分数
+    钉死会做出一条换台机器就红的测试。
+    """
+
+    def test_every_symbol_we_use_still_exists(self):
+        import cv2
+        missing = [name for name in CV2_SURFACE if not hasattr(cv2, name)]
+        assert not missing, f"这个 opencv 版本没有: {missing}"
+
+    def test_the_list_matches_what_the_code_actually_calls(self):
+        """列表要是漂了，这条测试就只是在自我安慰。"""
+        import re
+        import subprocess
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        files = subprocess.run(["git", "ls-files", "*.py"], cwd=root,
+                               capture_output=True, text=True).stdout.split()
+        used = set()
+        for rel in files:
+            text = (root / rel).read_text(encoding="utf-8", errors="replace")
+            used.update(re.findall(r"cv2\.([A-Za-z_0-9]+)", text))
+        assert used <= set(CV2_SURFACE), \
+            f"代码用了 CV2_SURFACE 里没列的符号: {sorted(used - set(CV2_SURFACE))}"
