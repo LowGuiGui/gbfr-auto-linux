@@ -9,7 +9,6 @@ import threading
 from datetime import datetime
 from enum import Enum
 
-import pyautogui
 import tkinter as tk
 from tkinter import ttk
 from pynput import keyboard
