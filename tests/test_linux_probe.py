@@ -495,3 +495,31 @@ class TestL3Aim:
         d, text = l3(["game", "overlay"])
         assert len(d.sent) == 2
         assert "second Escape: The nested focus left the game" in text
+
+
+class TestL4Sampling:
+    def test_properties_are_compared_between_the_two_phases(self, tmp_path, monkeypatch):
+        """以前两次取样都在终端有焦点的时候，只在游戏有焦点时才变的属性永远比不出来。"""
+        phase = {"now": "terminal"}
+
+        def countdown(seconds, message, echo=print, sleep=None):
+            phase["now"] = "focused" if message.startswith("Switch to the game") else "unfocused"
+
+        focused_window = {"terminal": [9], "focused": [1], "unfocused": [9]}
+        monkeypatch.setattr(lp, "countdown", countdown)
+        monkeypatch.setattr(lp, "ask_yes", lambda question, read=input: True)
+        monkeypatch.setattr(lp, "gamescope_root_properties",
+                            lambda d: {"GAMESCOPE_FOCUSED_WINDOW": focused_window[phase["now"]]})
+        monkeypatch.setattr(lp.time, "sleep", lambda seconds: None)
+
+        rng = np.random.default_rng(3)
+        report = lp.Report(tmp_path, echo=lambda s: None)
+        state = {"x": SimpleNamespace(pending_events=lambda: 0),
+                 "capture": lambda: rng.integers(0, 255, (8, 8, 3), dtype=np.uint8)}
+        lp.step_l4(SimpleNamespace(frames=3, interval=0), report, state)
+        report.close()
+
+        records = [json.loads(line) for line in (tmp_path / "report.jsonl").read_text().splitlines()]
+        diff = next(r["value"] for r in records
+                    if r["name"] == "gamescope root properties, focused vs unfocused")
+        assert diff == {"GAMESCOPE_FOCUSED_WINDOW": [[1], [9]]}

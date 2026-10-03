@@ -518,7 +518,7 @@ def drain_events(d):
     names = {X.FocusIn: "FocusIn", X.FocusOut: "FocusOut", X.MapNotify: "MapNotify",
              X.UnmapNotify: "UnmapNotify", X.PropertyNotify: "PropertyNotify",
              X.ConfigureNotify: "ConfigureNotify", X.KeyPress: "KeyPress",
-             X.KeyRelease: "KeyRelease"}
+             X.KeyRelease: "KeyRelease", X.MappingNotify: "MappingNotify"}
     counts = {}
     while d.pending_events():
         event = d.next_event()
@@ -773,13 +773,16 @@ def step_l4(args, report, state):
     if d is not None and window is not None:
         watch_window(window)
         drain_events(d)
-    props_before = gamescope_root_properties(d) if d is not None else {}
-    phases = {}
+    phases, samples = {}, {}
     for phase, instruction in (
             ("focused", "Switch to the game with Alt+Tab and leave mouse and keyboard alone."),
             ("unfocused", "Switch back to this terminal with Alt+Tab, keep the game visible, "
                           "and leave it alone.")):
         countdown(5, instruction)
+        # 在这一段自己的焦点状态里取样。这一步开始前和结束后，焦点都在终端上，和失焦段
+        # 一样，拿这两个时刻比只会比出"没有变化"。
+        samples[phase] = gamescope_root_properties(d) if d is not None else {}
+        report.result("L4", f"{phase} gamescope root properties", samples[phase])
         frames = capture_series(capture, args.frames, args.interval)
         events = drain_events(d) if d is not None and window is not None else None
         deltas = series_deltas(frames)
@@ -794,8 +797,8 @@ def step_l4(args, report, state):
     report.result("L4", "framediff", code, text)
     report.result("L4", "verdict", code, L4_MEANING.get(code, text))
     if d is not None:
-        report.result("L4", "gamescope root properties that changed",
-                      changed_properties(props_before, gamescope_root_properties(d)))
+        report.result("L4", "gamescope root properties, focused vs unfocused",
+                      changed_properties(samples["focused"], samples["unfocused"]))
 
 
 STEP_FUNCTIONS = {"L1": step_l1, "L2": step_l2, "L3": step_l3, "L4": step_l4}
