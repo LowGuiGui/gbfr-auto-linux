@@ -39,7 +39,7 @@ Legend:
 | Part | Status | Evidence |
 |---|---|---|
 | Platform-free core: template matching, page tree, config, logging, input vocabulary, recovery rules | 🧪 | 173 automated tests, run on Linux in CI |
-| Linux probe: find the game's gamescope display, capture frames, send input, detect a focus pause | ⏳ | The next step |
+| Linux probe: find the game's gamescope display, capture frames, send input, detect a focus pause | 🧪 | Written ([tools/linux_probe.py](tools/README.md)). Besides its unit tests, it was dry-run in a headless gamescope against a stand-in window. It has not been run against the game yet |
 | Capturing frames from the game under gamescope while its window is in the background | ❓ | Not measured on Linux |
 | Sending input only to the game under gamescope, without touching the desktop | ❓ | Not measured on Linux |
 | Whether the game pauses when its window loses focus | ❓ | On Windows it did, and a focus spoof inside the game process stopped it (two runs, 2026-08-26). Under gamescope the game runs on gamescope's own X server, so it may never notice the host desktop's focus change. Not measured on Linux |
@@ -47,7 +47,7 @@ Legend:
 
 ## The plan
 
-The game runs under Proton inside a nested gamescope session. That may make three of the Windows version's blockers disappear, without porting their workarounds: the game pausing when unfocused ([gbfr_auto#45](https://github.com/LowGuiGui/gbfr_auto/issues/45)), the virtual controller's input leaking into other programs ([gbfr_auto#53](https://github.com/LowGuiGui/gbfr_auto/issues/53)), and ViGEmBus reaching end of life ([gbfr_auto#49](https://github.com/LowGuiGui/gbfr_auto/issues/49)). That is an inference, so a probe measures it before any platform code is written:
+The game runs under Proton inside a nested gamescope session. That may make three of the Windows version's blockers disappear, without porting their workarounds: the game pausing when unfocused ([gbfr_auto#45](https://github.com/LowGuiGui/gbfr_auto/issues/45)), the virtual controller's input leaking into other programs ([gbfr_auto#53](https://github.com/LowGuiGui/gbfr_auto/issues/53)), and ViGEmBus reaching end of life ([gbfr_auto#49](https://github.com/LowGuiGui/gbfr_auto/issues/49)). That is an inference, so a [probe](tools/README.md) measures it before any platform code is written:
 
 1. Find the game's gamescope display from the game process's environment.
 2. Capture frames while the gamescope window is unfocused or covered.
@@ -86,6 +86,7 @@ Requires Python 3.12 or newer; CI and the local setup use 3.13.
 | `config.py` | the TOML configuration |
 | `applog.py` | logging |
 | `template/` | the reference images matched against the screen |
+| `tools/linux_probe.py` | the Linux probe; see [tools/README.md](tools/README.md) |
 | `docs/provenance/` | how this repository's history was produced from the archive |
 
 ## History
@@ -102,7 +103,7 @@ Issue numbers in the older commit messages read `gbfr_auto#NN`, and those in cod
   - Every non-merge commit carries a `Co-Authored-By: Claude` trailer, except upstream's 6 commits and the 3 initial setup commits of 2026-08-23 (ruff and pre-commit config, pinned requirements, restored LICENSE).
 - **Review**: **no human line-by-line review.** The owner sets the direction and runs the tests that need the real game.
 - **Verification**:
-  - 173 automated tests on Linux, run in CI on every pull request.
+  - 221 automated tests on Linux (173 for the core, 48 for the probe), run in CI on every pull request.
   - Nothing has run against the game on Linux yet. The tests do not cover capture, input, or anything else that needs the game itself.
 - **Risk**: the bot sends input to the game, and step 5 of the probe plan may load a library into the game process. The GPL provides no warranty (GPL-2.0 sections 11 and 12).
 - **Copyright**: whether AI-generated output is protected by copyright is legally unsettled. To the extent it is, the licence in [COPYRIGHT](COPYRIGHT) applies. AI output may also resemble its training data.
