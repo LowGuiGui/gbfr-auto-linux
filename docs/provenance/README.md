@@ -39,10 +39,14 @@ the result is reproducible.
   `tools/vigem.py`), `hook/gbfr_hook.c`, `icon.ico`, and the tests that exercise them
   (`test_page_dispatch`, `test_template_refresh`, `test_option_keys`, `test_option_modes`,
   `test_diagnostics`, `test_hotkeys`, `test_vigem`). They are here for their history, not
-  because they run on Linux. A follow-up change moves their platform-free parts into the
-  core and takes the rest out of the working tree. When the Linux port needs them, they come
-  back from this history. The hook source is kept for the probe's L5 step, which may build
-  its focus spoof as an `.asi`.
+  because they run on Linux. The change after this record moved their platform-free parts
+  into the core (`pagetree.py`, `xusb.py`) and took the rest out of the working tree. When
+  the Linux port needs one of them, bring it back from the commit before it was removed:
+
+      git restore --source="$(git log --diff-filter=D --format=%H -1 -- main.py)^" -- main.py
+
+  The hook source is kept for the probe's L5 step, which may build its focus spoof as an
+  `.asi`.
 - **Data and licence:** `template/*.png`, `LICENSE`, `COPYRIGHT`.
 - **Tooling:** `.gitignore`, `.pre-commit-config.yaml`, `requirements.txt`,
   `requirements-dev.txt`, `ruff.toml`, `tests/conftest.py`, `tests/README.md`.
@@ -69,6 +73,9 @@ commit that mentions it. The archive is linked at the top of this page. Upstream
 commits contain no issue references. Every rewritten number is 67 or lower, and the
 archive's highest is 68, so all of them refer to the fork's own issues and pull requests.
 The one reference that was already qualified, `LizardByte/Sunshine#1822`, is unchanged.
+
+File contents were not rewritten, so code and comments still carry bare numbers such as
+`#16` or `#45`. Those refer to the archive as well.
 
 git-filter-repo also rewrote abbreviated hashes of surviving commits inside messages. It
 flagged six tokens it could not map:

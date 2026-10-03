@@ -1,39 +1,38 @@
 # tests
 
-Runs on **Linux**, against a Windows-only application. `conftest.py` stubs the
-platform boundary — `win32*`, `pyautogui`, `pynput`, `ctypes.windll` — at import
-time, because `main.py`, `window_capture.py` and `window_input.py` all touch
-Windows at *module* level.
-
-Only the boundary is stubbed. The code under test is the real code.
+Runs on **Linux**, with nothing stubbed. The core modules have no platform
+dependencies, so `conftest.py` only puts the repo root on `sys.path` and provides
+the `log_file` fixture.
 
     pytest
+
+Issue numbers here and in the code, such as #12 or #46, predate this repository
+and refer to the archive, [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbfr_auto).
 
 ## What is covered
 
 | File | Covers |
 |---|---|
 | `test_opencv.py` | template matching, every read-failure path, resolution sensitivity (#12), and the NCC degeneracy that makes a black frame score 1.0 |
+| `test_diagnostics.py` | the blank-frame guard, and that the best match always reports its score |
+| `test_framediff.py` | frame differences and the motion and input verdicts built on them (the Windows probe's A4 logic) |
+| `test_pages.py` | the page-tree engine, and the real tree in `pagetree.py` checked against its own tables |
+| `test_geometry.py` | client-area offsets, borders and centre, with the numbers measured for #46 |
+| `test_supervisor.py` | `decide()`: when to switch, degrade, pause or recover, and the physical-pad watch |
+| `test_backend.py` | the intent vocabulary for keyboard/mouse and pad, and that `release_all` keeps a switch from stranding a held key |
+| `test_xusb.py` | the XUSB report layout and button bits |
 | `test_applog.py` | log destination and fallback, idempotent setup, no propagation to root, tracebacks |
-| `test_hotkeys.py` | #13 — the listener must survive any exception, and must not flood the log |
-| `test_page_dispatch.py` | #14 — blind-tap cap, recovery, and that recognised pages are untouched |
-| `test_template_refresh.py` | #3 — refresh untouched files, never clobber edited ones, source-checkout no-op |
 | `test_config.py` | config load/merge/validate, and that `DEFAULT_TOML` and `DEFAULTS` haven't drifted |
-| `test_option_keys.py` | keybinds come from config; dry-run sends nothing |
-| `test_diagnostics.py` | blank-frame guard, match-score reporting, anomaly frame capture |
-| `test_vigem.py` | bundle path resolution, driver detection, the XUSB_REPORT ABI, and that we never install the driver ourselves |
-| `test_probe_output.py` | the probe writes its report incrementally and survives a crash mid-run |
 
 ## What is NOT covered, and why
 
-- **Win32 calls** — `PrintWindow`, `GetWindowRect`, DLL injection, the named
-  pipe. Stubbing them would test the stub. These need a Windows runner with the
-  game, and `PLANNING.md` §5 lists what to measure.
-- **Tk rendering.** `FakeRoot` covers the marshalling contract (`after()` is the
-  only thread-safe entry point); it does not cover widgets.
-- **Anything requiring the game.** Detection accuracy against real screenshots
-  is a fixture problem — see `PLANNING.md` on anomaly frame capture, which is
-  how that corpus gets collected.
+- **The app layer.** `main.py`, `option.py` and their tests (page dispatch,
+  template refresh, option keys and modes, hotkeys, score logging, anomaly
+  frames, battle counting) are parked in history until the Linux port needs
+  them. `docs/provenance/README.md` says how to bring them back.
+- **Anything requiring the game.** Capture, input and detection accuracy against
+  real frames need the game running under gamescope; the Linux probe measures
+  those first.
 
 ## Conventions
 

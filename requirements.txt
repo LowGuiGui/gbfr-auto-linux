@@ -1,8 +1,7 @@
-# Runtime dependencies for gbfr_auto.
+# Runtime dependencies of the platform-free core.
 #
 # Direct dependencies only, exactly pinned. Versions were resolved and import-
-# verified on Linux (CPython 3.13) on 2026-08-23; Windows is the actual target
-# platform, so re-verify there before relying on these pins.
+# verified on Linux (CPython 3.13) on 2026-08-23.
 #
 # For a fully-pinned lock including transitives:
 #     uv pip compile requirements.txt -o requirements.lock
@@ -19,14 +18,7 @@ numpy==2.5.2
 # 下次升级要检查的就是那 13 个符号，测试 test_opencv.py 里钉住了它们。
 opencv-python==5.0.0.93
 pillow==12.3.0
-pyautogui==0.9.54
-pynput==1.8.2
 
-# Windows-only. This branch uses win32 APIs for window enumeration and capture
-# (window_capture.py), background input injection (window_input.py), and the
-# hook DLL's named-pipe channel (hook/injector.py).
-#
-# pywin32 publishes no non-Windows wheels at all, so the environment marker is
-# load-bearing: without it `pip install -r requirements.txt` fails outright on
-# Linux, which would block editor tooling and local testing of opencv.py.
-pywin32==312 ; sys_platform == "win32"
+# pyautogui, pynput and pywin32 served the Windows app layer and left the tree
+# with it (docs/provenance/README.md). The Linux platform layer adds its own once
+# the probe has shown which capture and input routes work.
