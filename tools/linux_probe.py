@@ -749,17 +749,25 @@ STEP_FUNCTIONS = {"L1": step_l1, "L2": step_l2, "L3": step_l3, "L4": step_l4}
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Measure how GBFR behaves under gamescope.")
     parser.add_argument("--steps", default=",".join(STEPS),
-                        help="comma-separated subset of L1,L2,L3,L4 (default: all)")
+                        help="comma-separated subset of L1,L2,L3,L4 (default: all). L1 always "
+                             "runs, and asking for L3 or L4 runs L2 too")
     parser.add_argument("--appid", default=APPID)
     parser.add_argument("--out", help="output folder (default: probe-runs/<timestamp>)")
-    parser.add_argument("--frames", type=int, default=10, help="frames per L4 phase")
+    parser.add_argument("--frames", type=int, default=10, help="frames per L4 phase, at least 2")
     parser.add_argument("--interval", type=float, default=1.0, help="seconds between L4 frames")
     args = parser.parse_args(argv)
+    if args.frames < 2:
+        parser.error("--frames must be at least 2: L4 measures motion between consecutive frames")
+    if args.interval < 0:
+        parser.error("--interval cannot be negative")
     requested = {s.strip().upper() for s in args.steps.split(",") if s.strip()}
     unknown = sorted(requested - set(STEPS))
     if unknown:
         parser.error(f"unknown steps: {', '.join(unknown)}")
-    # 其余每一步都要 L1 找到的显示和窗口，所以 L1 总是跑；顺序按 STEPS，不按输入。
+    # 其余每一步都要 L1 找到的显示和窗口，所以 L1 总是跑。L3、L4 还要 L2 选出来的截图办法，
+    # 只要了它们而没要 L2，它们会一声不响地跳过。顺序按 STEPS，不按输入。
+    if requested & {"L3", "L4"}:
+        requested.add("L2")
     args.steps = [s for s in STEPS if s in requested or s == "L1"]
     return args
 

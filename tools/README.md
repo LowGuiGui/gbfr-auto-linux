@@ -28,7 +28,8 @@ terminal placed beside the game window:
     .venv/bin/python tools/linux_probe.py
 
 To run only some steps, pass for example `--steps L1,L2`. L1 always runs, because every other
-step needs what it finds.
+step needs what it finds. Asking for L3 or L4 runs L2 as well, because both use the capture
+method L2 picks.
 
 The probe prompts you through window switches. Switch with Alt+Tab rather than by clicking
 inside the game, because a click is an in-game action. L3 asks before sending anything; run it

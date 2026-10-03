@@ -361,6 +361,20 @@ class TestCommandLine:
         assert lp.parse_args(["--steps", "l4,L2"]).steps == ["L1", "L2", "L4"]
         assert lp.parse_args([]).steps == ["L1", "L2", "L3", "L4"]
 
+    def test_l3_and_l4_bring_l2_along(self):
+        """L3、L4 用的是 L2 选出来的截图办法。没有 L2，它们只会一声不响地跳过。"""
+        assert lp.parse_args(["--steps", "L3"]).steps == ["L1", "L2", "L3"]
+        assert lp.parse_args(["--steps", "L4"]).steps == ["L1", "L2", "L4"]
+        assert lp.parse_args(["--steps", "L1"]).steps == ["L1"]
+
+    @pytest.mark.parametrize("argv", [
+        ["--frames", "1"], ["--frames", "0"], ["--frames", "-3"], ["--interval", "-0.5"],
+    ])
+    def test_settings_that_cannot_measure_are_rejected(self, argv):
+        """--frames 0 曾让 L4 在保存第一帧时 IndexError；--frames 1 只能得出 no-data。"""
+        with pytest.raises(SystemExit):
+            lp.parse_args(argv)
+
     def test_unknown_steps_are_rejected(self):
         with pytest.raises(SystemExit):
             lp.parse_args(["--steps", "L1,L9"])
