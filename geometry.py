@@ -17,7 +17,8 @@ DPI 感知的切换是另一件事：那个改动会改变每一个既有坐标�
 `WindowInput._screen_pos(x, y)` 是 `窗口原点 + (x, y)`，这个契约是既有的，本次
 不动它 —— 所以下面给出的中心点也是**窗口相对**的。
 
-纯函数部分不碰 Windows，Linux 上可完整测试；要真去读窗口的只有 `read()`。
+这里只剩纯函数，Linux 上可完整测试。去读真实窗口的 `read()` 是 Windows 专用的，
+随应用层暂存在历史里，见 docs/provenance/README.md。
 """
 
 
@@ -71,27 +72,3 @@ def window_centre(window_rect):
 def to_screen(window_rect, point):
     """窗口相对 -> 屏幕。和 WindowInput._screen_pos 是同一个换算。"""
     return (window_rect[0] + point[0], window_rect[1] + point[1])
-
-
-def read(hwnd):
-    """真去读一个窗口。返回 (window_rect, client_size, client_origin)。
-
-    读不到返回 None —— 窗口可能刚好被关掉，调用方必须能应付。
-    """
-    try:
-        import win32gui
-    except ImportError:
-        return None
-    try:
-        window_rect = win32gui.GetWindowRect(hwnd)
-        client_rect = win32gui.GetClientRect(hwnd)
-        client_origin = win32gui.ClientToScreen(hwnd, (0, 0))
-    except Exception:
-        return None
-    if not window_rect or not client_rect:
-        return None
-    client_size = (client_rect[2] - client_rect[0], client_rect[3] - client_rect[1])
-    if client_size[0] <= 0 or client_size[1] <= 0:
-        # 最小化的窗口客户区是 0x0。此时任何中心点都是假的，宁可说不知道。
-        return None
-    return (tuple(window_rect), client_size, tuple(client_origin))

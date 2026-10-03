@@ -63,9 +63,9 @@ def kmb():
 
 @pytest.fixture
 def pad():
-    import vigem
+    import xusb
     p = FakePad()
-    return backend_mod.PadBackend(p, vigem), p
+    return backend_mod.PadBackend(p, xusb), p
 
 
 class TestKmb:
@@ -132,20 +132,20 @@ class TestReleaseAllIsTheSafetyValve:
 
 class TestPad:
     def test_move_pushes_the_stick_forward(self, pad):
-        import vigem
+        import xusb
         b, p = pad
         b.hold_move()
-        assert p.reports == [(0, vigem.STICK_MAX)]
+        assert p.reports == [(0, xusb.STICK_MAX)]
 
     def test_button_and_stick_coexist_in_one_report(self, pad):
         """XUSB_REPORT 是全量快照。忘了合成的话，按新键会把摇杆松掉。"""
-        import vigem
+        import xusb
         b, p = pad
         b.hold_move()
         b.battle_press()
         buttons, stick = p.reports[-1]
-        assert stick == vigem.STICK_MAX, "按按钮不该把摇杆松掉"
-        assert buttons == vigem.XUSB_RIGHT_THUMB
+        assert stick == xusb.STICK_MAX, "按按钮不该把摇杆松掉"
+        assert buttons == xusb.XUSB_RIGHT_THUMB
 
     def test_release_all_zeroes_everything(self, pad):
         b, p = pad
@@ -155,52 +155,33 @@ class TestPad:
         assert p.reports[-1] == (0, 0)
 
     def test_a_tap_goes_down_then_up(self, pad):
-        import vigem
+        import xusb
         b, p = pad
         b.confirm()
-        assert p.reports[-2][0] == vigem.XUSB_A
+        assert p.reports[-2][0] == xusb.XUSB_A
         assert p.reports[-1][0] == 0
 
     def test_an_unknown_button_name_sends_nothing(self):
         """拼错名字不会报错，只会静静地什么都不按。至少不能发出错误的键。"""
-        import vigem
+        import xusb
         p = FakePad()
-        b = backend_mod.PadBackend(p, vigem, mapping={"confirm": "nonsense"})
+        b = backend_mod.PadBackend(p, xusb, mapping={"confirm": "nonsense"})
         b.confirm()
         assert p.reports == []
 
     def test_a_dead_pad_does_not_raise(self, ):
         """手柄掉线时调用方还在跑循环，不能让它炸出来。"""
-        import vigem
-        b = backend_mod.PadBackend(FakePad(explode=True), vigem)
+        import xusb
+        b = backend_mod.PadBackend(FakePad(explode=True), xusb)
         b.hold_move()          # 不抛就算过
         b.release_all()
 
     def test_mapping_is_overridable(self):
-        import vigem
+        import xusb
         p = FakePad()
-        b = backend_mod.PadBackend(p, vigem, mapping={"confirm": "b"})
+        b = backend_mod.PadBackend(p, xusb, mapping={"confirm": "b"})
         b.confirm()
-        assert p.reports[-2][0] == vigem.XUSB_B
-
-
-class TestButtonMasks:
-    def test_names_resolve_to_the_documented_bits(self):
-        """值抄自微软文档。按错一位在游戏里就是按错一个键。"""
-        import vigem
-        assert vigem.button_mask("a") == 0x1000
-        assert vigem.button_mask("y") == 0x8000
-        assert vigem.button_mask("right_thumb") == 0x0080
-        assert vigem.button_mask("left_shoulder") == 0x0100
-
-    def test_unknown_is_zero_not_an_exception(self):
-        import vigem
-        assert vigem.button_mask("no_such_button") == 0
-        assert vigem.button_mask("") == 0
-
-    def test_names_are_case_insensitive(self):
-        import vigem
-        assert vigem.button_mask("A") == vigem.button_mask("a")
+        assert p.reports[-2][0] == xusb.XUSB_B
 
 
 class TestNullBackend:
@@ -257,24 +238,24 @@ class TestBadMappingDoesNotFloodTheLog:
         return recs
 
     def test_it_warns_once_per_action_not_once_per_call(self):
-        import vigem
-        b = backend_mod.PadBackend(FakePad(), vigem, mapping={"confirm": "typo"})
+        import xusb
+        b = backend_mod.PadBackend(FakePad(), xusb, mapping={"confirm": "typo"})
         assert len(self._warnings(b.confirm, 20)) == 1
 
     def test_each_broken_action_gets_its_own_warning(self):
         """两个都配错了，只报一个会让人以为修好一个就够了。"""
-        import vigem
+        import xusb
         b = backend_mod.PadBackend(
-            FakePad(), vigem, mapping={"confirm": "typo", "again": "alsotypo"})
+            FakePad(), xusb, mapping={"confirm": "typo", "again": "alsotypo"})
         recs = self._warnings(lambda: (b.confirm(), b.again()), 5)
         assert len(recs) == 2
 
     def test_a_good_mapping_warns_never(self):
-        import vigem
-        b = backend_mod.PadBackend(FakePad(), vigem)
+        import xusb
+        b = backend_mod.PadBackend(FakePad(), xusb)
         assert self._warnings(b.confirm, 20) == []
 
     def test_the_pad_is_reachable_without_touching_a_private_attribute(self):
-        import vigem
+        import xusb
         p = FakePad()
-        assert backend_mod.PadBackend(p, vigem).pad is p
+        assert backend_mod.PadBackend(p, xusb).pad is p

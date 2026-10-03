@@ -106,61 +106,61 @@ class TestRuleValidation:
 
 
 class TestTheRealTree:
-    """main.py 里那棵真树，以及它和别的表对不对得上。"""
+    """pagetree.py 里那棵真树，以及它和别的表对不对得上。"""
 
-    def _main(self):
-        import main
-        return main
+    def _tree(self):
+        import pagetree
+        return pagetree
 
     def test_battle_beats_the_result_page(self):
         """原来这条只靠 flag_battle 写在前面成立。"""
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES, matcher("flag_battle", "flag_battleresult"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.BATTLE
 
     def test_result_with_again(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES,
                              matcher("flag_battleresult", "flag_again"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.REWARD_AGAIN
 
     def test_result_with_exit(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES,
                              matcher("flag_battleresult", "flag_exit"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.REWARD_EXIT
 
     def test_bare_result_is_the_score_page(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES, matcher("flag_battleresult"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.SCORE
 
     def test_again_beats_exit(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES,
                              matcher("flag_battleresult", "flag_again", "flag_exit"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.REWARD_AGAIN
 
     def test_pause(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES, matcher("flag_continue"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.PAUSE
 
     def test_nothing_is_unknown(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES, matcher(),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.UNKNOWN
 
     def test_every_template_the_tree_uses_is_shipped(self):
         """规则里写一个不存在的模板，表现是那一支永远不命中 —— 安静地永远
         走不到，最难发现的那种坏法。"""
-        m = self._main()
+        m = self._tree()
         shipped = {f.replace(".png", "") for f in m.TEMPLATE_FILES}
         for name in pages.templates_used(m.PAGE_RULES):
             assert name in shipped, f"{name} 不在 TEMPLATE_FILES 里"
 
     def test_every_reachable_page_has_an_action_or_is_deliberately_special(self):
-        m = self._main()
+        m = self._tree()
         special = {m.PAGE_NAME.BATTLE, m.PAGE_NAME.UNKNOWN}
         for page in pages.pages_reachable(m.PAGE_RULES, m.PAGE_NAME.UNKNOWN):
             assert page in m.PAGE_ACTIONS or page in special, \
@@ -168,77 +168,7 @@ class TestTheRealTree:
 
     def test_result_pages_matches_the_tree(self):
         """RESULT_PAGES 决定战斗计数。它和树对不上，计数就会漏或者重。"""
-        m = self._main()
+        m = self._tree()
         from_tree = {r.fallback for r in m.PAGE_RULES if r.children}
         from_tree |= {c.page for r in m.PAGE_RULES for c in r.children}
         assert from_tree == set(m.RESULT_PAGES)
-
-
-class TestBattleCounting:
-    """战斗计数原来藏在判定分支里，所以"问一下现在是哪一页"是有副作用的：
-    问两次就多记一次战斗。现在它是独立的一步，可以单独测。
-    """
-
-    class Counter:
-        """借用真实的 _note_battle_transition。"""
-
-        import main as _m
-        _note_battle_transition = _m.App._note_battle_transition
-
-        def __init__(self):
-            self._has_battle = False
-            self._loop_count = 0
-            self.ui = []
-
-        def log(self, msg):
-            self.ui.append(msg)
-
-    def _run(self, *page_names):
-        import main
-        c = self.Counter()
-        for name in page_names:
-            c._note_battle_transition(getattr(main.PAGE_NAME, name))
-        return c
-
-    def test_a_full_cycle_counts_one_battle(self):
-        c = self._run("BATTLE", "REWARD_EXIT")
-        assert c._loop_count == 1
-
-    def test_the_result_page_alone_counts_nothing(self):
-        """没打过就到结算页 —— 启动时正好停在那儿，不该凭空记一次。"""
-        assert self._run("REWARD_EXIT")._loop_count == 0
-
-    def test_lingering_on_the_result_page_counts_once(self):
-        """结算页会连续出现好几帧。每帧记一次的话计数会暴涨。"""
-        c = self._run("BATTLE", "REWARD_EXIT", "REWARD_EXIT", "REWARD_EXIT")
-        assert c._loop_count == 1
-
-    def test_every_result_variant_closes_the_battle(self):
-        for variant in ("REWARD_AGAIN", "REWARD_EXIT", "SCORE"):
-            assert self._run("BATTLE", variant)._loop_count == 1, variant
-
-    def test_two_cycles_count_two(self):
-        c = self._run("BATTLE", "SCORE", "BATTLE", "SCORE")
-        assert c._loop_count == 2
-
-    def test_unknown_frames_do_not_break_the_pairing(self):
-        """战斗和结算之间夹几帧认不出来的画面，是常态。"""
-        c = self._run("BATTLE", "UNKNOWN", "UNKNOWN", "REWARD_EXIT")
-        assert c._loop_count == 1
-
-    def test_a_pause_in_the_middle_does_not_lose_the_battle(self):
-        c = self._run("BATTLE", "PAUSE", "BATTLE", "REWARD_EXIT")
-        assert c._loop_count == 1
-
-    def test_it_tells_the_user(self):
-        c = self._run("BATTLE", "REWARD_EXIT")
-        assert any("完成第 1 次战斗" in m for m in c.ui)
-
-    def test_detection_no_longer_counts_by_itself(self):
-        """守住这次拆分：判定里再出现计数，就又回到了"问一次改一次状态"。"""
-        import inspect
-
-        import main
-        src = inspect.getsource(main.App._get_current_page_name)
-        assert "_loop_count" not in src
-        assert "_has_battle" not in src

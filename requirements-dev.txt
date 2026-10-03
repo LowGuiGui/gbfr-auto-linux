@@ -1,7 +1,7 @@
-# Build and development dependencies for gbfr_auto.
+# Development dependencies.
 #
 # Runtime dependencies live in requirements.txt. Nothing here is needed to *run*
-# the script -- only to build the executable or lint the source.
+# the code -- only to lint and test it.
 #
 #     pip install -r requirements.txt -r requirements-dev.txt
 #
@@ -9,14 +9,6 @@
 # Versions resolved 2026-08-23. For a fully-pinned lock including transitives:
 #
 #     uv pip compile requirements-dev.txt -o requirements-dev.lock
-
-# Packaging. The README documents the --onefile build and CI runs that same
-# command on windows-latest (.github/workflows/build-windows.yml).
-#
-# PyInstaller is not a cross-compiler -- it bundles the host platform's Python
-# runtime -- so installing this on Linux lets you read the tool's help but not
-# produce a Windows .exe. Build on Windows, or in CI.
-pyinstaller==6.22.2
 
 # Linter. Configured by ruff.toml, which scopes it to correctness rules rather
 # than style. Kept in lockstep with the ruff-pre-commit hook in
@@ -27,7 +19,5 @@ ruff==0.16.4
 # locally; the hooks themselves pin their own tool versions by rev.
 pre-commit==4.6.2
 
-# Test runner. The suite runs on Linux: tests/conftest.py stubs the Windows
-# modules at the platform boundary, so the code under test is the real thing.
-# See tests/README.md for what is and is not covered.
+# Test runner. See tests/README.md for what is and is not covered.
 pytest==9.1.1
