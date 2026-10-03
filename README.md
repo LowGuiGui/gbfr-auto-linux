@@ -39,7 +39,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 | 部分 | 状态 | 依据 |
 |---|---|---|
 | 与平台无关的核心：模板匹配、页面判定树、配置、日志、输入动作词汇、恢复规则 | 🧪 | 173 个自动化测试，在 CI 的 Linux 上运行 |
-| Linux 探测工具：找到游戏所在的 gamescope 显示、截图、发送输入、判断失焦暂停 | ⏳ | 下一步 |
+| Linux 探测工具：找到游戏所在的 gamescope 显示、截图、发送输入、判断失焦暂停 | 🧪 | 已写好（[tools/linux_probe.py](tools/README.md)）。除了单元测试，还在 headless 模式的 gamescope 里对一个替身窗口干跑过；还没有对游戏运行过 |
 | 游戏窗口在后台时，能否从 gamescope 里截到画面 | ❓ | Linux 上尚未测量 |
 | 能否只把输入送进 gamescope 里的游戏，而不碰桌面 | ❓ | Linux 上尚未测量 |
 | 窗口失去焦点时游戏会不会暂停 | ❓ | Windows 上会暂停；在游戏进程内伪装焦点可以阻止它（2026-08-26 两次实测）。在 gamescope 下，游戏跑在 gamescope 自己的 X 服务器里，可能根本察觉不到宿主桌面的焦点变化。Linux 上尚未测量 |
@@ -47,7 +47,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 ## 计划
 
-游戏在 Proton 下运行，外面套着一层嵌套的 gamescope。这可能让 Windows 版的三个阻碍直接消失，而不必把当时的变通办法移植过来：失焦暂停（[gbfr_auto#45](https://github.com/LowGuiGui/gbfr_auto/issues/45)）、虚拟手柄的输入漏进别的程序（[gbfr_auto#53](https://github.com/LowGuiGui/gbfr_auto/issues/53)）、ViGEmBus 停止维护（[gbfr_auto#49](https://github.com/LowGuiGui/gbfr_auto/issues/49)）。这只是推断，所以在写任何平台代码之前，先由探测工具测量：
+游戏在 Proton 下运行，外面套着一层嵌套的 gamescope。这可能让 Windows 版的三个阻碍直接消失，而不必把当时的变通办法移植过来：失焦暂停（[gbfr_auto#45](https://github.com/LowGuiGui/gbfr_auto/issues/45)）、虚拟手柄的输入漏进别的程序（[gbfr_auto#53](https://github.com/LowGuiGui/gbfr_auto/issues/53)）、ViGEmBus 停止维护（[gbfr_auto#49](https://github.com/LowGuiGui/gbfr_auto/issues/49)）。这只是推断，所以在写任何平台代码之前，先由[探测工具](tools/README.md)测量：
 
 1. 从游戏进程的环境变量里找到它所在的 gamescope 显示。
 2. 在 gamescope 窗口失去焦点或被遮住时截图。
@@ -86,6 +86,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 | `config.py` | TOML 配置 |
 | `applog.py` | 日志 |
 | `template/` | 拿来和画面比对的参考图 |
+| `tools/linux_probe.py` | Linux 探测工具，见 [tools/README.md](tools/README.md) |
 | `docs/provenance/` | 本仓库的历史是怎样从归档仓库生成的 |
 
 ## 历史
@@ -102,7 +103,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
   - 除上游的 6 个提交和 2026-08-23 的 3 个初始配置提交（ruff 与 pre-commit 配置、依赖版本、恢复 LICENSE）外，每个非合并提交都带有 `Co-Authored-By: Claude` 标注。
 - **审查**：**没有人工逐行审查。** 所有者负责方向，以及需要真实游戏的测试。
 - **验证**：
-  - Linux 上有 173 个自动化测试，每个 pull request 都会在 CI 里运行。
+  - Linux 上有 221 个自动化测试（核心 173 个，探测工具 48 个），每个 pull request 都会在 CI 里运行。
   - 还没有任何代码在 Linux 上对游戏运行过。测试覆盖不到截图、输入，以及任何需要游戏本身的行为。
 - **风险**：脚本会向游戏发送输入；探测计划的第 5 步还可能把一个库加载进游戏进程。GPL 不提供任何担保（GPL-2.0 第 11、12 条）。
 - **版权**：AI 生成的内容能否受版权保护，目前在法律上尚无定论；在受保护的范围内，适用 [COPYRIGHT](COPYRIGHT) 中的许可。AI 的输出也可能与其训练数据相似。
