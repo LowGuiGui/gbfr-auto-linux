@@ -48,6 +48,8 @@ logs/
 *.cache
 
 ### 运行时生成 ###
+# tools/linux_probe.py 的结果：截图和报告，记录的是本机状态，不进版本库。
+probe-runs/
 # 从源码运行时 exe_dir() 就是仓库根目录，配置文件会落在这里。内容是本机设置。
 gbfr_auto.toml
 anomalies/
