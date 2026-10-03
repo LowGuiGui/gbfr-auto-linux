@@ -64,3 +64,21 @@ jobs:
 
       - name: pytest
         run: pytest -q
+
+  reuse:
+    name: reuse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # Every file must state its copyright holders and licence. reuse only
+      # reads the files, so it needs nothing else installed.
+      - name: Install reuse
+        run: pip install "$(grep -E '^reuse==' requirements-dev.txt)"
+
+      - name: reuse lint
+        run: reuse lint
