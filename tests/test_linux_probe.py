@@ -12,6 +12,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -286,11 +287,13 @@ class TestVerdicts:
             def next_event(self):
                 return self.events.pop(0)
 
-        d = EventDisplay([SimpleNamespace(type=X.KeyPress, detail=9),
-                          SimpleNamespace(type=X.KeyRelease, detail=9),
-                          SimpleNamespace(type=X.FocusOut, detail=3)])
-        assert lp.drain_events(d) == {"KeyPress": 1, "KeyPress keycode 9": 1, "KeyRelease": 1,
-                                      "KeyRelease keycode 9": 1, "FocusOut": 1}
+        game = SimpleNamespace(id=0x400000)
+        d = EventDisplay([SimpleNamespace(type=X.KeyPress, detail=9, window=game),
+                          SimpleNamespace(type=X.KeyRelease, detail=9, window=game),
+                          SimpleNamespace(type=X.FocusOut, detail=3, window=game)])
+        assert lp.drain_events(d) == {"KeyPress": 1, "KeyPress keycode 9 on 0x400000": 1,
+                                      "KeyRelease": 1, "KeyRelease keycode 9 on 0x400000": 1,
+                                      "FocusOut": 1}
 
     def test_leaks(self):
         assert lp.leak_verdict(None)[0] == "unknown"
@@ -389,3 +392,106 @@ class TestCommandLine:
         text = (tmp_path / "report.md").read_text()
         assert "No game found inside gamescope" in text
         assert "L2 skipped" in text and "L3 skipped" in text and "L4 skipped" in text
+
+
+class FakeWindow:
+    """python-xlib Window 的替身：id，query_tree() 的应答带 root、parent、children（根的
+    parent 是 id 为 0 的窗口），以及 change_attributes(**keys)。"""
+
+    def __init__(self, wid, parent=None):
+        self.id = wid
+        self.parent = parent
+        self.masks = []
+
+    def query_tree(self):
+        root = self
+        while root.parent is not None:
+            root = root.parent
+        parent = self.parent if self.parent is not None else SimpleNamespace(id=0)
+        return SimpleNamespace(root=root, parent=parent, children=[])
+
+    def change_attributes(self, onerror=None, **keys):
+        self.masks.append(keys)
+
+
+def window_tree():
+    root = FakeWindow(0x35B)
+    game = FakeWindow(0x400000, root)
+    child = FakeWindow(0x400010, game)
+    overlay = FakeWindow(0x500000, root)
+    return root, game, child, overlay
+
+
+class TestAimingAtTheGame:
+    def test_the_game_and_its_children_count(self):
+        root, game, child, overlay = window_tree()
+        assert lp.within_window(game, game.id)
+        assert lp.within_window(child, game.id)
+
+    @pytest.mark.parametrize("focus", ["overlay", "root", 0, 1])
+    def test_anything_else_does_not(self, focus):
+        """覆盖层、根窗口，以及 None / PointerRoot 这两个常量，都不是游戏。"""
+        root, game, child, overlay = window_tree()
+        target = {"overlay": overlay, "root": root}.get(focus, focus)
+        assert not lp.within_window(target, game.id)
+
+
+class FocusDisplay:
+    """L3 用到的 python-xlib Display 方法，签名照文档。焦点按 focus_sequence 依次给出。"""
+
+    def __init__(self, focus_sequence):
+        self.focus_sequence = list(focus_sequence)
+        self.sent = []
+
+    def get_input_focus(self):
+        focus = self.focus_sequence.pop(0) if len(self.focus_sequence) > 1 else self.focus_sequence[0]
+        return SimpleNamespace(focus=focus)
+
+    def keysym_to_keycode(self, keysym):
+        return 9
+
+    def xtest_fake_input(self, event_type, detail=0, time=0, root=0, x=0, y=0):
+        self.sent.append((event_type, detail))
+
+    def sync(self):
+        pass
+
+    def pending_events(self):
+        return 0
+
+
+@pytest.fixture
+def l3(tmp_path, monkeypatch):
+    monkeypatch.setattr(lp, "ask_yes", lambda question, read=input: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    monkeypatch.setattr(lp.time, "sleep", lambda seconds: None)
+
+    def run(focus_sequence):
+        root, game, child, overlay = window_tree()
+        named = {"game": game, "child": child, "overlay": overlay}
+        d = FocusDisplay([named[f] for f in focus_sequence])
+        report = lp.Report(tmp_path, echo=lambda s: None)
+        state = {"x": d, "capture": lambda: np.zeros((4, 4, 3), np.uint8), "window": game}
+        lp.step_l3(SimpleNamespace(), report, state)
+        report.close()
+        return d, (tmp_path / "report.md").read_text()
+    return run
+
+
+class TestL3Aim:
+    def test_nothing_is_sent_when_the_focus_is_elsewhere(self, l3):
+        d, text = l3(["overlay"])
+        assert d.sent == []
+        assert "not on the game window" in text
+
+    def test_both_escapes_go_out_when_a_game_child_has_focus(self, l3):
+        from Xlib import X
+        d, text = l3(["child"])
+        assert [t for t, _ in d.sent] == [X.KeyPress, X.KeyRelease, X.KeyPress, X.KeyRelease]
+        assert "key delivery" in text
+
+    def test_the_second_escape_waits_for_the_game_to_have_focus_again(self, l3):
+        """第一次 Escape 之后焦点跑到了别处：第二次不能跟着发过去。"""
+        d, text = l3(["game", "overlay"])
+        assert len(d.sent) == 2
+        assert "second Escape: The nested focus left the game" in text

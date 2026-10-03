@@ -380,6 +380,35 @@ def send_key(d, keysym_name, hold=0.05, sleep=time.sleep):
     d.sync()
 
 
+def within_window(window, ancestor_id, max_depth=64):
+    """window 是 ancestor 本身，或者是它的子孙。沿 query_tree().parent 往上走，到根为止。
+
+    XTest 的按键发给嵌套 X 的焦点窗口。焦点要是在别的窗口上（覆盖层、启动器、Wine 的
+    对话框），Escape 就发到了游戏以外的地方，那边收到按键也不能算游戏收到。焦点也可能
+    不是窗口，而是 None 或 PointerRoot 这样的常量，那同样不算。
+    """
+    current = window
+    for _ in range(max_depth):
+        if not hasattr(current, "id") or not current.id:
+            return False
+        if current.id == ancestor_id:
+            return True
+        try:
+            tree = current.query_tree()
+        except Exception:
+            return False
+        if current.id == tree.root.id:
+            return False
+        current = tree.parent
+    return False
+
+
+def describe_focus(focus):
+    if hasattr(focus, "id"):
+        return hex(focus.id)
+    return {0: "None", 1: "PointerRoot"}.get(focus, repr(focus))
+
+
 class TerminalInput:
     """把终端切到 cbreak 且不回显，收集这段时间里送进终端的字节。
 
@@ -388,11 +417,17 @@ class TerminalInput:
     """
 
     def __init__(self, fd=None):
-        self.fd = sys.stdin.fileno() if fd is None else fd
+        if fd is None:
+            try:
+                fd = sys.stdin.fileno()
+            except (OSError, ValueError):
+                # 标准输入被关掉或被换成了没有文件描述符的对象：当作不是终端。
+                fd = None
+        self.fd = fd
         self.saved = None
 
     def __enter__(self):
-        if os.isatty(self.fd):
+        if self.fd is not None and os.isatty(self.fd):
             self.saved = termios.tcgetattr(self.fd)
             tty.setcbreak(self.fd)
             termios.tcflush(self.fd, termios.TCIFLUSH)
@@ -491,6 +526,9 @@ def drain_events(d):
         counts[name] = counts.get(name, 0) + 1
         if event.type in (X.KeyPress, X.KeyRelease):
             key = f"{name} keycode {event.detail}"
+            window_id = getattr(getattr(event, "window", None), "id", None)
+            if window_id is not None:
+                key += f" on {hex(window_id)}"
             counts[key] = counts.get(key, 0) + 1
     return counts
 
@@ -660,9 +698,13 @@ def step_l2(args, report, state):
 
 def step_l3(args, report, state):
     report.heading("L3  Does XTest input reach the game, and only the game?")
-    d, capture = state.get("x"), state.get("capture")
+    d, capture, game = state.get("x"), state.get("capture"), state.get("window")
     if d is None or capture is None:
         report.result("L3", "skipped", "needs the nested display (L1) and a working capture (L2)")
+        return
+    if game is None:
+        report.result("L3", "skipped", "L1 did not find the game window, so there is nothing "
+                                       "to aim the key at")
         return
     if not ask_yes("L3 sends Escape to the game twice (open, then close the menu). Is the game "
                    "on a screen where that is harmless, such as in town, and not in a battle "
@@ -671,9 +713,16 @@ def step_l3(args, report, state):
         return
     input("Make sure THIS terminal has keyboard focus and the game window is visible, "
           "then press Enter. ")
-    # 按键事件发往嵌套 X 的焦点窗口；Wine 可能把焦点放在游戏的子窗口上，所以两个都看。
+    # 按键发往嵌套 X 的焦点窗口。Wine 可能把焦点放在游戏的子窗口上，那可以；焦点在游戏
+    # 以外的窗口上就一个键也不发。每次发之前都重新看一次，焦点可能在中途换走。
     focus = d.get_input_focus().focus
-    watched = {w.id: w for w in (state.get("window"), focus) if hasattr(w, "id")}
+    if not within_window(focus, game.id):
+        report.result("L3", "skipped", {"focus": describe_focus(focus), "game": hex(game.id)},
+                      "The nested X focus is not on the game window, so Escape would reach "
+                      "something else. Bring the game to the front inside gamescope and run "
+                      "L3 again.")
+        return
+    watched = {w.id: w for w in (game, focus)}
     for w in watched.values():
         watch_window(w, keys=True)
     with TerminalInput() as terminal:
@@ -685,11 +734,17 @@ def step_l3(args, report, state):
         send_key(d, "Escape")
         time.sleep(1.5)
         after = try_capture(capture)
-        delivered = drain_events(d) if watched else None
+        delivered = drain_events(d)
         received = terminal.read_pending(wait=0.5)
-        send_key(d, "Escape")
-        time.sleep(1.5)
-        closed = try_capture(capture)
+        closed = None
+        if within_window(d.get_input_focus().focus, game.id):
+            send_key(d, "Escape")
+            time.sleep(1.5)
+            closed = try_capture(capture)
+        else:
+            report.result("L3", "second Escape", "not sent",
+                          "The nested focus left the game after the first Escape, so the second "
+                          "was not sent. Close the game's menu yourself.")
     for name, frame in (("before", frames[-1]), ("after", after), ("closed", closed)):
         if frame is not None:
             save_frame(frame, report.dir / f"L3-{name}.png")
