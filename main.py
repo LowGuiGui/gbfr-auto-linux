@@ -7,7 +7,6 @@ import shutil
 import sys
 import threading
 from datetime import datetime
-from enum import Enum
 
 import tkinter as tk
 from tkinter import ttk
@@ -19,6 +18,7 @@ import config as config_module
 from applog import get_logger
 from option import Option
 import pages
+from pagetree import PAGE_ACTIONS, PAGE_NAME, PAGE_RULES, RESULT_PAGES, TEMPLATE_FILES
 from opencv import cv_best_match, is_blank_frame
 from window_capture import capture, list_window_titles
 
@@ -52,15 +52,6 @@ def file_sha256(path):
     except OSError:
         return None
     return h.hexdigest()
-
-
-TEMPLATE_FILES = [
-    "flag_battle.png",
-    "flag_battleresult.png",
-    "flag_again.png",
-    "flag_exit.png",
-    "flag_continue.png",
-]
 
 
 def is_admin():
@@ -156,46 +147,6 @@ class TkLogHandler(logging.Handler):
         except Exception:
             # 窗口已销毁。丢掉即可 —— 文件 handler 那边照样记着。
             pass
-
-
-class PAGE_NAME(Enum):
-    UNKNOWN = "unknown"
-    BATTLE = "battle"
-    SCORE = "score"
-    REWARD_EXIT = "reward_exit"
-    REWARD_AGAIN = "reward_again"
-    PAUSE = "pause"
-
-# 认出来的页面各自该做什么。#16：加一个页面从"改 if/elif 链"变成"加一行"。
-#
-# BATTLE 和 UNKNOWN 不在表里，因为它们不是"按个键推进"这类动作：
-#   BATTLE   要按住 W + 中键，并且**不做**后续动作
-#   UNKNOWN  走 _advance_unknown_page 的盲按上限逻辑
-PAGE_ACTIONS = {
-    PAGE_NAME.REWARD_EXIT: "switch_again",
-    PAGE_NAME.REWARD_AGAIN: "tap_confirm",
-    PAGE_NAME.SCORE: "tap_confirm",
-    PAGE_NAME.PAUSE: "tap_confirm",
-}
-
-# 这是哪一页。#16 第二部分：判定优先级原来就是 if/elif 的书写顺序 —— 承重、
-# 无声、调换两行就改行为。现在**顺序就是这个元组的顺序**，看得见也测得到。
-#
-# 结算页要再分一层：先看有没有"再来一次"，再看有没有"退出"，都没有就是纯结算页。
-PAGE_RULES = (
-    pages.Rule("flag_battle", PAGE_NAME.BATTLE),
-    pages.Rule("flag_battleresult", children=(
-        pages.Rule("flag_again", PAGE_NAME.REWARD_AGAIN),
-        pages.Rule("flag_exit", PAGE_NAME.REWARD_EXIT),
-    ), fallback=PAGE_NAME.SCORE),
-    pages.Rule("flag_continue", PAGE_NAME.PAUSE),
-)
-
-# 结算页家族。战斗计数在进到其中任意一页时 +1，和原来 flag_battleresult 命中
-# 就计数是同一条规则。
-RESULT_PAGES = frozenset({
-    PAGE_NAME.REWARD_AGAIN, PAGE_NAME.REWARD_EXIT, PAGE_NAME.SCORE,
-})
 
 
 class App:

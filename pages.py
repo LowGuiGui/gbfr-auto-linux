@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """页面判定树（#16 第二部分）。
 
-第一部分把"这一页做什么"变成了表（main.PAGE_ACTIONS）。剩下的是"这是哪一页"，
+第一部分把"这一页做什么"变成了表（pagetree.PAGE_ACTIONS）。剩下的是"这是哪一页"，
 而它有两个比 if/elif 长得难看更实际的问题：
 
 1. **优先级是语句顺序。** flag_battle 赢过 flag_battleresult，仅仅因为它写在

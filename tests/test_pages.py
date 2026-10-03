@@ -106,61 +106,61 @@ class TestRuleValidation:
 
 
 class TestTheRealTree:
-    """main.py 里那棵真树，以及它和别的表对不对得上。"""
+    """pagetree.py 里那棵真树，以及它和别的表对不对得上。"""
 
-    def _main(self):
-        import main
-        return main
+    def _tree(self):
+        import pagetree
+        return pagetree
 
     def test_battle_beats_the_result_page(self):
         """原来这条只靠 flag_battle 写在前面成立。"""
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES, matcher("flag_battle", "flag_battleresult"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.BATTLE
 
     def test_result_with_again(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES,
                              matcher("flag_battleresult", "flag_again"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.REWARD_AGAIN
 
     def test_result_with_exit(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES,
                              matcher("flag_battleresult", "flag_exit"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.REWARD_EXIT
 
     def test_bare_result_is_the_score_page(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES, matcher("flag_battleresult"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.SCORE
 
     def test_again_beats_exit(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES,
                              matcher("flag_battleresult", "flag_again", "flag_exit"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.REWARD_AGAIN
 
     def test_pause(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES, matcher("flag_continue"),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.PAUSE
 
     def test_nothing_is_unknown(self):
-        m = self._main()
+        m = self._tree()
         assert pages.resolve(m.PAGE_RULES, matcher(),
                              m.PAGE_NAME.UNKNOWN) == m.PAGE_NAME.UNKNOWN
 
     def test_every_template_the_tree_uses_is_shipped(self):
         """规则里写一个不存在的模板，表现是那一支永远不命中 —— 安静地永远
         走不到，最难发现的那种坏法。"""
-        m = self._main()
+        m = self._tree()
         shipped = {f.replace(".png", "") for f in m.TEMPLATE_FILES}
         for name in pages.templates_used(m.PAGE_RULES):
             assert name in shipped, f"{name} 不在 TEMPLATE_FILES 里"
 
     def test_every_reachable_page_has_an_action_or_is_deliberately_special(self):
-        m = self._main()
+        m = self._tree()
         special = {m.PAGE_NAME.BATTLE, m.PAGE_NAME.UNKNOWN}
         for page in pages.pages_reachable(m.PAGE_RULES, m.PAGE_NAME.UNKNOWN):
             assert page in m.PAGE_ACTIONS or page in special, \
@@ -168,7 +168,7 @@ class TestTheRealTree:
 
     def test_result_pages_matches_the_tree(self):
         """RESULT_PAGES 决定战斗计数。它和树对不上，计数就会漏或者重。"""
-        m = self._main()
+        m = self._tree()
         from_tree = {r.fallback for r in m.PAGE_RULES if r.children}
         from_tree |= {c.page for r in m.PAGE_RULES for c in r.children}
         assert from_tree == set(m.RESULT_PAGES)
