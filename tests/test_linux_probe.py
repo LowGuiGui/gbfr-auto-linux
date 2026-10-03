@@ -180,7 +180,24 @@ class TestGamescopectl:
         lp.capture_gamescopectl(Path("rel/shot.png"), "gamescope-1", run=run, sleep=lambda s: None)
         sent = Path(run.calls[0][0][-1])
         assert sent.is_absolute()
-        assert sent == (tmp_path / "rel" / "shot.png").resolve()
+        assert sent == Path.cwd() / "rel" / "shot.png"
+
+    def test_a_symlinked_screenshot_name_never_touches_its_target(self, tmp_path):
+        """resolve() 会顺着符号链接走到目标，清理旧图时删掉的就是目标文件了。"""
+        outside = tmp_path / "outside.txt"
+        outside.write_text("keep me")
+        report_dir = tmp_path / "report"
+        report_dir.mkdir()
+        shot = report_dir / "gamescopectl-latest.png"
+        shot.symlink_to(outside)
+
+        def gamescope_saves(path):
+            Image.new("RGB", (8, 4)).save(path)
+        run = FakeRun(write=gamescope_saves)
+        lp.capture_gamescopectl(shot, "gamescope-1", run=run, sleep=lambda s: None)
+        assert outside.read_bytes() == b"keep me"
+        assert Path(run.calls[0][0][-1]) == shot
+        assert not shot.is_symlink()
 
     def test_a_stale_file_from_an_earlier_run_is_not_reused(self, tmp_path):
         """上一次留下的图不能冒充这一次的截图。"""
@@ -490,9 +507,15 @@ class TestL3Aim:
         assert [t for t, _ in d.sent] == [X.KeyPress, X.KeyRelease, X.KeyPress, X.KeyRelease]
         assert "key delivery" in text
 
+    def test_a_focus_change_during_the_baseline_sends_nothing(self, l3):
+        """取基准帧要两秒多。焦点在这期间换走了，第一个 Escape 也不能发。"""
+        d, text = l3(["game", "overlay"])
+        assert d.sent == []
+        assert "left the game while the baseline frames were taken" in text
+
     def test_the_second_escape_waits_for_the_game_to_have_focus_again(self, l3):
         """第一次 Escape 之后焦点跑到了别处：第二次不能跟着发过去。"""
-        d, text = l3(["game", "overlay"])
+        d, text = l3(["game", "game", "overlay"])
         assert len(d.sent) == 2
         assert "second Escape: The nested focus left the game" in text
 
