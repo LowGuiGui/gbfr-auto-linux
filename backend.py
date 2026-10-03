@@ -132,7 +132,7 @@ class KmbBackend(InputBackend):
 
 
 class PadBackend(InputBackend):
-    """虚拟手柄（ViGEm）。
+    """虚拟手柄。报告的格式在 xusb.py，pad 负责把报告送出去（Windows 上是 ViGEm）。
 
     XUSB_REPORT 是全量快照，所以这里必须自己记住按着什么，每次改动都重新合成
     一整份报告发出去。漏掉这一步的表现是"按了新键，旧键就松了"。
@@ -140,13 +140,13 @@ class PadBackend(InputBackend):
 
     name = "pad"
 
-    def __init__(self, pad, vigem_module, mapping=None, stick_max=None):
+    def __init__(self, pad, xusb_module, mapping=None, stick_max=None):
         self._pad = pad
-        self._vigem = vigem_module
+        self._xusb = xusb_module
         self._mapping = dict(DEFAULT_PAD_MAPPING)
         if mapping:
             self._mapping.update(mapping)
-        self._stick_max = stick_max if stick_max is not None else vigem_module.STICK_MAX
+        self._stick_max = stick_max if stick_max is not None else xusb_module.STICK_MAX
         self._buttons = 0
         self._move = False
         self._warned = set()
@@ -160,7 +160,7 @@ class PadBackend(InputBackend):
         return self._pad is not None
 
     def _mask(self, action):
-        mask = self._vigem.button_mask(self._mapping.get(action, ""))
+        mask = self._xusb.button_mask(self._mapping.get(action, ""))
         if not mask and action not in self._warned:
             # 名字拼错不会报错，只会静悄悄地什么都不按 —— 要说。
             #
@@ -176,7 +176,7 @@ class PadBackend(InputBackend):
         """把当前状态合成一份报告发出去。"""
         if not self._pad:
             return False
-        report = self._vigem.XUSB_REPORT(
+        report = self._xusb.XUSB_REPORT(
             wButtons=self._buttons,
             sThumbLY=self._stick_max if self._move else 0,
         )

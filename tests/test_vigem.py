@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """vigem.py —— Windows 才能真的连驱动，但路径解析和失败路径可以在这里测。"""
 
-import ctypes
 import os
 import subprocess
 import sys
@@ -156,24 +155,6 @@ class TestWeNeverInstallTheDriver:
             "https://github.com/ViGEm/ViGEmBus/releases/download/"
         )
         assert vigem.DRIVER_VERSION in vigem.DRIVER_DOWNLOAD_URL
-
-
-class TestReportStruct:
-    def test_field_layout_matches_XINPUT_GAMEPAD(self):
-        """字段顺序和宽度由 ViGEmClient 的 ABI 决定，动了就会静默发错输入。"""
-        assert [n for n, _ in vigem.XUSB_REPORT._fields_] == [
-            "wButtons", "bLeftTrigger", "bRightTrigger",
-            "sThumbLX", "sThumbLY", "sThumbRX", "sThumbRY",
-        ]
-        assert ctypes.sizeof(vigem.XUSB_REPORT) == 12
-
-    def test_neutral_report_is_all_zero(self):
-        r = vigem.XUSB_REPORT()
-        assert (r.wButtons, r.sThumbLX, r.sThumbLY) == (0, 0, 0)
-
-    def test_forward_uses_positive_full_scale_y(self):
-        r = vigem.XUSB_REPORT(sThumbLY=vigem.STICK_MAX)
-        assert r.sThumbLY == 32767
 
 
 class TestCleanup:

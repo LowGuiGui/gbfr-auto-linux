@@ -235,9 +235,9 @@ class Option:
     def _pad_backend(self):
         """缓存的手柄后端。**不能**每次调和都新建 —— 新对象不知道现在按着什么，
         摇杆会在下一次 release_all 时被漏掉。手柄换了才重建。"""
-        import vigem
+        import xusb
         if self._padbe is None or self._padbe.pad is not self._pad:
-            self._padbe = backend_mod.PadBackend(self._pad, vigem, self._pad_mapping)
+            self._padbe = backend_mod.PadBackend(self._pad, xusb, self._pad_mapping)
         return self._padbe
 
     def _do_action(self, action):
