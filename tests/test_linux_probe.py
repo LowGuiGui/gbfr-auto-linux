@@ -199,6 +199,22 @@ class TestGamescopectl:
         assert Path(run.calls[0][0][-1]) == shot
         assert not shot.is_symlink()
 
+    def test_a_dangling_symlink_is_removed_not_written_through(self, tmp_path):
+        """exists() 对悬空链接返回 False。只查它的话链接会留下，截图就穿过链接写到外面去。"""
+        outside = tmp_path / "outside.png"
+        report_dir = tmp_path / "report"
+        report_dir.mkdir()
+        shot = report_dir / "gamescopectl-latest.png"
+        shot.symlink_to(outside)
+        assert not shot.exists() and shot.is_symlink()
+
+        def gamescope_saves(path):
+            Image.new("RGB", (8, 4)).save(path)
+        lp.capture_gamescopectl(shot, "gamescope-1", run=FakeRun(write=gamescope_saves),
+                                sleep=lambda s: None)
+        assert not outside.exists()
+        assert shot.exists() and not shot.is_symlink()
+
     def test_a_stale_file_from_an_earlier_run_is_not_reused(self, tmp_path):
         """上一次留下的图不能冒充这一次的截图。"""
         shot = tmp_path / "shot.png"

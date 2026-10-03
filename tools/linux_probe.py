@@ -337,7 +337,9 @@ def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
     # 用 absolute() 而不是 resolve()：resolve() 会顺着最后一段的符号链接走，下面清理旧图时
     # 删掉的就成了链接指向的文件，可能在报告目录之外。
     path = Path(path).absolute()
-    if path.exists():
+    # exists() 也顺着链接走：指向不存在目标的悬空链接会被当成"没有文件"而留下，gamescope
+    # 就会穿过它把图写到链接指向的地方。所以要看目录项本身。
+    if path.is_symlink() or path.exists():
         path.unlink()
     result = run_gamescopectl(["screenshot", str(path)], wayland_display, runtime_dir,
                               timeout=timeout, run=run)
