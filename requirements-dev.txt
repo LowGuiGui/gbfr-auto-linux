@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 # Development dependencies.
 #
 # Runtime dependencies live in requirements.txt. Nothing here is needed to *run*
@@ -21,3 +24,8 @@ pre-commit==4.6.2
 
 # Test runner. See tests/README.md for what is and is not covered.
 pytest==9.1.1
+
+# Licence linter. Checks that every file states its copyright holders and
+# licence (REUSE 3.3); COPYRIGHT and REUSE.toml explain the layout. CI runs
+# `reuse lint`.
+reuse==6.2.0

@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """opencv.py —— 全仓库唯一与平台无关的模块，按原样测，不打任何桩。"""
 
 import cv2

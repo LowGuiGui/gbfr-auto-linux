@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """运行期状态与调和。
 
 这个模块存在的理由：需要的东西不是一个功能，是一条**性质** —— 世界变了，程序

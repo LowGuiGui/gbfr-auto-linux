@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """framediff.py —— A4 的判定逻辑。
 
 真机上这一段只跑一次，而它要区分的两种情况（游戏停了 / 游戏在跑但不理输入）修法

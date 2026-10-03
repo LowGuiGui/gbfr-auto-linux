@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# Licensing for files that cannot carry a comment header. Everything else states
+# its holders and licence in its own header. `reuse lint` checks both in CI.
+
+version = 1
+
+# Inputs and output of the history filter. paths.txt and messages.txt are read
+# by git-filter-repo as they are, so a header would change what they mean.
+[[annotations]]
+path = "docs/provenance/*.txt"
+SPDX-FileCopyrightText = "2026 LowGuiGui <https://github.com/LowGuiGui>"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# Crops of the game's own screens, captured by zhiyual for zhiyual/gbfr_auto and
+# used as template-matching references. The artwork is Cygames'; see the licence
+# file named below and COPYRIGHT.
+[[annotations]]
+path = "template/*.png"
+SPDX-FileCopyrightText = "Cygames, Inc."
+SPDX-License-Identifier = "LicenseRef-Cygames-Game-Assets"

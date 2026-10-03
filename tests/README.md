@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+SPDX-License-Identifier: GPL-2.0-or-later
+-->
+
 # tests
 
 Runs on **Linux**, with nothing stubbed. The core modules have no platform

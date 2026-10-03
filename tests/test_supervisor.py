@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """调和规则。
 
 decide() 是纯函数，所以这些规则可以在 Linux 上完整测 —— 而它们正是"世界变了

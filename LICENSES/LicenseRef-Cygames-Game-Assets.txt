@@ -1,0 +1,8 @@
+The files marked with this identifier are cropped screenshots of the user
+interface of Granblue Fantasy: Relink. The game and its artwork are
+(C) Cygames, Inc., which reserves all rights to them.
+
+They are not covered by this project's licence, and this project grants no
+licence to them. They are included only as reference images for on-screen
+template matching, so that the program can recognise which screen the game is
+showing.

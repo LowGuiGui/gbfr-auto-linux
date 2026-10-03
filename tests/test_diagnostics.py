@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """检查点 1 的诊断能力：空帧守卫和匹配分数。
 
 异常帧和分数日志的测试借用 main.App，随应用层暂存在历史里，见 docs/provenance/README.md。

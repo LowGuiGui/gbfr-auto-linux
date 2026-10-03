@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """测试的公共设施。
 
 核心模块都不碰平台，所以这里不再桩任何东西。Windows 那一层的桩（win32*、

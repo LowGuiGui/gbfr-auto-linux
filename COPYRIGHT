@@ -1,61 +1,70 @@
+SPDX-FileCopyrightText: 2026 zhiyual <https://github.com/zhiyual>
+SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+SPDX-License-Identifier: GPL-2.0-or-later
+
 Copyright and licensing
 =======================
 
-This project is a fork of zhiyual/gbfr_auto and is distributed under the GNU
-General Public License, version 2. The full licence text is in LICENSE.
+gbfr-auto-linux is the Linux successor of LowGuiGui/gbfr_auto, which was a fork
+of zhiyual/gbfr_auto. It is distributed under the GNU General Public License,
+version 2 or (at your option) any later version. The SPDX identifier is
+GPL-2.0-or-later, and the licence text is in LICENSES/GPL-2.0-or-later.txt.
+LICENSE at the top level is the same verbatim text, kept so that tools which
+only look there still find it.
 
 
-Upstream
---------
+Who holds what
+--------------
 
-The original work is by the upstream author(s):
+Every file states its copyright holders and licence, either in a header comment
+or, for files that cannot carry one, in REUSE.toml. `reuse lint` checks this in
+CI. In summary:
 
-    https://github.com/zhiyual/gbfr_auto
+  - Upstream's original work is by zhiyual
+    (https://github.com/zhiyual/gbfr_auto). opencv.py, pagetree.py and
+    .gitignore still contain it, and their headers name both holders.
 
-No copyright over that work is claimed here.
+  - The changes made in the fork from 2026-08-23 on, and everything written
+    for this repository, are
 
+        Copyright (C) 2026 LowGuiGui
 
-This fork
----------
-
-Changes made in this fork:
-
-    Copyright (C) 2026 LowGuiGui
-
-They are licensed under the same terms as the original -- GPL-2.0 -- which is
-what section 2(b) requires of a derived work.
-
-The changes were made between 2026-08-23 and 2026-10-02. The git history
-records which files each change touched, and when.
-
-They were written by an AI coding assistant at the owner's direction and were
-not reviewed line by line by a human; see "About the AI-written code" in the
-README. Whether AI-generated output is protected by copyright is unsettled; to
-the extent it is, the notice above applies.
+  - The images in template/ are cropped screenshots of the game's own screens.
+    Their artwork is (C) Cygames, Inc. It is not covered by the GPL, and this
+    project grants no licence to it; see
+    LICENSES/LicenseRef-Cygames-Game-Assets.txt.
 
 
-Why this is a separate file
----------------------------
+Why "or later"
+--------------
 
-LICENSE is the verbatim GPL-2.0 text. The only
+Upstream's repository carries the GPL-2.0 text and does not say which versions
+of the licence apply. Section 9 of GPL-2.0 lets a program that specifies no
+version number be used under any version the Free Software Foundation has
+published. Upstream's code is therefore offered here under GPL-2.0-or-later,
+and so are the fork's changes and this repository's own work.
 
-    Copyright (C) <year>  <name of author>
+Keeping "or later" leaves a route to GPLv3 open. That matters because OpenCV is
+licensed under Apache-2.0, which the FSF considers compatible with GPLv3 but
+not with GPLv2.
 
-line in it belongs to the licence's own "How to Apply These Terms to Your New
-Programs" appendix. That is an example intended to be copied into your own
-files -- not a blank to be filled in inside the licence. Editing it would
-modify the licence text itself, which is not something a licensee should do.
 
-GPL-2.0 section 1 asks for an appropriate copyright notice on each copy, and
-the licence's "How to Apply These Terms" appendix recommends putting one at the
-start of each source file. Per-file headers were deliberately not used here:
-when this was decided, the fork tracked an active upstream, and a header added
-to every file would have conflicted with essentially any upstream change. The
-same reasoning kept stylistic lint rules off (see ruff.toml) and kept every
-pre-commit hook read-only. Upstream has been inactive since 2026-07-19 and this
-fork is paused; whoever resumes it should revisit this, and #11 with it.
+Modified files
+--------------
 
-A single file naming the holder of this fork's changes is the version of that
-notice which survives an upstream sync.
+GPL-2.0 section 2(a) asks that modified files carry prominent notices saying
+that they were changed, and when. The headers of opencv.py, pagetree.py and
+.gitignore say that they derive from upstream and since when LowGuiGui has
+changed them. The git history records each change and its date, and
+docs/provenance/ maps the commits made before this repository existed back to
+the archive.
 
-See issue #7.
+
+About the AI-written code
+-------------------------
+
+The fork's changes and this repository's code were written by an AI coding
+assistant (Anthropic's Claude Code) at the owner's direction, and were not
+reviewed line by line by a human. Whether AI-generated output is protected by
+copyright is unsettled; to the extent it is, the notices above apply. The
+README says more, including what has been verified and how.

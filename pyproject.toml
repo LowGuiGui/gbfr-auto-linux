@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# Project metadata. Nothing is packaged yet, so there is no build backend:
+# dependencies stay pinned in requirements*.txt, and ruff keeps its own file.
+
+[project]
+name = "gbfr-auto-linux"
+version = "0.0.0"
+description = "Battle automation for Granblue Fantasy: Relink on Linux (in preparation)"
+requires-python = ">=3.12"
+# PEP 639. The template images are the game's artwork and not under the GPL,
+# so the expression names them too; COPYRIGHT explains both parts.
+license = "GPL-2.0-or-later AND LicenseRef-Cygames-Game-Assets"
+license-files = ["LICENSES/*.txt"]

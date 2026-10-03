@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """窗口几何 —— 窗口矩形、客户区、边框、中心点。
 
 #46 需要它，#47 之后也要在它上面加 DPI。**这一版只做客户区/窗口区的换算**，

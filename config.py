@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 # 配置层。
 #
 # 在此之前每个可调数值都是散落在源码里的字面量：轮询间隔在 main.py，匹配阈值在

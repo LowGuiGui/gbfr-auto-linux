@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """页面判定树（#16 第二部分）。
 
 第一部分把"这一页做什么"变成了表（pagetree.PAGE_ACTIONS）。剩下的是"这是哪一页"，

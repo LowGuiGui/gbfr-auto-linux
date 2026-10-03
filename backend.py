@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """输入后端：把"要做什么"和"怎么做"分开。
 
 Option 原来直接说键盘鼠标的话 —— start_battle 就是"按住 W + 中键"。手柄那边

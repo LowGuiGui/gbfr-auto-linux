@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """输入后端的动作词汇。
 
 这一层的价值全在"两种后端对同一个意图给出各自正确的动作"，以及**换后端时不能
