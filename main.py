@@ -18,6 +18,7 @@ import applog
 import config as config_module
 from applog import get_logger
 from option import Option
+import pages
 from opencv import cv_best_match, is_blank_frame
 from window_capture import capture, list_window_titles
 
@@ -177,6 +178,25 @@ PAGE_ACTIONS = {
     PAGE_NAME.PAUSE: "tap_confirm",
 }
 
+# 这是哪一页。#16 第二部分：判定优先级原来就是 if/elif 的书写顺序 —— 承重、
+# 无声、调换两行就改行为。现在**顺序就是这个元组的顺序**，看得见也测得到。
+#
+# 结算页要再分一层：先看有没有"再来一次"，再看有没有"退出"，都没有就是纯结算页。
+PAGE_RULES = (
+    pages.Rule("flag_battle", PAGE_NAME.BATTLE),
+    pages.Rule("flag_battleresult", children=(
+        pages.Rule("flag_again", PAGE_NAME.REWARD_AGAIN),
+        pages.Rule("flag_exit", PAGE_NAME.REWARD_EXIT),
+    ), fallback=PAGE_NAME.SCORE),
+    pages.Rule("flag_continue", PAGE_NAME.PAUSE),
+)
+
+# 结算页家族。战斗计数在进到其中任意一页时 +1，和原来 flag_battleresult 命中
+# 就计数是同一条规则。
+RESULT_PAGES = frozenset({
+    PAGE_NAME.REWARD_AGAIN, PAGE_NAME.REWARD_EXIT, PAGE_NAME.SCORE,
+})
+
 
 class App:
     def __init__(self, root, cfg=None):
@@ -195,6 +215,12 @@ class App:
             root,
             keys=self.cfg.section("keys"),
             dry_run=self.cfg.get("input.dry_run"),
+            # 不接上的话 [pad] 那一段就是个摆设：改了配置没有任何效果，而且
+            # 不会有任何提示 —— 正好是 G1 要靠它来改映射的那一段。
+            pad_mapping=self.cfg.section("pad"),
+            # 只设 StringVar 的话，配置里写 pad 会让单选框显示"虚拟手柄"而
+            # Option 仍然停在 kmb —— 界面说一套，程序做另一套。
+            prefer=self.cfg.get("input.backend"),
         )
         self._anomalies_saved = 0
 
@@ -202,6 +228,8 @@ class App:
         self._loop_count = 0
         self._target_window = tk.StringVar(value="")
         self._input_mode = tk.StringVar(value=self.cfg.get("input.mode"))
+        self._backend_mode = tk.StringVar(value=self.cfg.get("input.backend"))
+        self._last_input_status = None
         self._is_enabling_inject = False
         # 注入是异步的，而看门狗会在超时后把界面切回兼容模式 —— 但那条工作线程
         # 是 daemon 且没人能取消它。这两个编号让"迟到的成功"可以被认出来：
@@ -215,6 +243,9 @@ class App:
         self._last_logged_page = None
 
         self._build_ui()
+        # 配置选了手柄就真的把它接上。放在 _build_ui 之后，是因为接失败要回退并
+        # 写日志，而那两样都要界面已经建好。
+        self._apply_backend_mode(log_on_switch=False)
         # 日志框建好之后才能接 handler；在此之前的消息只进文件。
         applog.add_handler(TkLogHandler(self.root, self._append_log))
         log_path = applog.log_path()
@@ -264,6 +295,20 @@ class App:
             command=lambda: self._apply_input_mode(log_on_switch=True)
         ).pack(side=tk.LEFT, padx=5)
 
+        backend_frame = tk.Frame(self.root)
+        backend_frame.pack(fill=tk.X, padx=10, pady=2)
+        tk.Label(backend_frame, text="操作方式:").pack(side=tk.LEFT)
+        tk.Radiobutton(
+            backend_frame, text="键鼠", variable=self._backend_mode, value="kmb",
+            command=lambda: self._apply_backend_mode(log_on_switch=True)
+        ).pack(side=tk.LEFT, padx=5)
+        tk.Radiobutton(
+            backend_frame, text="虚拟手柄", variable=self._backend_mode, value="pad",
+            command=lambda: self._apply_backend_mode(log_on_switch=True)
+        ).pack(side=tk.LEFT, padx=5)
+        self._status_label = tk.Label(backend_frame, text="", fg="gray")
+        self._status_label.pack(side=tk.LEFT, padx=10)
+
         log_frame = tk.Frame(self.root)
         log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
@@ -290,6 +335,48 @@ class App:
                 self.log(f"警告: 找不到窗口「{target}」")
         else:
             self.log("未指定目标窗口，使用全屏模式")
+
+    def _apply_backend_mode(self, log_on_switch=False):
+        """人选了键鼠还是手柄。
+
+        选手柄要真的把虚拟手柄接上；接不上就说清楚并退回键鼠，而不是留着一个
+        选中了却什么都不做的单选框 —— 那是"界面说一套、实际做另一套"。
+        """
+        mode = self._backend_mode.get()
+        if mode == "pad":
+            try:
+                self._option.enable_pad()
+            except Exception as e:
+                log.warning("接虚拟手柄失败", exc_info=True)
+                self.log(f"接虚拟手柄失败: {e}；退回键鼠")
+                self._backend_mode.set("kmb")
+                self._option.set_preferred_mode("kmb")
+                return
+        else:
+            self._option.disable_pad()
+        self._option.set_preferred_mode(mode)
+        if log_on_switch:
+            self.log(f"操作方式: {'虚拟手柄' if mode == 'pad' else '键鼠'}")
+
+    def _sync_input_status(self):
+        """把调和结果显示出来。
+
+        退让、暂停、让开都必须看得见 —— 悄悄换模式和悄悄不干活一样糟，而这两种
+        情况在界面上长得都像"脚本没反应"。
+        """
+        try:
+            self._option.poll()
+        except Exception:
+            log.warning("输入状态调和失败", exc_info=True)
+            return
+        status = self._option.status
+        if status != self._last_input_status:
+            self._last_input_status = status
+            self.log(f"[输入] {status}")
+        try:
+            self._status_label.config(text=status)
+        except Exception:
+            log.debug("更新状态标签失败", exc_info=True)
 
     def _apply_input_mode(self, log_on_switch=False):
         mode = self._input_mode.get()
@@ -590,6 +677,8 @@ class App:
                 self.root.after(0, self._on_f1)
             elif key == keyboard.Key.f2:
                 self.root.after(0, self._on_f2)
+            elif key == keyboard.Key.f12:
+                self.root.after(0, self._on_panic)
         except Exception:
             # 全局监听会收到用户在任何窗口里的每一次按键。持续失败会把日志刷满，
             # 所以第一次记 ERROR，之后降级到 DEBUG。
@@ -598,6 +687,24 @@ class App:
                 log.exception("热键处理失败（监听器继续运行）")
             else:
                 log.debug("热键处理再次失败", exc_info=True)
+
+    def _on_panic(self):
+        """F12 —— 全部松开、关掉焦点伪装、停下。
+
+        存在的理由很具体：键鼠模式下开焦点伪装，游戏会把光标锁在窗口中央，那时
+        鼠标点不动任何东西，只剩键盘可用（2026-08-26 t_kmb 实测）。伪装现在只在
+        手柄模式下才开，但救命开关不能依赖"我们已经想到了所有情况"。
+        """
+        self.log("F12 紧急停止：松开全部输入、关闭焦点伪装")
+        try:
+            self._option.panic()
+        except Exception:
+            log.exception("紧急停止失败")
+        # F1 是**启动**，F2 才是停止 —— 而 _on_f1 里那句 `if job_timer_id is None`
+        # 会让它在循环正在跑的时候什么都不做。也就是说写成 _on_f1 的话，这个急停
+        # 根本停不下循环，还看不出来。
+        if self.job_timer_id is not None:
+            self._on_f2()
 
     def _on_f1(self):
         if self.job_timer_id is None:
@@ -637,6 +744,10 @@ class App:
         target = self._target_window.get().strip() or None
         if target:
             self._option.set_target(target)
+        # 先调和再动作：窗口可能刚被拖过、管道可能刚断、人可能刚拿起手柄。
+        self._sync_input_status()
+        if self._option.paused:
+            return
         self.screen = capture(target)
         if self.screen is None:
             self.log(f"截图失败: {target or '全屏'}")
@@ -762,28 +873,27 @@ class App:
             )
 
     def _get_current_page_name(self) -> PAGE_NAME:
+        """现在是哪一页。判定本身在 pages.resolve 里，是纯函数。"""
         if self.screen is None:
             return PAGE_NAME.UNKNOWN
-        # 判定优先级就是这里的书写顺序：flag_battle 先于 flag_battleresult，仅仅
-        # 因为它写在前面。这条规则是承重的 —— 调换顺序会改变行为（#16）。
-        if self._matches("flag_battle"):
+        page = pages.resolve(PAGE_RULES, self._matches, PAGE_NAME.UNKNOWN)
+        self._note_battle_transition(page)
+        return page
+
+    def _note_battle_transition(self, page):
+        """战斗计数。
+
+        原来这段藏在判定分支里，于是"问一下现在是哪一页"这个动作会顺手改状态、
+        还往界面写日志 —— 既不能重复调用，也没法在 Tk 之外测。计数是**转移**的
+        性质，不是识别的性质，所以它属于这里。
+        """
+        if page == PAGE_NAME.BATTLE:
             self._has_battle = True
-            return PAGE_NAME.BATTLE
-        elif self._matches("flag_battleresult"):
-            if self._has_battle:
-                self._loop_count += 1
-                self._has_battle = False
-                self.log(f"完成第 {self._loop_count} 次战斗")
-            if self._matches("flag_again"):
-                return PAGE_NAME.REWARD_AGAIN
-            elif self._matches("flag_exit"):
-                return PAGE_NAME.REWARD_EXIT
-            else:
-                return PAGE_NAME.SCORE
-        elif self._matches("flag_continue"):
-            return PAGE_NAME.PAUSE
-        else:
-            return PAGE_NAME.UNKNOWN
+            return
+        if page in RESULT_PAGES and self._has_battle:
+            self._loop_count += 1
+            self._has_battle = False
+            self.log(f"完成第 {self._loop_count} 次战斗")
 
 
 if __name__ == "__main__":
