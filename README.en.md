@@ -112,7 +112,6 @@ Issue numbers in the older commit messages read `gbfr_auto#NN`, and those in cod
 
 ## Notes
 
-- This tool is for learning purposes only; do not use it commercially.
 - This is an unofficial project, not affiliated with or endorsed by Cygames. Granblue Fantasy: Relink and its artwork belong to Cygames, Inc.
 
 ## Licence

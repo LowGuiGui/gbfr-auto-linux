@@ -112,7 +112,6 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 ## 注意事项
 
-- 本工具仅用于学习交流，请勿用于商业用途。
 - 这是非官方项目，与 Cygames 无关，也未经其认可。碧蓝幻想：Relink 及其美术素材归 Cygames, Inc. 所有。
 
 ## 许可证
