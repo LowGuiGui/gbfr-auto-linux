@@ -168,6 +168,19 @@ class TestGamescopectl:
         assert frame.shape == (4, 8, 3)
         assert frame[0, 0].tolist() == [200, 100, 50]
 
+    def test_the_path_given_to_gamescope_is_absolute(self, tmp_path, monkeypatch):
+        """gamescope 在自己的工作目录里解析路径。相对路径会让截图写到别处，这边等到超时。"""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "rel").mkdir()
+
+        def gamescope_saves(path):
+            Image.new("RGB", (8, 4)).save(path)
+        run = FakeRun(write=gamescope_saves)
+        lp.capture_gamescopectl(Path("rel/shot.png"), "gamescope-1", run=run, sleep=lambda s: None)
+        sent = Path(run.calls[0][0][-1])
+        assert sent.is_absolute()
+        assert sent == (tmp_path / "rel" / "shot.png").resolve()
+
     def test_a_stale_file_from_an_earlier_run_is_not_reused(self, tmp_path):
         """上一次留下的图不能冒充这一次的截图。"""
         shot = tmp_path / "shot.png"

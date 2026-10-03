@@ -332,7 +332,9 @@ def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
                          run=subprocess.run, sleep=time.sleep):
     from PIL import Image
 
-    path = Path(path)
+    # 截图由 gamescope 自己的进程去写。它的工作目录是启动器的会话目录，不是这个终端的，
+    # 所以相对路径会落到那边（或者因为目录不存在而写不出来），这边永远等不到文件。
+    path = Path(path).resolve()
     if path.exists():
         path.unlink()
     result = run_gamescopectl(["screenshot", str(path)], wayland_display, runtime_dir,
@@ -764,7 +766,8 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    out = Path(args.out) if args.out else Path("probe-runs") / time.strftime("%Y%m%d-%H%M%S")
+    out = (Path(args.out) if args.out
+           else Path("probe-runs") / time.strftime("%Y%m%d-%H%M%S")).resolve()
     report = Report(out)
     report.note(f"# GBFR Linux probe, {time.strftime('%Y-%m-%d %H:%M:%S')}")
     report.note(f"steps {','.join(args.steps)}, appid {args.appid}, output {out}")
