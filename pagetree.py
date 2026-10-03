@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 # SPDX-FileCopyrightText: 2026 zhiyual <https://github.com/zhiyual>
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-2.0-only
 #
 # Derived from zhiyual/gbfr_auto; changed by LowGuiGui since 2026-08-23. The git
-# history records each change and its date.
+# history records each change and its date. Upstream's lines are GPL-2.0-only (see
+# COPYRIGHT), so this file as a whole is too.
 
 """GBFR 的页面判定树和配套的表：认哪几张模板、判出哪几页、每一页做什么。
 

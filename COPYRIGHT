@@ -1,4 +1,3 @@
-SPDX-FileCopyrightText: 2026 zhiyual <https://github.com/zhiyual>
 SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -6,47 +5,56 @@ Copyright and licensing
 =======================
 
 gbfr-auto-linux is the Linux successor of LowGuiGui/gbfr_auto, which was a fork
-of zhiyual/gbfr_auto. It is distributed under the GNU General Public License,
-version 2 or (at your option) any later version. The SPDX identifier is
-GPL-2.0-or-later, and the licence text is in LICENSES/GPL-2.0-or-later.txt.
-LICENSE at the top level is the same verbatim text, kept so that tools which
-only look there still find it.
+of zhiyual/gbfr_auto. It is free software under the GNU General Public License,
+version 2. Most of it may also be used under any later version, but the files
+that still contain upstream's code may not; see "Why upstream's code is
+GPL-2.0-only" below. The licence text is in LICENSES/, once for each SPDX
+identifier it is used under. LICENSE at the top level is the same verbatim
+text, kept so that tools which only look there still find it.
 
 
-Who holds what
---------------
+Who holds what, under which licence
+-----------------------------------
 
 Every file states its copyright holders and licence, either in a header comment
 or, for files that cannot carry one, in REUSE.toml. `reuse lint` checks this in
 CI. In summary:
 
   - Upstream's original work is by zhiyual
-    (https://github.com/zhiyual/gbfr_auto). opencv.py, pagetree.py and
-    .gitignore still contain it, and their headers name both holders.
+    (https://github.com/zhiyual/gbfr_auto), under GPL-2.0-only. opencv.py,
+    pagetree.py and .gitignore still contain it. Their headers name both
+    holders, and each of those three files is GPL-2.0-only as a whole.
 
   - The changes made in the fork from 2026-08-23 on, and everything written
     for this repository, are
 
         Copyright (C) 2026 LowGuiGui
 
+    and licensed under GPL-2.0-or-later.
+
   - The images in template/ are cropped screenshots of the game's own screens.
     Their artwork is (C) Cygames, Inc. It is not covered by the GPL, and this
     project grants no licence to it; see
     LICENSES/LicenseRef-Cygames-Game-Assets.txt.
 
+While upstream's lines remain, the program as a whole can be distributed under
+GPL-2.0 only.
 
-Why "or later"
---------------
 
-Upstream's repository carries the GPL-2.0 text and does not say which versions
-of the licence apply. Section 9 of GPL-2.0 lets a program that specifies no
-version number be used under any version the Free Software Foundation has
-published. Upstream's code is therefore offered here under GPL-2.0-or-later,
-and so are the fork's changes and this repository's own work.
+Why upstream's code is GPL-2.0-only
+-----------------------------------
 
-Keeping "or later" leaves a route to GPLv3 open. That matters because OpenCV is
-licensed under Apache-2.0, which the FSF considers compatible with GPLv3 but
-not with GPLv2.
+Upstream's repository carries the GPL-2.0 text, added in a commit titled
+"添加 GPL 2.0 许可证" (add the GPL 2.0 licence), and says nothing about later
+versions. Section 9 of GPL-2.0 allows any version only when the program "does
+not specify a version number". Whether shipping the version 2 text under that
+title specifies one is open to argument. Only the narrower reading cannot turn
+out to be wrong, so upstream's code is treated as GPL-2.0-only.
+
+LowGuiGui's own work is offered under GPL-2.0-or-later. That keeps a GPLv3
+route open for when upstream's lines are gone, or upstream agrees to "or
+later". The route matters because OpenCV is licensed under Apache-2.0, which
+the FSF considers compatible with GPLv3 but not with GPLv2.
 
 
 Modified files

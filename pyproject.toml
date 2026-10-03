@@ -9,7 +9,8 @@ name = "gbfr-auto-linux"
 version = "0.0.0"
 description = "Battle automation for Granblue Fantasy: Relink on Linux (in preparation)"
 requires-python = ">=3.12"
-# PEP 639. The template images are the game's artwork and not under the GPL,
-# so the expression names them too; COPYRIGHT explains both parts.
-license = "GPL-2.0-or-later AND LicenseRef-Cygames-Game-Assets"
+# PEP 639. The files that still hold upstream's code are GPL-2.0-only, the rest is
+# GPL-2.0-or-later, and the template images are the game's artwork, outside the GPL.
+# COPYRIGHT explains each part.
+license = "GPL-2.0-only AND GPL-2.0-or-later AND LicenseRef-Cygames-Game-Assets"
 license-files = ["LICENSES/*.txt"]
