@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 # Runtime dependencies of the platform-free core.
 #
 # Direct dependencies only, exactly pinned. Versions were resolved and import-

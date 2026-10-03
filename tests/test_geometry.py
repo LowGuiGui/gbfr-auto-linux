@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """geometry.py —— 全部用 Howard 真机上量到的数字。
 
 这些测试的价值在于它们钉死了一个**算错过的结论**：#46 原来说中键偏移是

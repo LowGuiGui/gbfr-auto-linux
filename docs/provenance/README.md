@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+SPDX-License-Identifier: GPL-2.0-or-later
+-->
+
 # Where this history came from
 
 Everything up to commit `836f200` was produced mechanically from the Windows project, and

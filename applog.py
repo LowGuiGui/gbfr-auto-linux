@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 # 集中式日志。
 #
 # 除 main.py 外的模块没有任何上报渠道 —— App.log() 是 App 的方法，直接写 Tk

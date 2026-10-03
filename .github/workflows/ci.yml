@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 # CI for gbfr-auto-linux.
 #
 # Ubuntu only. The core is platform-free, and Linux is the platform it is headed

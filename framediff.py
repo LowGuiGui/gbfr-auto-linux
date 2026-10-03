@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """帧间差分 —— 回答"游戏失焦以后到底是停了，还是只是不理输入"。
 
 #45 的探测缺的最后一块。第 5 段的手柄测试问的是"角色动了吗"，靠人眼看，而人眼

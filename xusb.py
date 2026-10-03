@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """XInput 手柄报告的格式和按钮位。
 
 从 vigem.py 拆出来的平台无关部分。XUSB_REPORT 的字段布局和 XINPUT_GAMEPAD 一致，

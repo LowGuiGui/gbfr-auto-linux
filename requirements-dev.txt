@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 # Development dependencies.
 #
 # Runtime dependencies live in requirements.txt. Nothing here is needed to *run*

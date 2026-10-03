@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 zhiyual <https://github.com/zhiyual>
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Derived from zhiyual/gbfr_auto; changed by LowGuiGui since 2026-08-23. The git
+# history records each change and its date.
+
 """GBFR 的页面判定树和配套的表：认哪几张模板、判出哪几页、每一页做什么。
 
 pages.py 是引擎，只管按顺序试规则；这里是数据，描述的是这个游戏本身。这些表原来

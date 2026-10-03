@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 # Ruff configuration for gbfr_auto.
 #
 # Deliberately scoped to REAL PROBLEMS, not style. This repo is a fork tracking

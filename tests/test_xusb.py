@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """xusb.py：手柄报告的格式和按钮位。
 
 这两组测试原来分别在 test_vigem.py 和 test_backend.py 里，跟着 xusb.py 一起挪过来。

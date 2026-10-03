@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 """页面判定树（#16 第二部分）。
 
 这棵树以前**一条测试都没有** —— `_get_current_page_name` 在每个测试里都是桩，
