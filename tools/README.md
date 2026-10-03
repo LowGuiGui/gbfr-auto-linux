@@ -18,7 +18,8 @@ four questions, and each is answered by a measurement that can come out either w
 | L4 | Does the game pause when its window loses focus? | Captures a series of frames while the game is focused and another while it is not, and compares the motion with the logic of the Windows probe's A4 test (`framediff`). Also records the focus events the game window receives. |
 
 L5, the focus spoof built as an `.asi`, only matters if L4 finds a pause. It is not part of
-this tool.
+this tool. Its source is parked in history; `git restore --source=1db218a --
+hook/gbfr_hook.c` brings it back.
 
 ### Running it
 
