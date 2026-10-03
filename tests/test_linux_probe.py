@@ -12,6 +12,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -168,6 +169,52 @@ class TestGamescopectl:
         assert frame.shape == (4, 8, 3)
         assert frame[0, 0].tolist() == [200, 100, 50]
 
+    def test_the_path_given_to_gamescope_is_absolute(self, tmp_path, monkeypatch):
+        """gamescope 在自己的工作目录里解析路径。相对路径会让截图写到别处，这边等到超时。"""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "rel").mkdir()
+
+        def gamescope_saves(path):
+            Image.new("RGB", (8, 4)).save(path)
+        run = FakeRun(write=gamescope_saves)
+        lp.capture_gamescopectl(Path("rel/shot.png"), "gamescope-1", run=run, sleep=lambda s: None)
+        sent = Path(run.calls[0][0][-1])
+        assert sent.is_absolute()
+        assert sent == Path.cwd() / "rel" / "shot.png"
+
+    def test_a_symlinked_screenshot_name_never_touches_its_target(self, tmp_path):
+        """resolve() 会顺着符号链接走到目标，清理旧图时删掉的就是目标文件了。"""
+        outside = tmp_path / "outside.txt"
+        outside.write_text("keep me")
+        report_dir = tmp_path / "report"
+        report_dir.mkdir()
+        shot = report_dir / "gamescopectl-latest.png"
+        shot.symlink_to(outside)
+
+        def gamescope_saves(path):
+            Image.new("RGB", (8, 4)).save(path)
+        run = FakeRun(write=gamescope_saves)
+        lp.capture_gamescopectl(shot, "gamescope-1", run=run, sleep=lambda s: None)
+        assert outside.read_bytes() == b"keep me"
+        assert Path(run.calls[0][0][-1]) == shot
+        assert not shot.is_symlink()
+
+    def test_a_dangling_symlink_is_removed_not_written_through(self, tmp_path):
+        """exists() 对悬空链接返回 False。只查它的话链接会留下，截图就穿过链接写到外面去。"""
+        outside = tmp_path / "outside.png"
+        report_dir = tmp_path / "report"
+        report_dir.mkdir()
+        shot = report_dir / "gamescopectl-latest.png"
+        shot.symlink_to(outside)
+        assert not shot.exists() and shot.is_symlink()
+
+        def gamescope_saves(path):
+            Image.new("RGB", (8, 4)).save(path)
+        lp.capture_gamescopectl(shot, "gamescope-1", run=FakeRun(write=gamescope_saves),
+                                sleep=lambda s: None)
+        assert not outside.exists()
+        assert shot.exists() and not shot.is_symlink()
+
     def test_a_stale_file_from_an_earlier_run_is_not_reused(self, tmp_path):
         """上一次留下的图不能冒充这一次的截图。"""
         shot = tmp_path / "shot.png"
@@ -273,11 +320,13 @@ class TestVerdicts:
             def next_event(self):
                 return self.events.pop(0)
 
-        d = EventDisplay([SimpleNamespace(type=X.KeyPress, detail=9),
-                          SimpleNamespace(type=X.KeyRelease, detail=9),
-                          SimpleNamespace(type=X.FocusOut, detail=3)])
-        assert lp.drain_events(d) == {"KeyPress": 1, "KeyPress keycode 9": 1, "KeyRelease": 1,
-                                      "KeyRelease keycode 9": 1, "FocusOut": 1}
+        game = SimpleNamespace(id=0x400000)
+        d = EventDisplay([SimpleNamespace(type=X.KeyPress, detail=9, window=game),
+                          SimpleNamespace(type=X.KeyRelease, detail=9, window=game),
+                          SimpleNamespace(type=X.FocusOut, detail=3, window=game)])
+        assert lp.drain_events(d) == {"KeyPress": 1, "KeyPress keycode 9 on 0x400000": 1,
+                                      "KeyRelease": 1, "KeyRelease keycode 9 on 0x400000": 1,
+                                      "FocusOut": 1}
 
     def test_leaks(self):
         assert lp.leak_verdict(None)[0] == "unknown"
@@ -348,6 +397,20 @@ class TestCommandLine:
         assert lp.parse_args(["--steps", "l4,L2"]).steps == ["L1", "L2", "L4"]
         assert lp.parse_args([]).steps == ["L1", "L2", "L3", "L4"]
 
+    def test_l3_and_l4_bring_l2_along(self):
+        """L3、L4 用的是 L2 选出来的截图办法。没有 L2，它们只会一声不响地跳过。"""
+        assert lp.parse_args(["--steps", "L3"]).steps == ["L1", "L2", "L3"]
+        assert lp.parse_args(["--steps", "L4"]).steps == ["L1", "L2", "L4"]
+        assert lp.parse_args(["--steps", "L1"]).steps == ["L1"]
+
+    @pytest.mark.parametrize("argv", [
+        ["--frames", "1"], ["--frames", "0"], ["--frames", "-3"], ["--interval", "-0.5"],
+    ])
+    def test_settings_that_cannot_measure_are_rejected(self, argv):
+        """--frames 0 曾让 L4 在保存第一帧时 IndexError；--frames 1 只能得出 no-data。"""
+        with pytest.raises(SystemExit):
+            lp.parse_args(argv)
+
     def test_unknown_steps_are_rejected(self):
         with pytest.raises(SystemExit):
             lp.parse_args(["--steps", "L1,L9"])
@@ -362,3 +425,140 @@ class TestCommandLine:
         text = (tmp_path / "report.md").read_text()
         assert "No game found inside gamescope" in text
         assert "L2 skipped" in text and "L3 skipped" in text and "L4 skipped" in text
+
+
+class FakeWindow:
+    """python-xlib Window 的替身：id，query_tree() 的应答带 root、parent、children（根的
+    parent 是 id 为 0 的窗口），以及 change_attributes(**keys)。"""
+
+    def __init__(self, wid, parent=None):
+        self.id = wid
+        self.parent = parent
+        self.masks = []
+
+    def query_tree(self):
+        root = self
+        while root.parent is not None:
+            root = root.parent
+        parent = self.parent if self.parent is not None else SimpleNamespace(id=0)
+        return SimpleNamespace(root=root, parent=parent, children=[])
+
+    def change_attributes(self, onerror=None, **keys):
+        self.masks.append(keys)
+
+
+def window_tree():
+    root = FakeWindow(0x35B)
+    game = FakeWindow(0x400000, root)
+    child = FakeWindow(0x400010, game)
+    overlay = FakeWindow(0x500000, root)
+    return root, game, child, overlay
+
+
+class TestAimingAtTheGame:
+    def test_the_game_and_its_children_count(self):
+        root, game, child, overlay = window_tree()
+        assert lp.within_window(game, game.id)
+        assert lp.within_window(child, game.id)
+
+    @pytest.mark.parametrize("focus", ["overlay", "root", 0, 1])
+    def test_anything_else_does_not(self, focus):
+        """覆盖层、根窗口，以及 None / PointerRoot 这两个常量，都不是游戏。"""
+        root, game, child, overlay = window_tree()
+        target = {"overlay": overlay, "root": root}.get(focus, focus)
+        assert not lp.within_window(target, game.id)
+
+
+class FocusDisplay:
+    """L3 用到的 python-xlib Display 方法，签名照文档。焦点按 focus_sequence 依次给出。"""
+
+    def __init__(self, focus_sequence):
+        self.focus_sequence = list(focus_sequence)
+        self.sent = []
+
+    def get_input_focus(self):
+        focus = self.focus_sequence.pop(0) if len(self.focus_sequence) > 1 else self.focus_sequence[0]
+        return SimpleNamespace(focus=focus)
+
+    def keysym_to_keycode(self, keysym):
+        return 9
+
+    def xtest_fake_input(self, event_type, detail=0, time=0, root=0, x=0, y=0):
+        self.sent.append((event_type, detail))
+
+    def sync(self):
+        pass
+
+    def pending_events(self):
+        return 0
+
+
+@pytest.fixture
+def l3(tmp_path, monkeypatch):
+    monkeypatch.setattr(lp, "ask_yes", lambda question, read=input: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+    monkeypatch.setattr(lp.time, "sleep", lambda seconds: None)
+
+    def run(focus_sequence):
+        root, game, child, overlay = window_tree()
+        named = {"game": game, "child": child, "overlay": overlay}
+        d = FocusDisplay([named[f] for f in focus_sequence])
+        report = lp.Report(tmp_path, echo=lambda s: None)
+        state = {"x": d, "capture": lambda: np.zeros((4, 4, 3), np.uint8), "window": game}
+        lp.step_l3(SimpleNamespace(), report, state)
+        report.close()
+        return d, (tmp_path / "report.md").read_text()
+    return run
+
+
+class TestL3Aim:
+    def test_nothing_is_sent_when_the_focus_is_elsewhere(self, l3):
+        d, text = l3(["overlay"])
+        assert d.sent == []
+        assert "not on the game window" in text
+
+    def test_both_escapes_go_out_when_a_game_child_has_focus(self, l3):
+        from Xlib import X
+        d, text = l3(["child"])
+        assert [t for t, _ in d.sent] == [X.KeyPress, X.KeyRelease, X.KeyPress, X.KeyRelease]
+        assert "key delivery" in text
+
+    def test_a_focus_change_during_the_baseline_sends_nothing(self, l3):
+        """取基准帧要两秒多。焦点在这期间换走了，第一个 Escape 也不能发。"""
+        d, text = l3(["game", "overlay"])
+        assert d.sent == []
+        assert "left the game while the baseline frames were taken" in text
+
+    def test_the_second_escape_waits_for_the_game_to_have_focus_again(self, l3):
+        """第一次 Escape 之后焦点跑到了别处：第二次不能跟着发过去。"""
+        d, text = l3(["game", "game", "overlay"])
+        assert len(d.sent) == 2
+        assert "second Escape: The nested focus left the game" in text
+
+
+class TestL4Sampling:
+    def test_properties_are_compared_between_the_two_phases(self, tmp_path, monkeypatch):
+        """以前两次取样都在终端有焦点的时候，只在游戏有焦点时才变的属性永远比不出来。"""
+        phase = {"now": "terminal"}
+
+        def countdown(seconds, message, echo=print, sleep=None):
+            phase["now"] = "focused" if message.startswith("Switch to the game") else "unfocused"
+
+        focused_window = {"terminal": [9], "focused": [1], "unfocused": [9]}
+        monkeypatch.setattr(lp, "countdown", countdown)
+        monkeypatch.setattr(lp, "ask_yes", lambda question, read=input: True)
+        monkeypatch.setattr(lp, "gamescope_root_properties",
+                            lambda d: {"GAMESCOPE_FOCUSED_WINDOW": focused_window[phase["now"]]})
+        monkeypatch.setattr(lp.time, "sleep", lambda seconds: None)
+
+        rng = np.random.default_rng(3)
+        report = lp.Report(tmp_path, echo=lambda s: None)
+        state = {"x": SimpleNamespace(pending_events=lambda: 0),
+                 "capture": lambda: rng.integers(0, 255, (8, 8, 3), dtype=np.uint8)}
+        lp.step_l4(SimpleNamespace(frames=3, interval=0), report, state)
+        report.close()
+
+        records = [json.loads(line) for line in (tmp_path / "report.jsonl").read_text().splitlines()]
+        diff = next(r["value"] for r in records
+                    if r["name"] == "gamescope root properties, focused vs unfocused")
+        assert diff == {"GAMESCOPE_FOCUSED_WINDOW": [[1], [9]]}

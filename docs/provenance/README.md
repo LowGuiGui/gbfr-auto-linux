@@ -46,12 +46,14 @@ the result is reproducible.
   `test_diagnostics`, `test_hotkeys`, `test_vigem`). They are here for their history, not
   because they run on Linux. The change after this record moved their platform-free parts
   into the core (`pagetree.py`, `xusb.py`) and took the rest out of the working tree. When
-  the Linux port needs one of them, bring it back from the commit before it was removed:
+  the Linux port needs one of them, bring it back from `1db218a`, the last commit that has
+  them all, already wired to `pagetree.py` and `xusb.py`:
 
-      git restore --source="$(git log --diff-filter=D --format=%H -1 -- main.py)^" -- main.py
+      git restore --source=1db218a -- main.py option.py
 
-  The hook source is kept for the probe's L5 step, which may build its focus spoof as an
-  `.asi`.
+  `hook/gbfr_hook.c` is not in the working tree either. It stays in history for the probe's
+  L5 step, which may build its focus spoof as an `.asi`, and comes back the same way:
+  `git restore --source=1db218a -- hook/gbfr_hook.c`.
 - **Data and licence:** `template/*.png`, `LICENSE`, `COPYRIGHT`.
 - **Tooling:** `.gitignore`, `.pre-commit-config.yaml`, `requirements.txt`,
   `requirements-dev.txt`, `ruff.toml`, `tests/conftest.py`, `tests/README.md`.

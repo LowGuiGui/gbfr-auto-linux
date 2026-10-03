@@ -332,8 +332,14 @@ def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
                          run=subprocess.run, sleep=time.sleep):
     from PIL import Image
 
-    path = Path(path)
-    if path.exists():
+    # 截图由 gamescope 自己的进程去写。它的工作目录是启动器的会话目录，不是这个终端的，
+    # 所以相对路径会落到那边（或者因为目录不存在而写不出来），这边永远等不到文件。
+    # 用 absolute() 而不是 resolve()：resolve() 会顺着最后一段的符号链接走，下面清理旧图时
+    # 删掉的就成了链接指向的文件，可能在报告目录之外。
+    path = Path(path).absolute()
+    # exists() 也顺着链接走：指向不存在目标的悬空链接会被当成"没有文件"而留下，gamescope
+    # 就会穿过它把图写到链接指向的地方。所以要看目录项本身。
+    if path.is_symlink() or path.exists():
         path.unlink()
     result = run_gamescopectl(["screenshot", str(path)], wayland_display, runtime_dir,
                               timeout=timeout, run=run)
@@ -378,6 +384,35 @@ def send_key(d, keysym_name, hold=0.05, sleep=time.sleep):
     d.sync()
 
 
+def within_window(window, ancestor_id, max_depth=64):
+    """window 是 ancestor 本身，或者是它的子孙。沿 query_tree().parent 往上走，到根为止。
+
+    XTest 的按键发给嵌套 X 的焦点窗口。焦点要是在别的窗口上（覆盖层、启动器、Wine 的
+    对话框），Escape 就发到了游戏以外的地方，那边收到按键也不能算游戏收到。焦点也可能
+    不是窗口，而是 None 或 PointerRoot 这样的常量，那同样不算。
+    """
+    current = window
+    for _ in range(max_depth):
+        if not hasattr(current, "id") or not current.id:
+            return False
+        if current.id == ancestor_id:
+            return True
+        try:
+            tree = current.query_tree()
+        except Exception:
+            return False
+        if current.id == tree.root.id:
+            return False
+        current = tree.parent
+    return False
+
+
+def describe_focus(focus):
+    if hasattr(focus, "id"):
+        return hex(focus.id)
+    return {0: "None", 1: "PointerRoot"}.get(focus, repr(focus))
+
+
 class TerminalInput:
     """把终端切到 cbreak 且不回显，收集这段时间里送进终端的字节。
 
@@ -386,11 +421,17 @@ class TerminalInput:
     """
 
     def __init__(self, fd=None):
-        self.fd = sys.stdin.fileno() if fd is None else fd
+        if fd is None:
+            try:
+                fd = sys.stdin.fileno()
+            except (OSError, ValueError):
+                # 标准输入被关掉或被换成了没有文件描述符的对象：当作不是终端。
+                fd = None
+        self.fd = fd
         self.saved = None
 
     def __enter__(self):
-        if os.isatty(self.fd):
+        if self.fd is not None and os.isatty(self.fd):
             self.saved = termios.tcgetattr(self.fd)
             tty.setcbreak(self.fd)
             termios.tcflush(self.fd, termios.TCIFLUSH)
@@ -481,7 +522,7 @@ def drain_events(d):
     names = {X.FocusIn: "FocusIn", X.FocusOut: "FocusOut", X.MapNotify: "MapNotify",
              X.UnmapNotify: "UnmapNotify", X.PropertyNotify: "PropertyNotify",
              X.ConfigureNotify: "ConfigureNotify", X.KeyPress: "KeyPress",
-             X.KeyRelease: "KeyRelease"}
+             X.KeyRelease: "KeyRelease", X.MappingNotify: "MappingNotify"}
     counts = {}
     while d.pending_events():
         event = d.next_event()
@@ -489,6 +530,9 @@ def drain_events(d):
         counts[name] = counts.get(name, 0) + 1
         if event.type in (X.KeyPress, X.KeyRelease):
             key = f"{name} keycode {event.detail}"
+            window_id = getattr(getattr(event, "window", None), "id", None)
+            if window_id is not None:
+                key += f" on {hex(window_id)}"
             counts[key] = counts.get(key, 0) + 1
     return counts
 
@@ -658,9 +702,13 @@ def step_l2(args, report, state):
 
 def step_l3(args, report, state):
     report.heading("L3  Does XTest input reach the game, and only the game?")
-    d, capture = state.get("x"), state.get("capture")
+    d, capture, game = state.get("x"), state.get("capture"), state.get("window")
     if d is None or capture is None:
         report.result("L3", "skipped", "needs the nested display (L1) and a working capture (L2)")
+        return
+    if game is None:
+        report.result("L3", "skipped", "L1 did not find the game window, so there is nothing "
+                                       "to aim the key at")
         return
     if not ask_yes("L3 sends Escape to the game twice (open, then close the menu). Is the game "
                    "on a screen where that is harmless, such as in town, and not in a battle "
@@ -669,25 +717,46 @@ def step_l3(args, report, state):
         return
     input("Make sure THIS terminal has keyboard focus and the game window is visible, "
           "then press Enter. ")
-    # 按键事件发往嵌套 X 的焦点窗口；Wine 可能把焦点放在游戏的子窗口上，所以两个都看。
+    # 按键发往嵌套 X 的焦点窗口。Wine 可能把焦点放在游戏的子窗口上，那可以；焦点在游戏
+    # 以外的窗口上就一个键也不发。每次发之前都重新看一次，焦点可能在中途换走。
     focus = d.get_input_focus().focus
-    watched = {w.id: w for w in (state.get("window"), focus) if hasattr(w, "id")}
-    for w in watched.values():
-        watch_window(w, keys=True)
+    if not within_window(focus, game.id):
+        report.result("L3", "skipped", {"focus": describe_focus(focus), "game": hex(game.id)},
+                      "The nested X focus is not on the game window, so Escape would reach "
+                      "something else. Bring the game to the front inside gamescope and run "
+                      "L3 again.")
+        return
     with TerminalInput() as terminal:
         frames = []
         for _ in range(3):
             frames.append(try_capture(capture))
             time.sleep(0.75)
+        # 取基准帧花了两秒多，焦点可能已经换走。发第一个键之前再看一次，并且盯住此刻真正
+        # 有焦点的那个窗口。
+        focus = d.get_input_focus().focus
+        if not within_window(focus, game.id):
+            report.result("L3", "skipped", {"focus": describe_focus(focus), "game": hex(game.id)},
+                          "The nested focus left the game while the baseline frames were "
+                          "taken, so no key was sent. Run L3 again.")
+            return
+        watched = {w.id: w for w in (game, focus)}
+        for w in watched.values():
+            watch_window(w, keys=True)
         drain_events(d)
         send_key(d, "Escape")
         time.sleep(1.5)
         after = try_capture(capture)
-        delivered = drain_events(d) if watched else None
+        delivered = drain_events(d)
         received = terminal.read_pending(wait=0.5)
-        send_key(d, "Escape")
-        time.sleep(1.5)
-        closed = try_capture(capture)
+        closed = None
+        if within_window(d.get_input_focus().focus, game.id):
+            send_key(d, "Escape")
+            time.sleep(1.5)
+            closed = try_capture(capture)
+        else:
+            report.result("L3", "second Escape", "not sent",
+                          "The nested focus left the game after the first Escape, so the second "
+                          "was not sent. Close the game's menu yourself.")
     for name, frame in (("before", frames[-1]), ("after", after), ("closed", closed)):
         if frame is not None:
             save_frame(frame, report.dir / f"L3-{name}.png")
@@ -716,13 +785,16 @@ def step_l4(args, report, state):
     if d is not None and window is not None:
         watch_window(window)
         drain_events(d)
-    props_before = gamescope_root_properties(d) if d is not None else {}
-    phases = {}
+    phases, samples = {}, {}
     for phase, instruction in (
             ("focused", "Switch to the game with Alt+Tab and leave mouse and keyboard alone."),
             ("unfocused", "Switch back to this terminal with Alt+Tab, keep the game visible, "
                           "and leave it alone.")):
         countdown(5, instruction)
+        # 在这一段自己的焦点状态里取样。这一步开始前和结束后，焦点都在终端上，和失焦段
+        # 一样，拿这两个时刻比只会比出"没有变化"。
+        samples[phase] = gamescope_root_properties(d) if d is not None else {}
+        report.result("L4", f"{phase} gamescope root properties", samples[phase])
         frames = capture_series(capture, args.frames, args.interval)
         events = drain_events(d) if d is not None and window is not None else None
         deltas = series_deltas(frames)
@@ -737,8 +809,8 @@ def step_l4(args, report, state):
     report.result("L4", "framediff", code, text)
     report.result("L4", "verdict", code, L4_MEANING.get(code, text))
     if d is not None:
-        report.result("L4", "gamescope root properties that changed",
-                      changed_properties(props_before, gamescope_root_properties(d)))
+        report.result("L4", "gamescope root properties, focused vs unfocused",
+                      changed_properties(samples["focused"], samples["unfocused"]))
 
 
 STEP_FUNCTIONS = {"L1": step_l1, "L2": step_l2, "L3": step_l3, "L4": step_l4}
@@ -747,24 +819,33 @@ STEP_FUNCTIONS = {"L1": step_l1, "L2": step_l2, "L3": step_l3, "L4": step_l4}
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Measure how GBFR behaves under gamescope.")
     parser.add_argument("--steps", default=",".join(STEPS),
-                        help="comma-separated subset of L1,L2,L3,L4 (default: all)")
+                        help="comma-separated subset of L1,L2,L3,L4 (default: all). L1 always "
+                             "runs, and asking for L3 or L4 runs L2 too")
     parser.add_argument("--appid", default=APPID)
     parser.add_argument("--out", help="output folder (default: probe-runs/<timestamp>)")
-    parser.add_argument("--frames", type=int, default=10, help="frames per L4 phase")
+    parser.add_argument("--frames", type=int, default=10, help="frames per L4 phase, at least 2")
     parser.add_argument("--interval", type=float, default=1.0, help="seconds between L4 frames")
     args = parser.parse_args(argv)
+    if args.frames < 2:
+        parser.error("--frames must be at least 2: L4 measures motion between consecutive frames")
+    if args.interval < 0:
+        parser.error("--interval cannot be negative")
     requested = {s.strip().upper() for s in args.steps.split(",") if s.strip()}
     unknown = sorted(requested - set(STEPS))
     if unknown:
         parser.error(f"unknown steps: {', '.join(unknown)}")
-    # 其余每一步都要 L1 找到的显示和窗口，所以 L1 总是跑；顺序按 STEPS，不按输入。
+    # 其余每一步都要 L1 找到的显示和窗口，所以 L1 总是跑。L3、L4 还要 L2 选出来的截图办法，
+    # 只要了它们而没要 L2，它们会一声不响地跳过。顺序按 STEPS，不按输入。
+    if requested & {"L3", "L4"}:
+        requested.add("L2")
     args.steps = [s for s in STEPS if s in requested or s == "L1"]
     return args
 
 
 def main(argv=None):
     args = parse_args(argv)
-    out = Path(args.out) if args.out else Path("probe-runs") / time.strftime("%Y%m%d-%H%M%S")
+    out = (Path(args.out) if args.out
+           else Path("probe-runs") / time.strftime("%Y%m%d-%H%M%S")).resolve()
     report = Report(out)
     report.note(f"# GBFR Linux probe, {time.strftime('%Y-%m-%d %H:%M:%S')}")
     report.note(f"steps {','.join(args.steps)}, appid {args.appid}, output {out}")
