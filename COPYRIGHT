@@ -25,6 +25,14 @@ Changes made in this fork:
 They are licensed under the same terms as the original -- GPL-2.0 -- which is
 what section 2(b) requires of a derived work.
 
+The changes were made between 2026-08-23 and 2026-10-02. The git history
+records which files each change touched, and when.
+
+They were written by an AI coding assistant at the owner's direction and were
+not reviewed line by line by a human; see "About the AI-written code" in the
+README. Whether AI-generated output is protected by copyright is unsettled; to
+the extent it is, the notice above applies.
+
 
 Why this is a separate file
 ---------------------------
@@ -38,11 +46,14 @@ Programs" appendix. That is an example intended to be copied into your own
 files -- not a blank to be filled in inside the licence. Editing it would
 modify the licence text itself, which is not something a licensee should do.
 
-GPL-2.0 section 1 expects each source file to carry a notice. Per-file headers
-are deliberately not used here: this fork tracks an active upstream, and a
-header added to every file would conflict with essentially any future upstream
-change. The same reasoning keeps stylistic lint rules off (see ruff.toml) and
-keeps every pre-commit hook read-only.
+GPL-2.0 section 1 asks for an appropriate copyright notice on each copy, and
+the licence's "How to Apply These Terms" appendix recommends putting one at the
+start of each source file. Per-file headers were deliberately not used here:
+when this was decided, the fork tracked an active upstream, and a header added
+to every file would have conflicted with essentially any upstream change. The
+same reasoning kept stylistic lint rules off (see ruff.toml) and kept every
+pre-commit hook read-only. Upstream has been inactive since 2026-07-19 and this
+fork is paused; whoever resumes it should revisit this, and #11 with it.
 
 A single file naming the holder of this fork's changes is the version of that
 notice which survives an upstream sync.

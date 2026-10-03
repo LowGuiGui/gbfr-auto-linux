@@ -6,7 +6,7 @@
 # So we lint for bugs and leave upstream's formatting alone.
 
 line-length = 100
-target-version = "py310"   # README states Python 3.10+
+target-version = "py312"   # numpy 2.5.2 requires Python >= 3.12; README says 3.12+
 
 [lint]
 select = [
