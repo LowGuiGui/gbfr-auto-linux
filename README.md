@@ -112,9 +112,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 ## 注意事项
 
-- 本工具仅用于学习交流，请勿用于商业用途。
 - 这是非官方项目，与 Cygames 无关，也未经其认可。碧蓝幻想：Relink 及其美术素材归 Cygames, Inc. 所有。
 
 ## 许可证
 
-GPL-2.0-or-later，全文见 [LICENSES/GPL-2.0-or-later.txt](LICENSES/GPL-2.0-or-later.txt)。上游作品归上游作者所有；`template/` 里的图片是游戏的美术素材，不在 GPL 之下；谁拥有什么，见 [COPYRIGHT](COPYRIGHT)。
+GPL-2.0。本仓库自己的代码按 GPL-2.0-or-later 授权；仍含上游代码的 `opencv.py`、`pagetree.py` 和 `.gitignore` 按 GPL-2.0-only 授权，所以整个程序目前只能按 GPL-2.0 使用。许可证全文在 [LICENSES/](LICENSES/)。`template/` 里的图片是游戏的美术素材，不在 GPL 之下。谁拥有什么、为什么这样划分，见 [COPYRIGHT](COPYRIGHT)。
