@@ -334,8 +334,12 @@ def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
 
     # 截图由 gamescope 自己的进程去写。它的工作目录是启动器的会话目录，不是这个终端的，
     # 所以相对路径会落到那边（或者因为目录不存在而写不出来），这边永远等不到文件。
-    path = Path(path).resolve()
-    if path.exists():
+    # 用 absolute() 而不是 resolve()：resolve() 会顺着最后一段的符号链接走，下面清理旧图时
+    # 删掉的就成了链接指向的文件，可能在报告目录之外。
+    path = Path(path).absolute()
+    # exists() 也顺着链接走：指向不存在目标的悬空链接会被当成"没有文件"而留下，gamescope
+    # 就会穿过它把图写到链接指向的地方。所以要看目录项本身。
+    if path.is_symlink() or path.exists():
         path.unlink()
     result = run_gamescopectl(["screenshot", str(path)], wayland_display, runtime_dir,
                               timeout=timeout, run=run)
@@ -722,14 +726,22 @@ def step_l3(args, report, state):
                       "something else. Bring the game to the front inside gamescope and run "
                       "L3 again.")
         return
-    watched = {w.id: w for w in (game, focus)}
-    for w in watched.values():
-        watch_window(w, keys=True)
     with TerminalInput() as terminal:
         frames = []
         for _ in range(3):
             frames.append(try_capture(capture))
             time.sleep(0.75)
+        # 取基准帧花了两秒多，焦点可能已经换走。发第一个键之前再看一次，并且盯住此刻真正
+        # 有焦点的那个窗口。
+        focus = d.get_input_focus().focus
+        if not within_window(focus, game.id):
+            report.result("L3", "skipped", {"focus": describe_focus(focus), "game": hex(game.id)},
+                          "The nested focus left the game while the baseline frames were "
+                          "taken, so no key was sent. Run L3 again.")
+            return
+        watched = {w.id: w for w in (game, focus)}
+        for w in watched.values():
+            watch_window(w, keys=True)
         drain_events(d)
         send_key(d, "Escape")
         time.sleep(1.5)

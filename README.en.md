@@ -103,7 +103,7 @@ Issue numbers in the older commit messages read `gbfr_auto#NN`, and those in cod
   - Every non-merge commit carries a `Co-Authored-By: Claude` trailer, except upstream's 6 commits and the 3 initial setup commits of 2026-08-23 (ruff and pre-commit config, pinned requirements, restored LICENSE).
 - **Review**: **no human line-by-line review.** The owner sets the direction and runs the tests that need the real game.
 - **Verification**:
-  - 236 automated tests on Linux (173 for the core, 63 for the probe), run in CI on every pull request.
+  - 239 automated tests on Linux (173 for the core, 66 for the probe), run in CI on every pull request.
   - Nothing has run against the game on Linux yet. The tests do not cover capture, input, or anything else that needs the game itself.
 - **Risk**: the bot sends input to the game, and step 5 of the probe plan may load a library into the game process. The GPL provides no warranty (GPL-2.0 sections 11 and 12).
 - **Copyright**: whether AI-generated output is protected by copyright is legally unsettled. To the extent it is, the licence in [COPYRIGHT](COPYRIGHT) applies. AI output may also resemble its training data.
