@@ -7,9 +7,11 @@
 
 写平台代码之前先量。四个问题，每个都有一个可能失败的测量：
 
-    L1  游戏在哪个 gamescope 里：嵌套 X 显示、Wayland 套接字、游戏窗口。只读。
-    L2  后台能不能截到图：X11 GetImage（根窗口和游戏窗口）与 gamescopectl 截图，
-        在聚焦、失焦、被遮住三种状态下各截一次。全黑算失败，由 opencv.is_blank_frame 判定。
+    L1  游戏在哪个 gamescope 里：嵌套 X 显示、Wayland 套接字、游戏窗口，以及这个
+        gamescope 在 PipeWire 里的视频节点。只读。
+    L2  后台能不能截到图：X11 GetImage（根窗口和游戏窗口）、gamescopectl 截图，以及从
+        gamescope 的 PipeWire 节点取一帧，在聚焦、失焦、被遮住三种状态下各截一次。全黑算
+        失败，由 opencv.is_blank_frame 判定。每一轮再连续取流几秒，量 PipeWire 的帧率。
     L3  经 XTest 送进嵌套 X 的 Escape，游戏收不收，宿主桌面会不会也收到。发之前先问。
     L4  失焦以后游戏停不停：聚焦、失焦各连拍一段，用 framediff 的 A4 判定；同时记下
         游戏窗口收到的 FocusIn/FocusOut 和 gamescope 根窗口属性的变化。
@@ -25,7 +27,9 @@ import argparse
 import itertools
 import json
 import os
+import re
 import select
+import signal
 import subprocess
 import sys
 import termios
@@ -62,7 +66,6 @@ def short_error(exc, limit=160):
 
 
 def strip_ansi(text):
-    import re
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
@@ -145,6 +148,11 @@ def read_proc_text(pid, name, proc="/proc"):
     return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
 
 
+# 决定连哪个 PipeWire 的环境变量（PipeWire 的 pipewire(1) 手册）：PIPEWIRE_RUNTIME_DIR 优先于
+# XDG_RUNTIME_DIR 找套接字所在的目录，PIPEWIRE_REMOTE 是套接字的名字。
+PIPEWIRE_VARS = ("PIPEWIRE_REMOTE", "PIPEWIRE_RUNTIME_DIR")
+
+
 def find_game_processes(appid=APPID, proc="/proc"):
     """属于这个 appid、而且活在某个 gamescope 里面的进程。
 
@@ -170,6 +178,7 @@ def find_game_processes(appid=APPID, proc="/proc"):
             "GAMESCOPE_WAYLAND_DISPLAY": env.get("GAMESCOPE_WAYLAND_DISPLAY"),
             "XAUTHORITY": env.get("XAUTHORITY"),
             "XDG_RUNTIME_DIR": env.get("XDG_RUNTIME_DIR"),
+            **{key: env.get(key) for key in PIPEWIRE_VARS},
         })
     return sorted(found, key=lambda p: p["pid"])
 
@@ -284,6 +293,155 @@ def run_gamescopectl(args, wayland_display, runtime_dir=None, timeout=10, run=su
     return run(["gamescopectl", *args], env=env, capture_output=True, text=True, timeout=timeout)
 
 
+# --- L1：游戏那个 gamescope 在 PipeWire 里的视频节点 -------------------------------
+
+def parent_pid(pid, proc="/proc"):
+    """/proc/<pid>/status 里的 PPid。进程已经退出或者读不懂，返回 None。"""
+    try:
+        text = Path(proc, str(pid), "status").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("PPid:"):
+            value = line.partition(":")[2].strip()
+            return int(value) if value.isdigit() else None
+    return None
+
+
+def process_lineage(pid, proc="/proc", limit=64):
+    """pid 本身和它的各级父进程，近的在前，到 1 号进程为止（不含）。
+
+    游戏和 gamescope 之间隔着几层启动器，层数随启动方式而变，所以一直往上走。节点归谁
+    只按进程号认；进程名只用来认出半路上的 gamescope（见 is_gamescope_process）。
+    """
+    chain = []
+    current = pid
+    while current is not None and current > 1 and current not in chain and len(chain) < limit:
+        chain.append(current)
+        current = parent_pid(current, proc)
+    return chain
+
+
+def pipewire_env(runtime_dir=None, game_vars=None, base=None):
+    """连 PipeWire 用的环境，和游戏那边连的是同一个 PipeWire。
+
+    XDG_RUNTIME_DIR 用游戏进程里的那一份；PIPEWIRE_REMOTE、PIPEWIRE_RUNTIME_DIR 游戏那边设了
+    就照搬，没设就去掉，免得探测器自己环境里的值把 pw-dump 和 gst-launch 带到另一个
+    PipeWire 上去。game_vars 为 None 时不动这两个。
+    """
+    env = dict(os.environ if base is None else base)
+    if runtime_dir:
+        env["XDG_RUNTIME_DIR"] = runtime_dir
+    if game_vars is not None:
+        for key in PIPEWIRE_VARS:
+            if game_vars.get(key):
+                env[key] = game_vars[key]
+            else:
+                env.pop(key, None)
+    return env
+
+
+# gamescope 合成器进程的名字：主线程会把自己改名成 gamescope-wl。gamescopereaper 是它替
+# 子进程收尸用的另一个程序，不是合成器。
+GAMESCOPE_NAMES = frozenset({"gamescope", "gamescope-wl"})
+
+
+def is_gamescope_process(pid, proc="/proc"):
+    """pid 是不是一个 gamescope 合成器：进程名是 gamescope 或 gamescope-wl，或者可执行文件
+    叫 gamescope（升级以后正在跑的旧文件，链接后面会带 " (deleted)"）。"""
+    if read_proc_text(pid, "comm", proc) in GAMESCOPE_NAMES:
+        return True
+    try:
+        target = os.readlink(Path(proc, str(pid), "exe"))
+    except OSError:
+        return False
+    return Path(target.removesuffix(" (deleted)")).name == "gamescope"
+
+
+def read_pw_dump(env=None, timeout=10, run=subprocess.run):
+    """跑一次 pw-dump，返回解析好的 JSON 列表。env 是 pipewire_env 给的环境；None 用本进程的。"""
+    env = dict(os.environ) if env is None else env
+    result = run(["pw-dump", "-N"], env=env, capture_output=True, text=True, timeout=timeout)
+    if result.returncode != 0:
+        raise RuntimeError(f"pw-dump exited {result.returncode}: {result.stderr.strip()[:120]!r}")
+    return json.loads(result.stdout)
+
+
+def pipewire_gamescope_nodes(dump):
+    """pw-dump 的 JSON -> 每个 gamescope 视频节点的 id、serial、状态和所属进程的进程号。
+
+    gamescope 把它的流命名为 "gamescope"，节点的 node.name 就是这个。节点的 client.id
+    指向建它的 Client 对象，上面有两个进程号：pipewire.sec.pid 是 PipeWire 从套接字对端
+    凭据读到的，客户端改不了；application.process.id 是客户端自己报的，进程在另一个 PID
+    命名空间里时会不一样。两个都收下。
+
+    能取流的是标着 media.class=Video/Source 的那个（gamescope 3.16.20 就这么标）。同名的
+    节点要是不止一个，只留标了的；一个都没标（别的版本或别的编法），才退回只看名字。
+    """
+    def props(obj):
+        return (obj.get("info") or {}).get("props") or {}
+
+    objects = [o for o in dump if isinstance(o, dict)]
+    clients = {o.get("id"): props(o) for o in objects
+               if o.get("type") == "PipeWire:Interface:Client"}
+    nodes = []
+    for o in objects:
+        p = props(o)
+        if (o.get("type") != "PipeWire:Interface:Node" or not isinstance(o.get("id"), int)
+                or p.get("node.name") != "gamescope"):
+            continue
+        client = clients.get(p.get("client.id"), {})
+        pids = {client.get("pipewire.sec.pid"), client.get("application.process.id")}
+        nodes.append({"id": o["id"], "serial": p.get("object.serial"),
+                      "media_class": p.get("media.class"), "state": o["info"].get("state"),
+                      "pids": sorted(pid for pid in pids if isinstance(pid, int))})
+    sources = [n for n in nodes if n["media_class"] == "Video/Source"]
+    return sorted(sources or nodes, key=lambda n: n["id"])
+
+
+def resolve_pipewire_node(nodes, lineages, gamescopes=frozenset()):
+    """在 gamescope 的节点里挑出游戏那个实例的。lineages 是 L1 找到的每个进程各一条
+    process_lineage；gamescopes 是这些链上认得出是 gamescope 的进程号。返回 (节点或 None,
+    代号, 说明)。
+
+    沿每条链往上，第一个拥有 gamescope 节点的进程就是这个进程所在的 gamescope。半路先碰到
+    一个没有节点的 gamescope，就停在那里：游戏用的是这一层的显示，再往上的节点属于外层的
+    gamescope，拿它的画面当游戏的，测出来的是别的合成器。父进程先退出的进程会被托管给别的
+    进程，它的链上可能没有 gamescope，那条链就什么也不提供。所有链都对不上的节点一律不用，
+    哪怕 PipeWire 里只有它一个：它可能属于另一个 gamescope。
+    """
+    found, blocked = {}, set()
+    for lineage in lineages:
+        for pid in lineage:
+            owned = [n for n in nodes if pid in n["pids"]]
+            if owned:
+                for n in owned:
+                    found.setdefault(n["id"], (n, pid))
+                break
+            if pid in gamescopes:
+                blocked.add(pid)
+                break
+    if not nodes:
+        return None, "none", ("PipeWire has no gamescope node. This gamescope may be built "
+                              "without PipeWire, or it has not set up its stream.")
+    if blocked:
+        return None, "unmatched", (f"The nearest gamescope above the game (process "
+                                   f"{', '.join(map(str, sorted(blocked)))}) owns no PipeWire "
+                                   "node, so none is used: any node further up belongs to an "
+                                   "outer gamescope.")
+    if len(found) == 1:
+        node, pid = next(iter(found.values()))
+        return node, "matched", (f"Node {node['id']} belongs to process {pid}, an ancestor of "
+                                 "the game's processes.")
+    if found:
+        return None, "ambiguous", (f"Nodes {sorted(found)} each belong to an ancestor of some of "
+                                   "the game's processes, so the probe cannot tell which is the "
+                                   "game's.")
+    return None, "unmatched", (f"{len(nodes)} gamescope node(s), and none belongs to an ancestor "
+                               "of the game's processes, so none is used: they may belong to "
+                               "another gamescope.")
+
+
 # --- L2：截图 -----------------------------------------------------------------
 
 def ximage_to_rgb(data, width, height, bits_per_pixel, lsb_first=True):
@@ -349,6 +507,303 @@ def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
                            f"stderr {result.stderr.strip()[:120]!r})")
     with Image.open(path) as image:
         return np.asarray(image.convert("RGB"))
+
+
+# 一帧最多等这么久。正常一秒内就有：起进程、连上 PipeWire、协商格式、等 gamescope 画下一帧。
+PIPEWIRE_TIMEOUT = 5.0
+# 到点时看一眼连接状态，最多花这么久。这一眼是在发 SIGINT 之前看的，看得越久，管道就多跑
+# 越久，用户也得把窗口状态多保持越久；pw-dump 平常零点几秒就回来。
+DEADLINE_LOOK_TIMEOUT = 2.0
+# 两条管道共用的流属性，道理见 pipewire_pipeline。值都写成 (string)true：不写类型会被解析
+# 成布尔值，pipewiresrc 用 g_value_transform 转成字符串，就成了 "TRUE"。
+STREAM_PROPERTIES = ('stream-properties="props,node.dont-fallback=(string)true,'
+                     'node.dont-reconnect=(string)true"')
+
+
+def pipewire_pipeline(serial, location, frames=1):
+    """gst-launch-1.0 的命令行：从 object.serial 为 serial 的节点取 frames 帧，转成 PNG
+    存到 location。
+
+    - 按 serial 连（target-object），WirePlumber 0.5 拿它去对节点的 object.serial。节点 id
+      会被复用：节点没了以后，同一个 id 可能落到别的节点上，按 id 连就可能连到那个上去；
+      serial 不复用。名字也不行，每个 gamescope 都叫 gamescope。按 serial 连在这台机器上
+      对一个测试图案的视频源试过，连得上。
+    - 节点没了，绝不改接别的视频源，那可能是摄像头。连上之前没了：node.dont-fallback，
+      WirePlumber 0.5 回一个 "defined target not found" 错误。连上之后没了：
+      node.dont-reconnect，WirePlumber 不再给流找新目标。后者 pipewiresrc 1.6 本来就设
+      （它总带着 PW_STREAM_FLAG_DONT_RECONNECT 连），这里再明写一次，不靠它的默认。
+    - 格式钉死在内存里的 BGRx。gamescope 的每种格式都给两份，一份带 DMA-BUF 的 modifier
+      并标为必需，一份不带、走共享内存（3.16.20 的 src/pipewire.cpp）。不带 memory:DMABuf
+      的 caps 只对得上后一份，DMA-BUF 和 NV12 都绕开了。
+    - PNG 用最低的压缩级别：一帧 2560x1440，压缩花的时间不该算进截图的耗时里。
+    """
+    return ["gst-launch-1.0", "-q",
+            "pipewiresrc", f"target-object={serial}", f"num-buffers={frames}",
+            STREAM_PROPERTIES, "!", "video/x-raw,format=BGRx", "!", "videoconvert", "!",
+            "pngenc", "compression-level=1", "!", "filesink", f"location={location}"]
+
+
+def run_bounded(cmd, timeout, grace=2.0, env=None, at_deadline=None, popen=subprocess.Popen):
+    """跑一个外部命令，最多等 timeout 秒，绝不让探测器挂住。
+
+    到点先调 at_deadline(进程号)，趁命令还活着看一眼现场；再发 SIGINT，让 gst-launch 自己收尾、
+    好好断开 PipeWire；grace 秒后还没退就杀掉。
+    返回 (退出码, stdout 和 stderr 合在一起的输出, 是否超时, at_deadline 的结果)。
+    """
+    proc = popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        output, _ = proc.communicate(timeout=timeout)
+        return proc.returncode, output, False, None
+    except subprocess.TimeoutExpired:
+        pass
+    seen = None
+    if at_deadline is not None:
+        try:
+            seen = at_deadline(proc.pid)
+        except Exception as exc:
+            seen = short_error(exc)
+    proc.send_signal(signal.SIGINT)
+    try:
+        output, _ = proc.communicate(timeout=grace)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        output, _ = proc.communicate()
+    return proc.returncode, output, True, seen
+
+
+def find_node(dump, serial):
+    """pw-dump 里 object.serial 为 serial 的节点；没有就是 None。serial 不复用，同一个 serial
+    就是同一个节点，所以这里不再套发现时的名字和类别筛选：L1 选中的节点要是没标
+    Video/Source，后来别的 gamescope 冒出一个标了的，它也照样找得到。"""
+    for o in dump:
+        if (isinstance(o, dict) and o.get("type") == "PipeWire:Interface:Node"
+                and ((o.get("info") or {}).get("props") or {}).get("object.serial") == serial):
+            return o
+    return None
+
+
+def pipewire_links(dump, serial, consumer_pid):
+    """从 object.serial 为 serial 的节点，接到 consumer_pid 那个进程（这一次的 gst-launch）的
+    流上的连接，各自的状态，比如 negotiating、paused、active。
+
+    别的程序（比如 OBS）接在同一个节点上的连接不算：它 active，不说明这一次的流接上了。
+    连接上记的是节点 id，所以先按 serial 找到源节点现在的 id，再按进程号找到这一次的流的
+    节点：它的 client.id 指向的 Client 上，pipewire.sec.pid 或 application.process.id 就是
+    这个进程。一条都没有，说明 WirePlumber 根本没把这一次的流接上；停在 negotiating，说明
+    接上了但格式没谈拢。
+    """
+    def props(obj):
+        return (obj.get("info") or {}).get("props") or {}
+
+    objects = [o for o in dump if isinstance(o, dict)]
+    nodes = [o for o in objects if o.get("type") == "PipeWire:Interface:Node"]
+    source = (find_node(objects, serial) or {}).get("id")
+    clients = {o.get("id") for o in objects if o.get("type") == "PipeWire:Interface:Client"
+               and consumer_pid is not None
+               and consumer_pid in (props(o).get("pipewire.sec.pid"),
+                                    props(o).get("application.process.id"))}
+    streams = {o.get("id") for o in nodes if props(o).get("client.id") in clients}
+    states = []
+    for o in objects:
+        info = o.get("info") or {}
+        if (source is not None and o.get("type") == "PipeWire:Interface:Link"
+                and info.get("output-node-id") == source
+                and info.get("input-node-id") in streams):
+            states.append(info.get("state") or "?")
+    return sorted(states)
+
+
+# 测帧率时连续取流的时长。一秒多花在起进程和协商上，剩下的够数出每秒十几帧和一百多帧的差别。
+RATE_SECONDS = 3.0
+# 帧率管道的后半段：不转码、不存文件，帧到了 fakesink 就扔。silent=false 加上 gst-launch -v，
+# 每帧打一行带时间戳的 last-message。sync=false：来一帧收一帧，不按时钟等。
+RATE_TAIL = ["!", "video/x-raw,format=BGRx", "!", "fakesink", "silent=false", "sync=false"]
+CHAIN_LINE = re.compile(r"last-message = chain .*?, pts: (?:(\d+):(\d\d):(\d\d)\.(\d{9})|none)")
+SINK_CAPS = re.compile(r"GstFakeSink:fakesink0\.GstPad:sink: caps = (.+)")
+CAPS_FIELD = re.compile(r"([\w-]+)=\(\w+\)([^,]+)")
+# 管道停下时 gst-launch 打的一行，和帧的时间戳从同一个起点算（进入 PLAYING 的那一刻）。
+END_LINE = re.compile(r"Execution ended after (\d+):(\d\d):(\d\d)\.(\d{9})")
+# 一条粗线：每秒 10 帧以下，或者中间冻住超过半秒，跟着战斗临场反应就跟不上。
+REACT_FPS = 10
+REACT_MAX_GAP_MS = 500
+
+
+def pipewire_rate_pipeline(serial):
+    """连续取流的 gst-launch 命令行。目标、不改接和格式的道理同 pipewire_pipeline。
+
+    do-timestamp：gamescope 的帧要是没带时间戳，就用帧到达时的流时间，否则算不出帧率。
+    """
+    return ["gst-launch-1.0", "-v", "pipewiresrc", f"target-object={serial}",
+            "do-timestamp=true", STREAM_PROPERTIES, *RATE_TAIL]
+
+
+def stamp_seconds(h, m, s, ns):
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ns) / 1e9
+
+
+def parse_rate(output):
+    """gst-launch -v 的输出 -> 收到几帧、几帧有时间戳、帧率、最长的空档、管道跑了多久，以及
+    协商出来的格式。格式一行都没有，说明协商没完成。
+
+    帧率和空档都从管道开始跑（时间戳的零点）算到它停下为止，不只算第一帧到最后一帧之间：
+    前半秒来了一串、后面两秒多一帧也不来的流，或者先空等两秒半、最后半秒才来一串的流，只看
+    帧与帧之间都会显得又快又顺。开头那段空等也记成 first_frame_ms。停下的那一行没有时
+    （进程是被杀掉的），只能算到最后一帧，window_s 记为 None。
+    """
+    frames, stamps = 0, []
+    for match in CHAIN_LINE.finditer(output):
+        frames += 1
+        if match.group(1) is not None:
+            stamps.append(stamp_seconds(*match.groups()))
+    end = END_LINE.search(output)
+    window = stamp_seconds(*end.groups()) if end else None
+    result = {"frames": frames, "stamped": len(stamps), "fps": None, "max_gap_ms": None,
+              "first_frame_ms": round(stamps[0] * 1000) if stamps else None,
+              "window_s": None if window is None else round(window, 3), "caps": None}
+    caps = SINK_CAPS.search(output)
+    if caps:
+        fields = dict(CAPS_FIELD.findall(caps.group(1)))
+        result["caps"] = (f"{fields.get('format')} {fields.get('width')}x{fields.get('height')}"
+                          f" @ {fields.get('framerate')}")
+    if len(stamps) >= 2:
+        last = stamps[-1] if window is None else max(window, stamps[-1])
+        if last > 0:
+            gaps = ([stamps[0]] + [b - a for a, b in itertools.pairwise(stamps)]
+                    + [last - stamps[-1]])
+            # 窗口两头都算进去了（开头的空等、结尾的空档），每一帧都占一份：N 帧除以窗口长。
+            # 第一帧到最后一帧之间才是 N - 1 份间隔，那是窗口只算到两头的帧时的算法。
+            result["fps"] = round(len(stamps) / last, 1)
+            result["max_gap_ms"] = round(max(gaps) * 1000)
+    return result
+
+
+def describe_rate(rate):
+    """帧率结果 -> 给人看的一句话。管道提前停了（出错、EOS）就先说这个，哪怕停之前来过几帧：
+    那几帧的帧率不代表连续取流。"""
+    if rate.get("skipped"):
+        return f"Not measured: {rate['skipped']}."
+    links = f"Links from the node at the end: {rate.get('links') or 'none'}."
+    if rate.get("error"):
+        before = (f" Before it stopped: {rate['fps']} frames a second over {rate['stamped']} "
+                  "frames." if rate.get("fps") is not None else "")
+        return f"No usable frame rate: {rate['error']}.{before} {links}"
+    if rate.get("fps") is None:
+        return (f"No frame rate: {rate.get('frames', 0)} frames arrived in "
+                f"{rate.get('seconds')} s. {links}")
+    if rate.get("window_s") is None:
+        # 进程是被杀掉的，没打出停下的那一行：最后一帧之后冻没冻住看不出来，不下结论。
+        window = "(end of the run unknown)"
+        verdict = "not judged, since a stall after the last frame would not show"
+    else:
+        window = f"in {rate['window_s']} s"
+        if rate["fps"] < REACT_FPS:
+            verdict = f"below the {REACT_FPS} a second a loop that reacts to the fight would need"
+        elif rate["max_gap_ms"] > REACT_MAX_GAP_MS:
+            verdict = (f"fast on average, but it froze for {rate['max_gap_ms']} ms, too long for "
+                       "a loop that reacts to the fight")
+        else:
+            verdict = "enough for a loop that reacts to the fight"
+    first = (f", first after {rate['first_frame_ms']} ms"
+             if rate.get("first_frame_ms") is not None else "")
+    return (f"{rate['fps']} frames a second over {rate['stamped']} frames {window}{first}, "
+            f"longest gap {rate['max_gap_ms']} ms, {rate['caps']}: {verdict}.")
+
+
+class PipeWireCapture:
+    """L2 的第四种截图办法：每截一次起一条 gst-launch 管道，从游戏的 gamescope 节点取一帧。
+
+    有报告说，别的程序和 gamescope 协商格式失败时，gamescope 会拆掉自己的节点，直到它重启
+    （OpenGamingCollective/gamescope#27）。所以每截一次都重新看节点还在不在，不在了就不再
+    起管道。每次的细节放在 last 里，L2 把它和结果写在一起。
+    """
+
+    def __init__(self, serial, path, env=None, timeout=PIPEWIRE_TIMEOUT,
+                 popen=subprocess.Popen, dump=read_pw_dump):
+        self.serial = serial
+        # 和 capture_gamescopectl 一样用 absolute()：清理旧图时不顺着符号链接走。
+        self.path = Path(path).absolute()
+        # pipewire_env 给的环境：和游戏连同一个 PipeWire。
+        self.env = dict(os.environ) if env is None else dict(env)
+        self.timeout = timeout
+        self.popen = popen
+        self.dump = dump
+        self.gone = False
+        self.last = {}
+
+    def node_present(self):
+        return find_node(self.dump(self.env), self.serial) is not None
+
+    def check_node(self):
+        """节点还在吗：True、False，或者 pw-dump 读不出来时的错误文字（那不算没了）。"""
+        try:
+            present = self.node_present()
+        except Exception as exc:
+            present = short_error(exc)
+        self.gone = present is False
+        return present
+
+    def run(self, cmd, seconds):
+        # 英文的出错信息：报告只收 ASCII，中文的会变成一串转义。
+        return run_bounded(
+            cmd, seconds, env=dict(self.env, LC_ALL="C"),
+            at_deadline=lambda pid: pipewire_links(
+                self.dump(self.env, timeout=DEADLINE_LOOK_TIMEOUT), self.serial, pid),
+            popen=self.popen)
+
+    def measure_rate(self, seconds=RATE_SECONDS):
+        """连续取流 seconds 秒，量 PipeWire 每秒能给几帧。返回一个字典，从不抛异常。
+
+        到点发 SIGINT 是这里的正常收尾；gst-launch 在那之前自己退出，才是出了错。
+        """
+        if self.gone:
+            return {"skipped": f"node serial {self.serial} disappeared after an earlier "
+                               "capture"}
+        try:
+            code, output, timed_out, links = self.run(pipewire_rate_pipeline(self.serial),
+                                                      seconds)
+        except Exception as exc:
+            return {"error": short_error(exc), "node_after": self.check_node()}
+        rate = parse_rate(output or "")
+        rate.update(seconds=seconds, links=links)
+        if not timed_out:
+            first_error = (output or "").partition("ERROR")
+            detail = " ".join((first_error[1] + first_error[2]).split())[:160]
+            rate["error"] = f"gst-launch ended on its own with exit {code}: {detail!r}"
+        rate["node_after"] = self.check_node()
+        return rate
+
+    def __call__(self):
+        # 先清空：这一次要是在起进程之前就失败了，报告里不能挂着上一次的细节。
+        self.last = {}
+        if self.gone:
+            self.last["node_after"] = False
+            raise RuntimeError(f"node serial {self.serial} disappeared after an earlier "
+                               "capture")
+        if self.path.is_symlink() or self.path.exists():
+            self.path.unlink()
+        started = time.monotonic()
+        code, output, timed_out, links = self.run(pipewire_pipeline(self.serial, self.path),
+                                                  self.timeout)
+        output = " ".join((output or "").split())
+        self.last = {"target": f"target-object={self.serial}",
+                     "gst_ms": round((time.monotonic() - started) * 1000),
+                     "exit": code, "timed_out": timed_out}
+        if timed_out:
+            self.last["links"] = links
+        if output:
+            self.last["output"] = output[:300]
+        present = self.last["node_after"] = self.check_node()
+        if timed_out:
+            raise RuntimeError(f"no frame within {self.timeout:g} s; links from node serial "
+                               f"{self.serial}: {links or 'none'}; node still there: {present}")
+        if code != 0:
+            raise RuntimeError(f"gst-launch exited {code}: {output[:120]!r}")
+        if not self.path.exists() or self.path.stat().st_size == 0:
+            raise RuntimeError("gst-launch exited 0 but wrote no frame")
+        from PIL import Image
+
+        with Image.open(self.path) as image:
+            return np.asarray(image.convert("RGB"))
 
 
 def grade_frame(frame):
@@ -621,6 +1076,28 @@ def step_l1(args, report, state):
     except Exception as exc:
         report.result("L1", "gamescopectl help", short_error(exc))
 
+    # 这里只看 gamescope 的节点在不在、属于谁，不取流。放在连 X 之前：连不上 X 时 L1 就此
+    # 中断，PipeWire 这一行也就没了。
+    lineages = [process_lineage(p["pid"]) for p in members]
+    report.result("L1", f"process lineage of pid {members[0]['pid']}",
+                  [[pid, read_proc_text(pid, "comm")] for pid in lineages[0]])
+    gamescopes = {pid for lineage in lineages for pid in lineage if is_gamescope_process(pid)}
+    report.result("L1", "gamescope processes on the lineages", sorted(gamescopes))
+    # 游戏连的是哪个 PipeWire：PIPEWIRE_* 照游戏进程里的来，没有就是默认的那个。
+    game_vars = {key: next((p.get(key) for p in members if p.get(key)), None)
+                 for key in PIPEWIRE_VARS}
+    state["pw_env"] = pipewire_env(runtime, game_vars)
+    report.result("L1", "PipeWire endpoint", dict(game_vars, XDG_RUNTIME_DIR=runtime))
+    try:
+        nodes = pipewire_gamescope_nodes(read_pw_dump(state["pw_env"]))
+        report.result("L1", "PipeWire gamescope nodes", nodes)
+        node, code, text = resolve_pipewire_node(nodes, lineages, gamescopes)
+        report.result("L1", "PipeWire node", {"code": code, "node": node}, text)
+        if node is not None:
+            state["pw_node"] = node
+    except Exception as exc:
+        report.result("L1", "PipeWire node", short_error(exc))
+
     d = connect_x(display, xauth)
     state["x"] = d
     report.result("L1", "X server", f"{d.display.info.vendor} {d.display.info.release_number}")
@@ -649,6 +1126,12 @@ def capture_methods(state, report):
         shot = report.dir / "gamescopectl-latest.png"
         methods.append(("gamescopectl",
                         lambda: capture_gamescopectl(shot, state["wayland"], state.get("runtime"))))
+    # 按 object.serial 认节点，没有 serial 的节点（老版本的 PipeWire）就不取流。
+    serial = (state.get("pw_node") or {}).get("serial")
+    if isinstance(serial, int):
+        # 同一个对象跑完三轮：节点在前一轮没了，后面几轮就不再起管道。
+        methods.append(("pipewire", PipeWireCapture(serial, report.dir / "pipewire-latest.png",
+                                                    state.get("pw_env"))))
     return methods
 
 
@@ -687,11 +1170,27 @@ def step_l2(args, report, state):
                 save_frame(frame, report.dir / f"L2-{pass_name}-{name}.png")
             if error:
                 detail["error"] = error
+            detail.update(getattr(capture, "last", None) or {})
             report.result("L2", f"{pass_name} / {name}", detail)
             if pass_name != "focused" and grade == "content":
                 best.setdefault(name, capture)
+        # 单帧截图说明不了连续取流能有多快；每一轮都量，看后台会不会把帧率压下来。
+        for name, capture in methods:
+            if hasattr(capture, "measure_rate"):
+                print(f"  Measuring the {name} frame rate for {RATE_SECONDS:g} seconds. "
+                      "Leave the windows as they are.")
+                rate = capture.measure_rate()
+                report.result("L2", f"{pass_name} / {name} frame rate", rate, describe_rate(rate))
     # 后面的步骤用最快的那个能在后台截到内容的办法；X11 比走文件的 gamescopectl 快。
-    for name in ("x11-window", "x11-root", "gamescopectl"):
+    # 每帧起一条管道的 PipeWire 排最后：它还没在游戏上量过，而且每多截一次，节点就多一次
+    # 被协商失败拆掉的机会，L3、L4 要的是中途不会断的截图。
+    for name in ("x11-window", "x11-root", "gamescopectl", "pipewire"):
+        # 前一轮截到了内容、后一轮节点没了的 PipeWire，交给 L3、L4 只会一帧也截不到。
+        if name in best and getattr(best[name], "gone", False):
+            report.result("L2", f"{name} not used", "gone",
+                          f"{name} captured content in the background, but its node "
+                          "disappeared afterwards, so L3 and L4 cannot use it.")
+            continue
         if name in best:
             state["capture"], state["capture_name"] = best[name], name
             report.result("L2", "verdict", name, f"background capture works with {name}")
