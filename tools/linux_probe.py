@@ -495,7 +495,7 @@ def pipewire_pipeline(serial, location, frames=1):
 def run_bounded(cmd, timeout, grace=2.0, env=None, at_deadline=None, popen=subprocess.Popen):
     """跑一个外部命令，最多等 timeout 秒，绝不让探测器挂住。
 
-    到点先调 at_deadline()，趁命令还活着看一眼现场；再发 SIGINT，让 gst-launch 自己收尾、
+    到点先调 at_deadline(进程号)，趁命令还活着看一眼现场；再发 SIGINT，让 gst-launch 自己收尾、
     好好断开 PipeWire；grace 秒后还没退就杀掉。
     返回 (退出码, stdout 和 stderr 合在一起的输出, 是否超时, at_deadline 的结果)。
     """
@@ -508,7 +508,7 @@ def run_bounded(cmd, timeout, grace=2.0, env=None, at_deadline=None, popen=subpr
     seen = None
     if at_deadline is not None:
         try:
-            seen = at_deadline()
+            seen = at_deadline(proc.pid)
         except Exception as exc:
             seen = short_error(exc)
     proc.send_signal(signal.SIGINT)
@@ -520,21 +520,33 @@ def run_bounded(cmd, timeout, grace=2.0, env=None, at_deadline=None, popen=subpr
     return proc.returncode, output, True, seen
 
 
-def pipewire_links(dump, serial):
-    """从 object.serial 为 serial 的节点接出去的每条连接的状态，比如 negotiating、paused、
-    active。连接上记的是节点 id，所以先按 serial 找到节点现在的 id；节点不在了就没有连接。
+def pipewire_links(dump, serial, consumer_pid):
+    """从 object.serial 为 serial 的节点，接到 consumer_pid 那个进程（这一次的 gst-launch）的
+    流上的连接，各自的状态，比如 negotiating、paused、active。
 
-    一条都没有，说明 WirePlumber 根本没把流接上；停在 negotiating，说明接上了但格式没谈拢。
+    别的程序（比如 OBS）接在同一个节点上的连接不算：它 active，不说明这一次的流接上了。
+    连接上记的是节点 id，所以先按 serial 找到源节点现在的 id，再按进程号找到这一次的流的
+    节点：它的 client.id 指向的 Client 上，pipewire.sec.pid 或 application.process.id 就是
+    这个进程。一条都没有，说明 WirePlumber 根本没把这一次的流接上；停在 negotiating，说明
+    接上了但格式没谈拢。
     """
+    def props(obj):
+        return (obj.get("info") or {}).get("props") or {}
+
     objects = [o for o in dump if isinstance(o, dict)]
-    node_id = next((o.get("id") for o in objects if o.get("type") == "PipeWire:Interface:Node"
-                    and ((o.get("info") or {}).get("props") or {}).get("object.serial") == serial),
-                   None)
+    nodes = [o for o in objects if o.get("type") == "PipeWire:Interface:Node"]
+    source = next((o.get("id") for o in nodes if props(o).get("object.serial") == serial), None)
+    clients = {o.get("id") for o in objects if o.get("type") == "PipeWire:Interface:Client"
+               and consumer_pid is not None
+               and consumer_pid in (props(o).get("pipewire.sec.pid"),
+                                    props(o).get("application.process.id"))}
+    streams = {o.get("id") for o in nodes if props(o).get("client.id") in clients}
     states = []
     for o in objects:
         info = o.get("info") or {}
-        if (node_id is not None and o.get("type") == "PipeWire:Interface:Link"
-                and info.get("output-node-id") == node_id):
+        if (source is not None and o.get("type") == "PipeWire:Interface:Link"
+                and info.get("output-node-id") == source
+                and info.get("input-node-id") in streams):
             states.append(info.get("state") or "?")
     return sorted(states)
 
@@ -571,9 +583,10 @@ def parse_rate(output):
     """gst-launch -v 的输出 -> 收到几帧、几帧有时间戳、帧率、最长的空档、管道跑了多久，以及
     协商出来的格式。格式一行都没有，说明协商没完成。
 
-    帧率和空档都算到管道停下为止，不只算到最后一帧：前半秒来了一串、后面两秒多一帧也不来的
-    流，只看帧与帧之间会显得又快又顺。停下的那一行没有时（进程是被杀掉的），只能算到最后
-    一帧，window_s 记为 None。
+    帧率和空档都从管道开始跑（时间戳的零点）算到它停下为止，不只算第一帧到最后一帧之间：
+    前半秒来了一串、后面两秒多一帧也不来的流，或者先空等两秒半、最后半秒才来一串的流，只看
+    帧与帧之间都会显得又快又顺。开头那段空等也记成 first_frame_ms。停下的那一行没有时
+    （进程是被杀掉的），只能算到最后一帧，window_s 记为 None。
     """
     frames, stamps = 0, []
     for match in CHAIN_LINE.finditer(output):
@@ -583,6 +596,7 @@ def parse_rate(output):
     end = END_LINE.search(output)
     window = stamp_seconds(*end.groups()) if end else None
     result = {"frames": frames, "stamped": len(stamps), "fps": None, "max_gap_ms": None,
+              "first_frame_ms": round(stamps[0] * 1000) if stamps else None,
               "window_s": None if window is None else round(window, 3), "caps": None}
     caps = SINK_CAPS.search(output)
     if caps:
@@ -591,9 +605,10 @@ def parse_rate(output):
                           f" @ {fields.get('framerate')}")
     if len(stamps) >= 2:
         last = stamps[-1] if window is None else max(window, stamps[-1])
-        if last > stamps[0]:
-            gaps = [b - a for a, b in itertools.pairwise(stamps)] + [last - stamps[-1]]
-            result["fps"] = round((len(stamps) - 1) / (last - stamps[0]), 1)
+        if last > 0:
+            gaps = ([stamps[0]] + [b - a for a, b in itertools.pairwise(stamps)]
+                    + [last - stamps[-1]])
+            result["fps"] = round((len(stamps) - 1) / last, 1)
             result["max_gap_ms"] = round(max(gaps) * 1000)
     return result
 
@@ -620,8 +635,10 @@ def describe_rate(rate):
         verdict = "enough for a loop that reacts to the fight"
     window = (f"in {rate['window_s']} s" if rate.get("window_s") is not None
               else "(end of the run unknown, so a stall after the last frame would not show)")
-    return (f"{rate['fps']} frames a second over {rate['stamped']} frames {window}, longest gap "
-            f"{rate['max_gap_ms']} ms, {rate['caps']}: {verdict}.")
+    first = (f", first after {rate['first_frame_ms']} ms"
+             if rate.get("first_frame_ms") is not None else "")
+    return (f"{rate['fps']} frames a second over {rate['stamped']} frames {window}{first}, "
+            f"longest gap {rate['max_gap_ms']} ms, {rate['caps']}: {verdict}.")
 
 
 class PipeWireCapture:
@@ -664,7 +681,7 @@ class PipeWireCapture:
             env["XDG_RUNTIME_DIR"] = self.runtime_dir
         return run_bounded(
             cmd, seconds, env=env,
-            at_deadline=lambda: pipewire_links(self.dump(self.runtime_dir), self.serial),
+            at_deadline=lambda pid: pipewire_links(self.dump(self.runtime_dir), self.serial, pid),
             popen=self.popen)
 
     def measure_rate(self, seconds=RATE_SECONDS):

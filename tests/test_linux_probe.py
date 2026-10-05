@@ -469,10 +469,11 @@ class TestRunBounded:
     def test_a_hanging_command_is_stopped_after_a_look_at_the_scene(self):
         import time
         started = time.monotonic()
-        code, _, timed_out, seen = lp.run_bounded(
-            [sys.executable, "-c", "import time; time.sleep(30)"], 0.5, grace=5,
-            at_deadline=lambda: "looked")
-        assert timed_out and seen == "looked"
+        code, output, timed_out, seen = lp.run_bounded(
+            [sys.executable, "-c", "import os, time; print(os.getpid(), flush=True); "
+                                   "time.sleep(30)"], 0.5, grace=5,
+            at_deadline=lambda pid: pid)
+        assert timed_out and seen == int(output.split()[0])
         assert time.monotonic() - started < 5
         assert code != 0
 
@@ -484,11 +485,14 @@ class TestRunBounded:
         assert timed_out and code == -signal.SIGKILL
 
     def test_a_failing_look_does_not_stop_the_cleanup(self):
-        def broken():
+        def broken(pid):
             raise RuntimeError("pw-dump went away")
         _, _, timed_out, seen = lp.run_bounded(
             [sys.executable, "-c", "import time; time.sleep(30)"], 0.3, at_deadline=broken)
         assert timed_out and "pw-dump went away" in seen
+
+
+GST_PID = 4242
 
 
 class FakeGst:
@@ -513,6 +517,7 @@ class FakeGst:
 
         class Process:
             returncode = None
+            pid = GST_PID
 
             def communicate(self, timeout=None):
                 if fake.hang and not fake.signals:
@@ -594,17 +599,31 @@ def rate_output(stamps, ended=None):
     return "\n".join(lines) + "\n"
 
 
+def consumer_stream(client_id, node_id, pid, link_id, state):
+    """一个取流的程序在 pw-dump 里留下的 Client、它的流节点，以及从 gamescope 节点 68 接到
+    这个流上的连接。"""
+    pids = {} if pid is None else {"application.process.id": pid, "pipewire.sec.pid": pid}
+    return [
+        pw_object(client_id, "Client", {"application.name": "gst-launch-1.0", **pids}),
+        pw_object(node_id, "Node", {"node.name": "gst-launch-1.0", "client.id": client_id,
+                                    "media.class": "Stream/Input/Video",
+                                    "object.serial": node_id + 1000}, state="running"),
+        pw_object(link_id, "Link", {"link.output.node": 68, "link.input.node": node_id},
+                  state=state, **{"output-node-id": 68, "output-port-id": 69,
+                                  "input-node-id": node_id, "input-port-id": node_id + 1}),
+    ]
+
+
 def present_then(*answers):
-    """依次给出的 pw-dump：True 是节点 68 在，False 是不在，字符串是一份带这种状态连接的图。"""
+    """依次给出的 pw-dump：True 是节点 68 在，False 是不在，字符串是一份图，这一次的
+    gst-launch（进程号 GST_PID）的流以这种状态接在节点 68 上。"""
     queue = list(answers)
 
     def dump(runtime=None):
         answer = queue.pop(0) if len(queue) > 1 else queue[0]
         if isinstance(answer, str):
-            link = pw_object(120, "Link", {"link.output.node": 68}, state=answer,
-                             **{"output-node-id": 68, "output-port-id": 69,
-                                "input-node-id": 110, "input-port-id": 111})
-            return pw_dump(gamescope_objects(2000, 68, 67, 301), extra=[link])
+            return pw_dump(gamescope_objects(2000, 68, 67, 301),
+                           extra=consumer_stream(109, 110, GST_PID, 120, answer))
         return pw_dump(gamescope_objects(2000, 68, 67, 301)) if answer else pw_dump()
     return dump
 
@@ -726,12 +745,19 @@ class TestPipeWireCapture:
             capture()
         assert capture.last == {}
 
-    def test_links_are_read_from_the_node_outwards(self):
-        other = pw_object(130, "Link", {}, state="active",
-                          **{"output-node-id": 30, "input-node-id": 140})
-        dump = present_then("paused")()
-        assert lp.pipewire_links(dump + [other], 301) == ["paused"]
-        assert lp.pipewire_links(pw_dump(), 301) == []
+    def test_only_the_link_into_this_run_s_stream_counts(self):
+        """OBS 之类别的程序也接在 gamescope 的节点上时，它的 active 不能算成这一次的。"""
+        unrelated = pw_object(130, "Link", {}, state="active",
+                              **{"output-node-id": 30, "input-node-id": 140})
+        obs = consumer_stream(119, 121, 5555, 131, "active")
+        ours = present_then("paused")()
+        assert lp.pipewire_links(ours + obs + [unrelated], 301, GST_PID) == ["paused"]
+        never_linked = pw_dump(gamescope_objects(2000, 68, 67, 301), extra=obs)
+        assert lp.pipewire_links(never_linked, 301, GST_PID) == []
+        # 不知道进程号时，一个连进程号都没报的客户端也不能被当成这一次的。
+        pidless = consumer_stream(139, 141, None, 151, "active")
+        assert lp.pipewire_links(ours + obs + pidless, 301, None) == []
+        assert lp.pipewire_links(pw_dump(), 301, GST_PID) == []
 
 
 class TestFrameRate:
@@ -760,7 +786,16 @@ class TestFrameRate:
     def test_the_rate_comes_from_the_timestamps(self):
         rate = lp.parse_rate(rate_output([0.0, 0.1, 0.2, 0.5]))
         assert rate == {"frames": 4, "stamped": 4, "fps": 6.0, "max_gap_ms": 300,
-                        "window_s": None, "caps": "BGRx 2560x1440 @ 0/1"}
+                        "first_frame_ms": 0, "window_s": None, "caps": "BGRx 2560x1440 @ 0/1"}
+
+    def test_a_late_first_frame_is_part_of_the_window(self):
+        """先空等两秒半，最后半秒才来 15 帧。从第一帧算起是每秒 28 帧、没有长空档；从管道
+        开始跑算起，才是每秒不到 5 帧、空等了两秒半。"""
+        rate = lp.parse_rate(rate_output([2.5 + i / 30 for i in range(15)], ended=3.0))
+        assert rate["first_frame_ms"] == 2500
+        assert rate["fps"] == 4.7 and rate["max_gap_ms"] == 2500
+        text = lp.describe_rate(rate)
+        assert "first after 2500 ms" in text and "below the 10 a second" in text
 
     def test_a_stream_that_stalls_does_not_look_smooth(self):
         """半秒里来了 15 帧，后面两秒半一帧也没有。只看帧与帧之间是每秒 30 帧、最长空档
