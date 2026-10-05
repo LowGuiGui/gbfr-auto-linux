@@ -148,6 +148,11 @@ def read_proc_text(pid, name, proc="/proc"):
     return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
 
 
+# 决定连哪个 PipeWire 的环境变量（PipeWire 的 pipewire(1) 手册）：PIPEWIRE_RUNTIME_DIR 优先于
+# XDG_RUNTIME_DIR 找套接字所在的目录，PIPEWIRE_REMOTE 是套接字的名字。
+PIPEWIRE_VARS = ("PIPEWIRE_REMOTE", "PIPEWIRE_RUNTIME_DIR")
+
+
 def find_game_processes(appid=APPID, proc="/proc"):
     """属于这个 appid、而且活在某个 gamescope 里面的进程。
 
@@ -173,6 +178,7 @@ def find_game_processes(appid=APPID, proc="/proc"):
             "GAMESCOPE_WAYLAND_DISPLAY": env.get("GAMESCOPE_WAYLAND_DISPLAY"),
             "XAUTHORITY": env.get("XAUTHORITY"),
             "XDG_RUNTIME_DIR": env.get("XDG_RUNTIME_DIR"),
+            **{key: env.get(key) for key in PIPEWIRE_VARS},
         })
     return sorted(found, key=lambda p: p["pid"])
 
@@ -305,8 +311,8 @@ def parent_pid(pid, proc="/proc"):
 def process_lineage(pid, proc="/proc", limit=64):
     """pid 本身和它的各级父进程，近的在前，到 1 号进程为止（不含）。
 
-    游戏和 gamescope 之间隔着几层启动器，层数随启动方式而变，所以一直往上走。也不认
-    进程名：gamescope 会把自己改名成 gamescope-wl，包里还另有一个 gamescopereaper。
+    游戏和 gamescope 之间隔着几层启动器，层数随启动方式而变，所以一直往上走。节点归谁
+    只按进程号认；进程名只用来认出半路上的 gamescope（见 is_gamescope_process）。
     """
     chain = []
     current = pid
@@ -316,12 +322,45 @@ def process_lineage(pid, proc="/proc", limit=64):
     return chain
 
 
-def read_pw_dump(runtime_dir=None, timeout=10, run=subprocess.run):
-    """跑一次 pw-dump，返回解析好的 JSON 列表。XDG_RUNTIME_DIR 用游戏进程里的那一份，
-    PipeWire 的套接字在那下面。"""
-    env = dict(os.environ)
+def pipewire_env(runtime_dir=None, game_vars=None, base=None):
+    """连 PipeWire 用的环境，和游戏那边连的是同一个 PipeWire。
+
+    XDG_RUNTIME_DIR 用游戏进程里的那一份；PIPEWIRE_REMOTE、PIPEWIRE_RUNTIME_DIR 游戏那边设了
+    就照搬，没设就去掉，免得探测器自己环境里的值把 pw-dump 和 gst-launch 带到另一个
+    PipeWire 上去。game_vars 为 None 时不动这两个。
+    """
+    env = dict(os.environ if base is None else base)
     if runtime_dir:
         env["XDG_RUNTIME_DIR"] = runtime_dir
+    if game_vars is not None:
+        for key in PIPEWIRE_VARS:
+            if game_vars.get(key):
+                env[key] = game_vars[key]
+            else:
+                env.pop(key, None)
+    return env
+
+
+# gamescope 合成器进程的名字：主线程会把自己改名成 gamescope-wl。gamescopereaper 是它替
+# 子进程收尸用的另一个程序，不是合成器。
+GAMESCOPE_NAMES = frozenset({"gamescope", "gamescope-wl"})
+
+
+def is_gamescope_process(pid, proc="/proc"):
+    """pid 是不是一个 gamescope 合成器：进程名是 gamescope 或 gamescope-wl，或者可执行文件
+    叫 gamescope（升级以后正在跑的旧文件，链接后面会带 " (deleted)"）。"""
+    if read_proc_text(pid, "comm", proc) in GAMESCOPE_NAMES:
+        return True
+    try:
+        target = os.readlink(Path(proc, str(pid), "exe"))
+    except OSError:
+        return False
+    return Path(target.removesuffix(" (deleted)")).name == "gamescope"
+
+
+def read_pw_dump(env=None, timeout=10, run=subprocess.run):
+    """跑一次 pw-dump，返回解析好的 JSON 列表。env 是 pipewire_env 给的环境；None 用本进程的。"""
+    env = dict(os.environ) if env is None else env
     result = run(["pw-dump", "-N"], env=env, capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         raise RuntimeError(f"pw-dump exited {result.returncode}: {result.stderr.strip()[:120]!r}")
@@ -360,17 +399,18 @@ def pipewire_gamescope_nodes(dump):
     return sorted(sources or nodes, key=lambda n: n["id"])
 
 
-def resolve_pipewire_node(nodes, lineages):
+def resolve_pipewire_node(nodes, lineages, gamescopes=frozenset()):
     """在 gamescope 的节点里挑出游戏那个实例的。lineages 是 L1 找到的每个进程各一条
-    process_lineage。返回 (节点或 None, 代号, 说明)。
+    process_lineage；gamescopes 是这些链上认得出是 gamescope 的进程号。返回 (节点或 None,
+    代号, 说明)。
 
-    沿每条链往上，第一个拥有 gamescope 节点的进程就是这个进程所在的 gamescope；gamescope
-    里再套 gamescope 时，近的那层才是游戏用的显示。父进程先退出的进程会被托管给别的进程，
-    它的链上可能没有 gamescope，那条链就什么也不提供。所有链都对不上的节点一律不用，哪怕
-    PipeWire 里只有它一个：游戏的 gamescope 可能根本没有节点，那一个属于另一个 gamescope，
-    拿它的画面当游戏的，测出来的就是别的东西。
+    沿每条链往上，第一个拥有 gamescope 节点的进程就是这个进程所在的 gamescope。半路先碰到
+    一个没有节点的 gamescope，就停在那里：游戏用的是这一层的显示，再往上的节点属于外层的
+    gamescope，拿它的画面当游戏的，测出来的是别的合成器。父进程先退出的进程会被托管给别的
+    进程，它的链上可能没有 gamescope，那条链就什么也不提供。所有链都对不上的节点一律不用，
+    哪怕 PipeWire 里只有它一个：它可能属于另一个 gamescope。
     """
-    found = {}
+    found, blocked = {}, set()
     for lineage in lineages:
         for pid in lineage:
             owned = [n for n in nodes if pid in n["pids"]]
@@ -378,6 +418,17 @@ def resolve_pipewire_node(nodes, lineages):
                 for n in owned:
                     found.setdefault(n["id"], (n, pid))
                 break
+            if pid in gamescopes:
+                blocked.add(pid)
+                break
+    if not nodes:
+        return None, "none", ("PipeWire has no gamescope node. This gamescope may be built "
+                              "without PipeWire, or it has not set up its stream.")
+    if blocked:
+        return None, "unmatched", (f"The nearest gamescope above the game (process "
+                                   f"{', '.join(map(str, sorted(blocked)))}) owns no PipeWire "
+                                   "node, so none is used: any node further up belongs to an "
+                                   "outer gamescope.")
     if len(found) == 1:
         node, pid = next(iter(found.values()))
         return node, "matched", (f"Node {node['id']} belongs to process {pid}, an ancestor of "
@@ -386,9 +437,6 @@ def resolve_pipewire_node(nodes, lineages):
         return None, "ambiguous", (f"Nodes {sorted(found)} each belong to an ancestor of some of "
                                    "the game's processes, so the probe cannot tell which is the "
                                    "game's.")
-    if not nodes:
-        return None, "none", ("PipeWire has no gamescope node. This gamescope may be built "
-                              "without PipeWire, or it has not set up its stream.")
     return None, "unmatched", (f"{len(nodes)} gamescope node(s), and none belongs to an ancestor "
                                "of the game's processes, so none is used: they may belong to "
                                "another gamescope.")
@@ -608,7 +656,9 @@ def parse_rate(output):
         if last > 0:
             gaps = ([stamps[0]] + [b - a for a, b in itertools.pairwise(stamps)]
                     + [last - stamps[-1]])
-            result["fps"] = round((len(stamps) - 1) / last, 1)
+            # 窗口两头都算进去了（开头的空等、结尾的空档），每一帧都占一份：N 帧除以窗口长。
+            # 第一帧到最后一帧之间才是 N - 1 份间隔，那是窗口只算到两头的帧时的算法。
+            result["fps"] = round(len(stamps) / last, 1)
             result["max_gap_ms"] = round(max(gaps) * 1000)
     return result
 
@@ -649,12 +699,13 @@ class PipeWireCapture:
     起管道。每次的细节放在 last 里，L2 把它和结果写在一起。
     """
 
-    def __init__(self, serial, path, runtime_dir=None, timeout=PIPEWIRE_TIMEOUT,
+    def __init__(self, serial, path, env=None, timeout=PIPEWIRE_TIMEOUT,
                  popen=subprocess.Popen, dump=read_pw_dump):
         self.serial = serial
         # 和 capture_gamescopectl 一样用 absolute()：清理旧图时不顺着符号链接走。
         self.path = Path(path).absolute()
-        self.runtime_dir = runtime_dir
+        # pipewire_env 给的环境：和游戏连同一个 PipeWire。
+        self.env = dict(os.environ) if env is None else dict(env)
         self.timeout = timeout
         self.popen = popen
         self.dump = dump
@@ -662,7 +713,7 @@ class PipeWireCapture:
         self.last = {}
 
     def node_present(self):
-        nodes = pipewire_gamescope_nodes(self.dump(self.runtime_dir))
+        nodes = pipewire_gamescope_nodes(self.dump(self.env))
         return any(n["serial"] == self.serial for n in nodes)
 
     def check_node(self):
@@ -676,12 +727,9 @@ class PipeWireCapture:
 
     def run(self, cmd, seconds):
         # 英文的出错信息：报告只收 ASCII，中文的会变成一串转义。
-        env = dict(os.environ, LC_ALL="C")
-        if self.runtime_dir:
-            env["XDG_RUNTIME_DIR"] = self.runtime_dir
         return run_bounded(
-            cmd, seconds, env=env,
-            at_deadline=lambda pid: pipewire_links(self.dump(self.runtime_dir), self.serial, pid),
+            cmd, seconds, env=dict(self.env, LC_ALL="C"),
+            at_deadline=lambda pid: pipewire_links(self.dump(self.env), self.serial, pid),
             popen=self.popen)
 
     def measure_rate(self, seconds=RATE_SECONDS):
@@ -1015,10 +1063,17 @@ def step_l1(args, report, state):
     lineages = [process_lineage(p["pid"]) for p in members]
     report.result("L1", f"process lineage of pid {members[0]['pid']}",
                   [[pid, read_proc_text(pid, "comm")] for pid in lineages[0]])
+    gamescopes = {pid for lineage in lineages for pid in lineage if is_gamescope_process(pid)}
+    report.result("L1", "gamescope processes on the lineages", sorted(gamescopes))
+    # 游戏连的是哪个 PipeWire：PIPEWIRE_* 照游戏进程里的来，没有就是默认的那个。
+    game_vars = {key: next((p.get(key) for p in members if p.get(key)), None)
+                 for key in PIPEWIRE_VARS}
+    state["pw_env"] = pipewire_env(runtime, game_vars)
+    report.result("L1", "PipeWire endpoint", dict(game_vars, XDG_RUNTIME_DIR=runtime))
     try:
-        nodes = pipewire_gamescope_nodes(read_pw_dump(runtime))
+        nodes = pipewire_gamescope_nodes(read_pw_dump(state["pw_env"]))
         report.result("L1", "PipeWire gamescope nodes", nodes)
-        node, code, text = resolve_pipewire_node(nodes, lineages)
+        node, code, text = resolve_pipewire_node(nodes, lineages, gamescopes)
         report.result("L1", "PipeWire node", {"code": code, "node": node}, text)
         if node is not None:
             state["pw_node"] = node
@@ -1058,7 +1113,7 @@ def capture_methods(state, report):
     if isinstance(serial, int):
         # 同一个对象跑完三轮：节点在前一轮没了，后面几轮就不再起管道。
         methods.append(("pipewire", PipeWireCapture(serial, report.dir / "pipewire-latest.png",
-                                                    state.get("runtime"))))
+                                                    state.get("pw_env"))))
     return methods
 
 

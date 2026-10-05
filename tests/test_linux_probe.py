@@ -362,8 +362,9 @@ class TestPipeWireNode:
     def test_the_nearest_gamescope_wins_when_one_runs_inside_another(self):
         """外层的 gamescope(1700) 也是游戏的祖先，但游戏用的是里层那个的显示。"""
         nested = [2200, 2100, 2000, 1800, 1700, 1500]
-        node, code, _ = resolve(pw_dump(gamescope_objects(1700, 50, 49, 200),
-                                        gamescope_objects(2000, 68, 67, 301)), [nested])
+        nodes = lp.pipewire_gamescope_nodes(pw_dump(gamescope_objects(1700, 50, 49, 200),
+                                                     gamescope_objects(2000, 68, 67, 301)))
+        node, code, _ = lp.resolve_pipewire_node(nodes, [nested], {2000, 1700})
         assert (node["id"], code) == (68, "matched")
 
     def test_a_process_adopted_outside_gamescope_does_not_spoil_the_match(self):
@@ -397,17 +398,84 @@ class TestPipeWireNode:
     def test_no_gamescope_node(self):
         assert resolve(pw_dump())[:2] == (None, "none")
 
-    def test_pw_dump_runs_against_the_game_s_runtime_dir(self):
+    def test_pw_dump_runs_with_the_env_it_is_given(self):
         run = FakeRun(stdout=json.dumps(pw_dump()))
-        assert lp.read_pw_dump("/run/user/1000", run=run)[0]["type"] == "PipeWire:Interface:Core"
-        cmd, env = run.calls[0]
-        assert cmd == ["pw-dump", "-N"]
-        assert env["XDG_RUNTIME_DIR"] == "/run/user/1000"
+        env = {"XDG_RUNTIME_DIR": "/run/user/1000", "PIPEWIRE_REMOTE": "pipewire-game"}
+        assert lp.read_pw_dump(env, run=run)[0]["type"] == "PipeWire:Interface:Core"
+        cmd, used = run.calls[0]
+        assert cmd == ["pw-dump", "-N"] and used == env
+
+    def test_an_outer_gamescope_is_not_taken_for_the_game_s(self):
+        """游戏自己的 gamescope（2000）没有节点，外层的（1700）有：那个节点是外层合成器的画面。"""
+        nested = [2200, 2100, 2000, 1800, 1700, 1500]
+        dump = pw_dump(gamescope_objects(1700, 50, 49, 200))
+        node, code, text = lp.resolve_pipewire_node(lp.pipewire_gamescope_nodes(dump), [nested],
+                                                    {2000, 1700})
+        assert (node, code) == (None, "unmatched") and "process 2000" in text
+
+    @pytest.mark.parametrize("comm, exe, expected", [
+        ("gamescope-wl", "/usr/games/gamescope", True),
+        ("gamescope-wl", None, True),
+        ("gamescope", None, True),
+        ("x", "/usr/games/gamescope (deleted)", True),
+        ("gamescopereaper", "/usr/games/gamescopereaper", False),
+        ("bash", "/usr/bin/bash", False),
+    ])
+    def test_gamescope_processes_are_recognised(self, tmp_path, comm, exe, expected):
+        """gamescopereaper 只替 gamescope 收尸，不是合成器，不能拦住往上的查找。"""
+        proc = fake_proc(tmp_path, {77: {"comm": comm}})
+        if exe:
+            (proc / "77" / "exe").symlink_to(exe)
+        assert lp.is_gamescope_process(77, proc) is expected
+
+    def test_this_test_process_is_not_a_gamescope(self):
+        assert lp.is_gamescope_process(os.getpid()) is False
 
     def test_a_failing_pw_dump_is_an_error_not_an_empty_graph(self):
         """连不上 PipeWire 时 pw-dump 非零退出。当成"没有 gamescope 节点"就是错答案。"""
         with pytest.raises(RuntimeError, match="pw-dump exited 1"):
             lp.read_pw_dump(run=FakeRun(returncode=1, stderr="connection failed"))
+
+
+class TestPipeWireEndpoint:
+    def test_the_game_s_endpoint_replaces_the_probe_s(self):
+        base = {"HOME": "/h", "XDG_RUNTIME_DIR": "/run/user/1", "PIPEWIRE_REMOTE": "probe"}
+        env = lp.pipewire_env("/run/user/1000", {"PIPEWIRE_REMOTE": "pipewire-game",
+                                                 "PIPEWIRE_RUNTIME_DIR": "/run/pw"}, base=base)
+        assert env == {"HOME": "/h", "XDG_RUNTIME_DIR": "/run/user/1000",
+                       "PIPEWIRE_REMOTE": "pipewire-game", "PIPEWIRE_RUNTIME_DIR": "/run/pw"}
+
+    def test_what_the_game_does_not_set_is_dropped(self):
+        """探测器自己环境里的 PIPEWIRE_REMOTE 会把它带到另一个 PipeWire 上去。"""
+        base = {"PIPEWIRE_REMOTE": "probe", "PIPEWIRE_RUNTIME_DIR": "/elsewhere"}
+        env = lp.pipewire_env("/run/user/1000", {"PIPEWIRE_REMOTE": None,
+                                                 "PIPEWIRE_RUNTIME_DIR": None}, base=base)
+        assert env == {"XDG_RUNTIME_DIR": "/run/user/1000"}
+
+    def test_without_the_game_s_values_only_the_runtime_dir_changes(self):
+        assert lp.pipewire_env("/r", None, base={"PIPEWIRE_REMOTE": "x"}) == {
+            "PIPEWIRE_REMOTE": "x", "XDG_RUNTIME_DIR": "/r"}
+
+    def test_the_game_s_values_are_read_from_proc(self, tmp_path):
+        proc = fake_proc(tmp_path, {101: {"environ": dict(GAME_ENV,
+                                                          PIPEWIRE_REMOTE="pipewire-game")}})
+        found = lp.find_game_processes("881020", proc)[0]
+        assert found["PIPEWIRE_REMOTE"] == "pipewire-game" and found["PIPEWIRE_RUNTIME_DIR"] is None
+
+    def test_the_capture_uses_the_game_s_endpoint(self, tmp_path):
+        env = {"XDG_RUNTIME_DIR": "/run/user/1000", "PIPEWIRE_REMOTE": "pipewire-game"}
+        report = lp.Report(tmp_path, echo=lambda s: None)
+        (_, capture), = lp.capture_methods({"pw_node": {"id": 68, "serial": 301}, "pw_env": env},
+                                           report)
+        report.close()
+        gst, dumps, present = FakeGst(), [], present_then(True)
+        capture.popen = gst
+        capture.dump = lambda env: dumps.append(env) or present(env)
+        capture()
+        used = gst.calls[0][1]
+        assert used["PIPEWIRE_REMOTE"] == "pipewire-game" and used["LC_ALL"] == "C"
+        # 看节点还在不在时，pw-dump 也连游戏的那个 PipeWire
+        assert dumps and all(d["PIPEWIRE_REMOTE"] == "pipewire-game" for d in dumps)
 
 
 @pytest.fixture
@@ -418,10 +486,12 @@ def l1(tmp_path, monkeypatch):
 
     game = {"pid": 2200, "comm": "granblue_fantas", "cmdline": "x",
             **{k: GAME_ENV[k] for k in ("DISPLAY", "GAMESCOPE_WAYLAND_DISPLAY", "XAUTHORITY",
-                                        "XDG_RUNTIME_DIR")}}
+                                        "XDG_RUNTIME_DIR")},
+            "PIPEWIRE_REMOTE": "pipewire-game", "PIPEWIRE_RUNTIME_DIR": None}
     monkeypatch.setattr(lp, "find_game_processes", lambda appid: [game])
     monkeypatch.setattr(lp, "process_lineage", lambda pid: LINEAGE)
-    monkeypatch.setattr(lp, "read_proc_text", lambda pid, name: "x")
+    monkeypatch.setattr(lp, "read_proc_text", lambda pid, name, proc="/proc": "x")
+    monkeypatch.setattr(lp, "is_gamescope_process", lambda pid, proc="/proc": pid == 2000)
     monkeypatch.setattr(lp.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
         a[0], 0, stdout="tool 1.0\n", stderr=""))
     monkeypatch.setattr(lp, "run_gamescopectl", lambda args, wayland, runtime=None, **k:
@@ -445,12 +515,24 @@ def l1(tmp_path, monkeypatch):
 class TestL1PipeWire:
     def test_the_game_s_node_is_kept_for_later_steps(self, l1):
         dump = pw_dump(gamescope_objects(3000, 80, 79, 400), gamescope_objects(2000, 68, 67, 301))
-        state, text = l1(lambda runtime: dump)
+        seen = []
+        state, text = l1(lambda env: seen.append(env) or dump)
         assert state["pw_node"]["id"] == 68 and state["pw_node"]["serial"] == 301
         assert "PipeWire node: Node 68 belongs to process 2000" in text
+        # pw-dump 和后面的取流都照游戏的 PipeWire 连
+        assert seen[0]["PIPEWIRE_REMOTE"] == "pipewire-game" and seen[0] is state["pw_env"]
+        assert "PIPEWIRE_RUNTIME_DIR" not in seen[0]
+        assert "gamescope processes on the lineages: [2000]" in text
+
+    def test_an_outer_gamescope_s_node_is_not_used(self, l1):
+        """游戏自己的 gamescope（2000）没有节点；链上更远的 1500 有一个，那是外层的。"""
+        dump = pw_dump(gamescope_objects(1500, 50, 49, 200))
+        state, text = l1(lambda env: dump)
+        assert "pw_node" not in state
+        assert "nearest gamescope above the game (process 2000) owns no PipeWire node" in text
 
     def test_without_pw_dump_l1_goes_on(self, l1):
-        def missing(runtime):
+        def missing(env):
             raise FileNotFoundError(2, "No such file or directory", "pw-dump")
         state, text = l1(missing)
         assert "pw_node" not in state
@@ -619,7 +701,7 @@ def present_then(*answers):
     gst-launch（进程号 GST_PID）的流以这种状态接在节点 68 上。"""
     queue = list(answers)
 
-    def dump(runtime=None):
+    def dump(env=None):
         answer = queue.pop(0) if len(queue) > 1 else queue[0]
         if isinstance(answer, str):
             return pw_dump(gamescope_objects(2000, 68, 67, 301),
@@ -659,7 +741,8 @@ class TestPipeWireCapture:
 
     def test_a_frame_is_read_back_and_the_node_checked(self, tmp_path):
         gst = FakeGst()
-        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", "/run/user/1000", popen=gst,
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png",
+                                     {"XDG_RUNTIME_DIR": "/run/user/1000"}, popen=gst,
                                      dump=present_then(True))
         frame = capture()
         assert frame.shape == (4, 8, 3) and frame[0, 0].tolist() == [10, 200, 30]
@@ -771,43 +854,49 @@ class TestFrameRate:
             pytest.skip("no gst-launch-1.0 with videotestsrc")
         # 两段 caps 不能直接相连（第二段会被当成元件名），中间隔一个 videoconvert，
         # 后半段照用探测器自己的 RATE_TAIL。
+        # 和探测器一样按时间收尾：到点 SIGINT，而不是数够几帧就 EOS。
         cmd = ["gst-launch-1.0", "-v", "videotestsrc", "is-live=true", "do-timestamp=true",
-               "num-buffers=11", "!", "video/x-raw,width=64,height=36,framerate=30/1", "!",
+               "!", "video/x-raw,width=64,height=36,framerate=30/1", "!",
                "videoconvert", *lp.RATE_TAIL]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
-                                env=dict(os.environ, LC_ALL="C"))
-        assert result.returncode == 0, result.stderr
-        rate = lp.parse_rate(result.stdout)
-        assert (rate["frames"], rate["stamped"]) == (11, 11)
-        assert rate["window_s"] is not None and rate["window_s"] >= 10 / 30
+        _, output, timed_out, _ = lp.run_bounded(cmd, 1.5, env=dict(os.environ, LC_ALL="C"))
+        assert timed_out
+        rate = lp.parse_rate(output)
+        assert rate["frames"] == rate["stamped"] >= 30
+        assert rate["window_s"] is not None and rate["first_frame_ms"] < 100
         assert 28 <= rate["fps"] <= 32
         assert rate["caps"] == "BGRx 64x36 @ 30/1"
 
     def test_the_rate_comes_from_the_timestamps(self):
         rate = lp.parse_rate(rate_output([0.0, 0.1, 0.2, 0.5]))
-        assert rate == {"frames": 4, "stamped": 4, "fps": 6.0, "max_gap_ms": 300,
+        assert rate == {"frames": 4, "stamped": 4, "fps": 8.0, "max_gap_ms": 300,
                         "first_frame_ms": 0, "window_s": None, "caps": "BGRx 2560x1440 @ 0/1"}
 
     def test_a_late_first_frame_is_part_of_the_window(self):
         """先空等两秒半，最后半秒才来 15 帧。从第一帧算起是每秒 28 帧、没有长空档；从管道
-        开始跑算起，才是每秒不到 5 帧、空等了两秒半。"""
+        开始跑算起，才是每秒 5 帧、空等了两秒半。"""
         rate = lp.parse_rate(rate_output([2.5 + i / 30 for i in range(15)], ended=3.0))
         assert rate["first_frame_ms"] == 2500
-        assert rate["fps"] == 4.7 and rate["max_gap_ms"] == 2500
+        assert rate["fps"] == 5.0 and rate["max_gap_ms"] == 2500
         text = lp.describe_rate(rate)
         assert "first after 2500 ms" in text and "below the 10 a second" in text
 
     def test_a_stream_that_stalls_does_not_look_smooth(self):
         """半秒里来了 15 帧，后面两秒半一帧也没有。只看帧与帧之间是每秒 30 帧、最长空档
-        33 ms；算到管道停下，才是每秒不到 5 帧、冻了两秒半。"""
+        33 ms；算到管道停下，才是每秒 5 帧、冻了两秒半。"""
         rate = lp.parse_rate(rate_output([i / 30 for i in range(15)], ended=3.0))
         assert rate["window_s"] == 3.0
-        assert rate["fps"] == 4.7 and rate["max_gap_ms"] == 2533
+        assert rate["fps"] == 5.0 and rate["max_gap_ms"] == 2533
         assert "below the 10 a second" in lp.describe_rate(dict(rate, links=["active"]))
 
     def test_a_steady_stream_keeps_its_rate(self):
         rate = lp.parse_rate(rate_output([i / 30 for i in range(61)], ended=2.02))
-        assert rate["fps"] == 29.7 and rate["max_gap_ms"] == 33
+        assert rate["fps"] == 30.2 and rate["max_gap_ms"] == 33
+        assert "enough" in lp.describe_rate(rate)
+
+    def test_a_stream_right_at_the_line_is_enough(self):
+        """每秒正好 10 帧：3 秒里 0.0 到 2.9 秒各来一帧。少算一帧会得出 9.7、判成不够。"""
+        rate = lp.parse_rate(rate_output([i / 10 for i in range(30)], ended=3.0))
+        assert rate["fps"] == 10.0 and rate["max_gap_ms"] == 100
         assert "enough" in lp.describe_rate(rate)
 
     def test_a_freeze_in_the_middle_is_not_enough(self):
@@ -831,7 +920,7 @@ class TestFrameRate:
         capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=gst,
                                      dump=present_then("active", True))
         rate = capture.measure_rate()
-        assert rate["fps"] == 59.5 and rate["window_s"] == 2.0
+        assert rate["fps"] == 60.0 and rate["window_s"] == 2.0
         assert rate["links"] == ["active"] and "error" not in rate
         assert rate["node_after"] is True and gst.signals == [signal.SIGINT]
         cmd, env = gst.calls[0]
