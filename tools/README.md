@@ -12,7 +12,7 @@ four questions, and each is answered by a measurement that can come out either w
 
 | Step | Question | How |
 |---|---|---|
-| L1 | Where is the game? | Reads `/proc` for processes that carry the game's Steam app id and were started by gamescope, and takes the nested `DISPLAY` and `GAMESCOPE_WAYLAND_DISPLAY` from their environment. Connects to that X display and finds the window gamescope marks as the game. Read-only. |
+| L1 | Where is the game? | Reads `/proc` for processes that carry the game's Steam app id and were started by gamescope, and takes the nested `DISPLAY` and `GAMESCOPE_WAYLAND_DISPLAY` from their environment. Connects to that X display and finds the window gamescope marks as the game. Also finds this gamescope's video node in PipeWire with `pw-dump`: gamescope publishes its output as a node named `gamescope`, and the probe keeps the one owned by an ancestor of the game's processes. Read-only; the stream is not opened. |
 | L2 | Can frames be captured while the game is in the background? | X11 `GetImage` of the root window and of the game window, and `gamescopectl screenshot`, each with the game focused, unfocused, and covered. A black or flat frame counts as a failure (`opencv.is_blank_frame`). |
 | L3 | Does input sent through XTest reach the game, and only the game? | Sends Escape twice to the nested X server, after asking. Checks whether the X server delivered the key to the game's window, whether the picture changed, and whether the key also reached this terminal on the host. |
 | L4 | Does the game pause when its window loses focus? | Captures a series of frames while the game is focused and another while it is not, and compares the motion with the logic of the Windows probe's A4 test (`framediff`). Also records the focus events the game window receives. |
@@ -56,6 +56,10 @@ report is written as the probe goes, so a crash keeps everything up to that poin
 - Unit tests (`tests/test_linux_probe.py`) cover finding the game in `/proc`, reading X
   images, the `gamescopectl` round trip, the key allow-list, the verdicts and the report.
   Breaking each of those guards on purpose turns its test red.
+- Finding the PipeWire node is covered by unit tests only. The fake `pw-dump` output follows
+  the structure PipeWire 1.6.2 prints (Client and Node objects, the owning process ids in the
+  client's properties), and walking up the process tree is also tested against the real
+  `/proc`. It has not been seen with the game.
 - A dry run against a real gamescope 3.16.20 in headless mode, with a stand-in X11 window
   marked as the game. Discovery, capturing the window over X11, and `gamescopectl screenshot`
   (about 0.4 s a frame) all worked. Escape sent through XTest reached the stand-in, which

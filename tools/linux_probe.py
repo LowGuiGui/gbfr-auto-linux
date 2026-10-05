@@ -7,7 +7,8 @@
 
 写平台代码之前先量。四个问题，每个都有一个可能失败的测量：
 
-    L1  游戏在哪个 gamescope 里：嵌套 X 显示、Wayland 套接字、游戏窗口。只读。
+    L1  游戏在哪个 gamescope 里：嵌套 X 显示、Wayland 套接字、游戏窗口，以及这个
+        gamescope 在 PipeWire 里的视频节点。只读。
     L2  后台能不能截到图：X11 GetImage（根窗口和游戏窗口）与 gamescopectl 截图，
         在聚焦、失焦、被遮住三种状态下各截一次。全黑算失败，由 opencv.is_blank_frame 判定。
     L3  经 XTest 送进嵌套 X 的 Escape，游戏收不收，宿主桌面会不会也收到。发之前先问。
@@ -282,6 +283,111 @@ def run_gamescopectl(args, wayland_display, runtime_dir=None, timeout=10, run=su
     if runtime_dir:
         env["XDG_RUNTIME_DIR"] = runtime_dir
     return run(["gamescopectl", *args], env=env, capture_output=True, text=True, timeout=timeout)
+
+
+# --- L1：游戏那个 gamescope 在 PipeWire 里的视频节点 -------------------------------
+
+def parent_pid(pid, proc="/proc"):
+    """/proc/<pid>/status 里的 PPid。进程已经退出或者读不懂，返回 None。"""
+    try:
+        text = Path(proc, str(pid), "status").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("PPid:"):
+            value = line.partition(":")[2].strip()
+            return int(value) if value.isdigit() else None
+    return None
+
+
+def process_lineage(pid, proc="/proc", limit=64):
+    """pid 本身和它的各级父进程，近的在前，到 1 号进程为止（不含）。
+
+    游戏和 gamescope 之间隔着几层启动器，层数随启动方式而变，所以一直往上走。也不认
+    进程名：gamescope 会把自己改名成 gamescope-wl，包里还另有一个 gamescopereaper。
+    """
+    chain = []
+    current = pid
+    while current is not None and current > 1 and current not in chain and len(chain) < limit:
+        chain.append(current)
+        current = parent_pid(current, proc)
+    return chain
+
+
+def read_pw_dump(runtime_dir=None, timeout=10, run=subprocess.run):
+    """跑一次 pw-dump，返回解析好的 JSON 列表。XDG_RUNTIME_DIR 用游戏进程里的那一份，
+    PipeWire 的套接字在那下面。"""
+    env = dict(os.environ)
+    if runtime_dir:
+        env["XDG_RUNTIME_DIR"] = runtime_dir
+    result = run(["pw-dump", "-N"], env=env, capture_output=True, text=True, timeout=timeout)
+    if result.returncode != 0:
+        raise RuntimeError(f"pw-dump exited {result.returncode}: {result.stderr.strip()[:120]!r}")
+    return json.loads(result.stdout)
+
+
+def pipewire_gamescope_nodes(dump):
+    """pw-dump 的 JSON -> 每个 gamescope 视频节点的 id、serial、状态和所属进程的进程号。
+
+    gamescope 把它的流命名为 "gamescope"，节点的 node.name 就是这个。节点的 client.id
+    指向建它的 Client 对象，上面有两个进程号：pipewire.sec.pid 是 PipeWire 从套接字对端
+    凭据读到的，客户端改不了；application.process.id 是客户端自己报的，进程在另一个 PID
+    命名空间里时会不一样。两个都收下。
+    """
+    def props(obj):
+        return (obj.get("info") or {}).get("props") or {}
+
+    objects = [o for o in dump if isinstance(o, dict)]
+    clients = {o.get("id"): props(o) for o in objects
+               if o.get("type") == "PipeWire:Interface:Client"}
+    nodes = []
+    for o in objects:
+        p = props(o)
+        if (o.get("type") != "PipeWire:Interface:Node" or not isinstance(o.get("id"), int)
+                or p.get("node.name") != "gamescope"):
+            continue
+        client = clients.get(p.get("client.id"), {})
+        pids = {client.get("pipewire.sec.pid"), client.get("application.process.id")}
+        nodes.append({"id": o["id"], "serial": p.get("object.serial"),
+                      "media_class": p.get("media.class"), "state": o["info"].get("state"),
+                      "pids": sorted(pid for pid in pids if isinstance(pid, int))})
+    return sorted(nodes, key=lambda n: n["id"])
+
+
+def resolve_pipewire_node(nodes, lineages):
+    """在 gamescope 的节点里挑出游戏那个实例的。lineages 是 L1 找到的每个进程各一条
+    process_lineage。返回 (节点或 None, 代号, 说明)。
+
+    沿每条链往上，第一个拥有 gamescope 节点的进程就是这个进程所在的 gamescope；gamescope
+    里再套 gamescope 时，近的那层才是游戏用的显示。父进程先退出的进程会被托管给别的进程，
+    它的链上可能没有 gamescope，那条链就什么也不提供。所有链都对不上、而 PipeWire 里恰好
+    只有一个 gamescope 节点时，先用它，但注明是假定的：它也可能属于另一个 gamescope。
+    """
+    found = {}
+    for lineage in lineages:
+        for pid in lineage:
+            owned = [n for n in nodes if pid in n["pids"]]
+            if owned:
+                for n in owned:
+                    found.setdefault(n["id"], (n, pid))
+                break
+    if len(found) == 1:
+        node, pid = next(iter(found.values()))
+        return node, "matched", (f"Node {node['id']} belongs to process {pid}, an ancestor of "
+                                 "the game's processes.")
+    if found:
+        return None, "ambiguous", (f"Nodes {sorted(found)} each belong to an ancestor of some of "
+                                   "the game's processes, so the probe cannot tell which is the "
+                                   "game's.")
+    if len(nodes) == 1:
+        return nodes[0], "assumed", (f"Node {nodes[0]['id']} is the only gamescope node, but it "
+                                     "does not belong to an ancestor of the game's processes. It "
+                                     "is used on the assumption that it is the game's.")
+    if not nodes:
+        return None, "none", ("PipeWire has no gamescope node. This gamescope may be built "
+                              "without PipeWire, or it has not set up its stream.")
+    return None, "ambiguous", (f"{len(nodes)} gamescope nodes, and none belongs to an ancestor "
+                               "of the game's processes.")
 
 
 # --- L2：截图 -----------------------------------------------------------------
@@ -620,6 +726,21 @@ def step_l1(args, report, state):
                       f"{len(text.splitlines())} lines saved to gamescopectl-help.txt")
     except Exception as exc:
         report.result("L1", "gamescopectl help", short_error(exc))
+
+    # 这里只看 gamescope 的节点在不在、属于谁，不取流。放在连 X 之前：连不上 X 时 L1 就此
+    # 中断，PipeWire 这一行也就没了。
+    lineages = [process_lineage(p["pid"]) for p in members]
+    report.result("L1", f"process lineage of pid {members[0]['pid']}",
+                  [[pid, read_proc_text(pid, "comm")] for pid in lineages[0]])
+    try:
+        nodes = pipewire_gamescope_nodes(read_pw_dump(runtime))
+        report.result("L1", "PipeWire gamescope nodes", nodes)
+        node, code, text = resolve_pipewire_node(nodes, lineages)
+        report.result("L1", "PipeWire node", {"code": code, "node": node}, text)
+        if node is not None:
+            state.update(pw_node=node, pw_node_code=code)
+    except Exception as exc:
+        report.result("L1", "PipeWire node", short_error(exc))
 
     d = connect_x(display, xauth)
     state["x"] = d

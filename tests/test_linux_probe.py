@@ -24,7 +24,10 @@ import linux_probe as lp  # noqa: E402
 
 
 def fake_proc(tmp_path, processes):
-    """processes: {pid: {"environ": dict | None, "comm": str, "cmdline": str}}"""
+    """processes: {pid: {"environ": dict | None, "comm": str, "cmdline": str, "ppid": int}}
+
+    status 的格式照内核：每行 "键:\\t值"，PPid 是父进程号。
+    """
     root = tmp_path / "proc"
     root.mkdir()
     (root / "self").mkdir()
@@ -36,6 +39,10 @@ def fake_proc(tmp_path, processes):
             (d / "environ").write_bytes(raw)
         (d / "comm").write_text(info.get("comm", "x") + "\n")
         (d / "cmdline").write_bytes(info.get("cmdline", "x").replace(" ", "\0").encode())
+        if "ppid" in info:
+            (d / "status").write_text(f"Name:\t{info.get('comm', 'x')}\nUmask:\t0002\n"
+                                      f"State:\tS (sleeping)\nTgid:\t{pid}\nNgid:\t0\n"
+                                      f"Pid:\t{pid}\nPPid:\t{info['ppid']}\nTracerPid:\t0\n")
     return root
 
 
@@ -137,17 +144,20 @@ class TestPixels:
 class FakeRun:
     """subprocess.run 的替身。签名和返回值照 subprocess 的文档：返回 CompletedProcess。"""
 
-    def __init__(self, write=None, returncode=0):
+    def __init__(self, write=None, returncode=0, stdout="", stderr=""):
         self.calls = []
         self.write = write
         self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
 
     def __call__(self, cmd, env=None, capture_output=False, text=False, timeout=None):
         import subprocess
         self.calls.append((cmd, env))
         if self.write:
             self.write(Path(cmd[-1]))
-        return subprocess.CompletedProcess(cmd, self.returncode, stdout="", stderr="")
+        return subprocess.CompletedProcess(cmd, self.returncode, stdout=self.stdout,
+                                           stderr=self.stderr)
 
 
 class TestGamescopectl:
@@ -238,6 +248,197 @@ class TestGamescopectl:
         ticks = iter(range(100))
         assert not lp.wait_for_file(tmp_path / "never.png", timeout=5, sleep=lambda s: None,
                                     clock=lambda: next(ticks))
+
+
+class TestLineage:
+    def test_it_walks_up_to_init(self, tmp_path):
+        proc = fake_proc(tmp_path, {2200: {"ppid": 2100}, 2100: {"ppid": 2000},
+                                    2000: {"ppid": 1}})
+        assert lp.process_lineage(2200, proc) == [2200, 2100, 2000]
+
+    def test_a_vanished_parent_ends_the_chain(self, tmp_path):
+        proc = fake_proc(tmp_path, {2200: {"ppid": 2100}})
+        assert lp.process_lineage(2200, proc) == [2200, 2100]
+        assert lp.process_lineage(5, proc) == [5]
+
+    def test_a_loop_cannot_hang_it(self, tmp_path):
+        """进程号会被复用：读到一半，父进程号可能指回链上已有的进程。"""
+        proc = fake_proc(tmp_path, {10: {"ppid": 11}, 11: {"ppid": 10}})
+        assert lp.process_lineage(10, proc) == [10, 11]
+
+    def test_the_walk_is_bounded(self, tmp_path):
+        proc = fake_proc(tmp_path, {pid: {"ppid": pid + 1} for pid in range(100, 200)})
+        assert len(lp.process_lineage(100, proc, limit=10)) == 10
+
+    def test_against_the_real_proc(self):
+        """真的 /proc：这个测试进程的链从它自己和它的父进程开始。替身写错了格式的话，
+        上面几个测试照样过，这个不会。"""
+        expected = [os.getpid()] + ([os.getppid()] if os.getppid() > 1 else [])
+        assert lp.process_lineage(os.getpid())[:len(expected)] == expected
+
+
+def pw_object(oid, kind, props, **info):
+    """pw-dump 输出里的一项。结构照 pw-dump 的真实输出：顶层 id、type、version、
+    permissions、info；info 里有 props，节点的 info 里还有 state 等字段。"""
+    return {"id": oid, "type": f"PipeWire:Interface:{kind}", "version": 3,
+            "permissions": ["r", "w", "x", "m"],
+            "info": {"change-mask": ["props"], "props": props, **info}}
+
+
+def gamescope_objects(owner_pid, node_id, client_id, serial, reported_pid=None):
+    """一个 gamescope 实例在 pw-dump 里留下的 Client 和 Node。"""
+    return [
+        pw_object(client_id, "Client", {
+            "application.name": "gamescope", "application.process.binary": "gamescope",
+            "application.process.id": owner_pid if reported_pid is None else reported_pid,
+            "pipewire.sec.pid": owner_pid, "object.id": client_id, "object.serial": serial - 1}),
+        pw_object(node_id, "Node", {
+            "node.name": "gamescope", "media.class": "Video/Source", "client.id": client_id,
+            "object.id": node_id, "object.serial": serial},
+            state="suspended", error=None, **{"n-input-ports": 0, "n-output-ports": 1}),
+    ]
+
+
+def pw_dump(*instances, extra=()):
+    """有声卡节点、端口和 Core 垫底的 pw-dump，再加上给定的 gamescope 实例。"""
+    objects = [pw_object(0, "Core", {"core.name": "pipewire-0"}),
+               pw_object(30, "Node", {"node.name": "alsa_output.pci-0000_00_1f.3.analog-stereo",
+                                      "media.class": "Audio/Sink", "object.serial": 30},
+                         state="suspended"),
+               pw_object(31, "Port", {"port.name": "playback_FL"})]
+    for instance in instances:
+        objects += instance
+    return objects + list(extra)
+
+
+# 游戏(2200) <- 启动器(2100) <- gamescope(2000) <- Steam(1500)。另一个 gamescope 是 3000。
+LINEAGE = [2200, 2100, 2000, 1500]
+
+
+def resolve(dump, lineages=(LINEAGE,)):
+    return lp.resolve_pipewire_node(lp.pipewire_gamescope_nodes(dump), list(lineages))
+
+
+class TestPipeWireNode:
+    def test_nodes_are_read_with_both_process_ids(self):
+        dump = pw_dump(gamescope_objects(2000, 68, 67, 301, reported_pid=12))
+        assert lp.pipewire_gamescope_nodes(dump) == [
+            {"id": 68, "serial": 301, "media_class": "Video/Source", "state": "suspended",
+             "pids": [12, 2000]}]
+
+    def test_other_objects_and_removed_ones_are_ignored(self):
+        """pw-dump 也会列出 info 为 null 的对象（刚被删掉的）。"""
+        removed = {"id": 90, "type": "PipeWire:Interface:Node", "version": 3,
+                   "permissions": [], "info": None}
+        assert lp.pipewire_gamescope_nodes(pw_dump(extra=[removed])) == []
+
+    def test_the_node_of_an_ancestor_is_the_game_s(self):
+        node, code, text = resolve(pw_dump(gamescope_objects(3000, 80, 79, 400),
+                                           gamescope_objects(2000, 68, 67, 301)))
+        assert (node["id"], code) == (68, "matched")
+        assert "process 2000" in text
+
+    def test_the_kernel_process_id_counts_when_the_reported_one_differs(self):
+        """在另一个 PID 命名空间里，客户端自报的进程号和这边看到的不一样。"""
+        node, code, _ = resolve(pw_dump(gamescope_objects(2000, 68, 67, 301, reported_pid=2),
+                                        gamescope_objects(3000, 80, 79, 400)))
+        assert (node["id"], code) == (68, "matched")
+
+    def test_the_nearest_gamescope_wins_when_one_runs_inside_another(self):
+        """外层的 gamescope(1700) 也是游戏的祖先，但游戏用的是里层那个的显示。"""
+        nested = [2200, 2100, 2000, 1800, 1700, 1500]
+        node, code, _ = resolve(pw_dump(gamescope_objects(1700, 50, 49, 200),
+                                        gamescope_objects(2000, 68, 67, 301)), [nested])
+        assert (node["id"], code) == (68, "matched")
+
+    def test_a_process_adopted_outside_gamescope_does_not_spoil_the_match(self):
+        """父进程先退出的进程被托管到 gamescope 外面，它那条链上没有 gamescope。"""
+        dump = pw_dump(gamescope_objects(2000, 68, 67, 301), gamescope_objects(3000, 80, 79, 400))
+        node, code, _ = resolve(dump, [[2300, 1500], LINEAGE])
+        assert (node["id"], code) == (68, "matched")
+
+    def test_a_lone_node_that_matches_nothing_is_only_assumed(self):
+        node, code, text = resolve(pw_dump(gamescope_objects(3000, 80, 79, 400)))
+        assert (node["id"], code) == (80, "assumed")
+        assert "assumption" in text
+
+    @pytest.mark.parametrize("instances, lineages", [
+        # 两个都和游戏无关
+        ([(3000, 80, 79, 400), (3100, 90, 89, 500)], [LINEAGE]),
+        # 两条链落在两个不同的 gamescope 上
+        ([(2000, 68, 67, 301), (3000, 80, 79, 400)], [LINEAGE, [3300, 3000, 1500]]),
+    ])
+    def test_two_candidates_are_never_guessed_between(self, instances, lineages):
+        dump = pw_dump(*(gamescope_objects(*i) for i in instances))
+        assert resolve(dump, lineages)[:2] == (None, "ambiguous")
+
+    def test_one_process_with_two_nodes_is_ambiguous_too(self):
+        second = pw_object(70, "Node", {"node.name": "gamescope", "media.class": "Video/Source",
+                                        "client.id": 67, "object.serial": 302}, state="idle")
+        assert resolve(pw_dump(gamescope_objects(2000, 68, 67, 301), extra=[second]))[:2] == (
+            None, "ambiguous")
+
+    def test_no_gamescope_node(self):
+        assert resolve(pw_dump())[:2] == (None, "none")
+
+    def test_pw_dump_runs_against_the_game_s_runtime_dir(self):
+        run = FakeRun(stdout=json.dumps(pw_dump()))
+        assert lp.read_pw_dump("/run/user/1000", run=run)[0]["type"] == "PipeWire:Interface:Core"
+        cmd, env = run.calls[0]
+        assert cmd == ["pw-dump", "-N"]
+        assert env["XDG_RUNTIME_DIR"] == "/run/user/1000"
+
+    def test_a_failing_pw_dump_is_an_error_not_an_empty_graph(self):
+        """连不上 PipeWire 时 pw-dump 非零退出。当成"没有 gamescope 节点"就是错答案。"""
+        with pytest.raises(RuntimeError, match="pw-dump exited 1"):
+            lp.read_pw_dump(run=FakeRun(returncode=1, stderr="connection failed"))
+
+
+@pytest.fixture
+def l1(tmp_path, monkeypatch):
+    """跑 step_l1，游戏进程、pw-dump 和外部命令都是替身。X 连不上，L1 在那里中断，
+    这正好看得出 PipeWire 那几行写在连 X 之前。"""
+    import subprocess
+
+    game = {"pid": 2200, "comm": "granblue_fantas", "cmdline": "x",
+            **{k: GAME_ENV[k] for k in ("DISPLAY", "GAMESCOPE_WAYLAND_DISPLAY", "XAUTHORITY",
+                                        "XDG_RUNTIME_DIR")}}
+    monkeypatch.setattr(lp, "find_game_processes", lambda appid: [game])
+    monkeypatch.setattr(lp, "process_lineage", lambda pid: LINEAGE)
+    monkeypatch.setattr(lp, "read_proc_text", lambda pid, name: "x")
+    monkeypatch.setattr(lp.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a[0], 0, stdout="tool 1.0\n", stderr=""))
+    monkeypatch.setattr(lp, "run_gamescopectl", lambda args, wayland, runtime=None, **k:
+                        subprocess.CompletedProcess(["gamescopectl", *args], 0, "", "help\n"))
+
+    def no_x(display, xauthority=None):
+        raise ConnectionRefusedError("no X here")
+    monkeypatch.setattr(lp, "connect_x", no_x)
+
+    def run(read_pw_dump):
+        monkeypatch.setattr(lp, "read_pw_dump", read_pw_dump)
+        report = lp.Report(tmp_path, echo=lambda s: None)
+        state = {}
+        with pytest.raises(ConnectionRefusedError):
+            lp.step_l1(SimpleNamespace(appid="881020"), report, state)
+        report.close()
+        return state, (tmp_path / "report.md").read_text()
+    return run
+
+
+class TestL1PipeWire:
+    def test_the_game_s_node_is_kept_for_later_steps(self, l1):
+        dump = pw_dump(gamescope_objects(3000, 80, 79, 400), gamescope_objects(2000, 68, 67, 301))
+        state, text = l1(lambda runtime: dump)
+        assert state["pw_node"]["id"] == 68 and state["pw_node_code"] == "matched"
+        assert "PipeWire node: Node 68 belongs to process 2000" in text
+
+    def test_without_pw_dump_l1_goes_on(self, l1):
+        def missing(runtime):
+            raise FileNotFoundError(2, "No such file or directory", "pw-dump")
+        state, text = l1(missing)
+        assert "pw_node" not in state
+        assert "PipeWire node: FileNotFoundError" in text
 
 
 class FakeDisplay:
