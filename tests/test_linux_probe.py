@@ -154,6 +154,7 @@ class FakeRun:
     def __call__(self, cmd, env=None, capture_output=False, text=False, timeout=None):
         import subprocess
         self.calls.append((cmd, env))
+        self.timeouts = getattr(self, "timeouts", []) + [timeout]
         if self.write:
             self.write(Path(cmd[-1]))
         return subprocess.CompletedProcess(cmd, self.returncode, stdout=self.stdout,
@@ -431,6 +432,11 @@ class TestPipeWireNode:
     def test_this_test_process_is_not_a_gamescope(self):
         assert lp.is_gamescope_process(os.getpid()) is False
 
+    def test_pw_dump_keeps_to_the_time_it_is_given(self):
+        run = FakeRun(stdout=json.dumps(pw_dump()))
+        lp.read_pw_dump({}, timeout=2, run=run)
+        assert run.timeouts == [2]
+
     def test_a_failing_pw_dump_is_an_error_not_an_empty_graph(self):
         """连不上 PipeWire 时 pw-dump 非零退出。当成"没有 gamescope 节点"就是错答案。"""
         with pytest.raises(RuntimeError, match="pw-dump exited 1"):
@@ -470,7 +476,7 @@ class TestPipeWireEndpoint:
         report.close()
         gst, dumps, present = FakeGst(), [], present_then(True)
         capture.popen = gst
-        capture.dump = lambda env: dumps.append(env) or present(env)
+        capture.dump = lambda env, timeout=None: dumps.append(env) or present(env)
         capture()
         used = gst.calls[0][1]
         assert used["PIPEWIRE_REMOTE"] == "pipewire-game" and used["LC_ALL"] == "C"
@@ -701,12 +707,14 @@ def present_then(*answers):
     gst-launch（进程号 GST_PID）的流以这种状态接在节点 68 上。"""
     queue = list(answers)
 
-    def dump(env=None):
+    def dump(env=None, timeout=None):
+        dump.timeouts.append(timeout)
         answer = queue.pop(0) if len(queue) > 1 else queue[0]
         if isinstance(answer, str):
             return pw_dump(gamescope_objects(2000, 68, 67, 301),
                            extra=consumer_stream(109, 110, GST_PID, 120, answer))
         return pw_dump(gamescope_objects(2000, 68, 67, 301)) if answer else pw_dump()
+    dump.timeouts = []
     return dump
 
 
@@ -754,14 +762,17 @@ class TestPipeWireCapture:
     def test_a_stall_is_a_result_not_a_hang(self, tmp_path):
         """headless 干跑里连接停在 negotiating、一帧也不来。要报出来，而不是一直等。"""
         gst = FakeGst(write=False, hang=True)
-        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=gst,
-                                     dump=present_then("negotiating", True))
+        dump = present_then("negotiating", True)
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=gst, dump=dump)
         with pytest.raises(RuntimeError, match=r"no frame within 5 s; links from node serial 301: "
                                                r"\['negotiating'\]; node still there: True"):
             capture()
         import signal
         assert gst.signals == [signal.SIGINT]
         assert capture.last["links"] == ["negotiating"] and capture.last["timed_out"]
+        # 到点那一眼在 SIGINT 之前，限时很短；之后查节点在不在用 pw-dump 默认的限时
+        assert dump.timeouts == [lp.DEADLINE_LOOK_TIMEOUT, None]
+        assert lp.DEADLINE_LOOK_TIMEOUT <= 2
 
     def test_gstreamer_errors_are_reported(self, tmp_path):
         output = ("ERROR: from element /GstPipeline:pipeline0/GstPipeWireSrc:pipewiresrc0: "
@@ -785,14 +796,27 @@ class TestPipeWireCapture:
     def test_a_node_that_reused_the_id_is_not_the_same_node(self, tmp_path):
         """PipeWire 会复用对象 id：游戏的节点（serial 301）没了，另一个 gamescope 的节点拿到了
         同一个 id 68。按 id 认的话它会被当成还在。"""
-        def replaced(runtime=None):
+        def replaced(env=None, timeout=None):
             return pw_dump(gamescope_objects(3000, 68, 79, 999))
         capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=FakeGst(), dump=replaced)
         capture()
         assert capture.last["node_after"] is False and capture.gone
 
+    def test_an_untagged_selection_survives_a_tagged_newcomer(self, tmp_path):
+        """L1 选中的是没标 Video/Source 的节点（serial 301）；后来另一个 gamescope 冒出一个
+        标了的。发现时的筛选只留标了的，拿它来查，301 就"没了"，后面的测量全被取消。"""
+        client, node = gamescope_objects(2000, 68, 67, 301)
+        del node["info"]["props"]["media.class"]
+
+        def graph(env=None, timeout=None):
+            return pw_dump([client, node], gamescope_objects(3000, 80, 79, 400))
+        assert [n["serial"] for n in lp.pipewire_gamescope_nodes(graph())] == [400]
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=FakeGst(), dump=graph)
+        capture()
+        assert capture.last["node_after"] is True and not capture.gone
+
     def test_an_unreadable_graph_does_not_count_as_a_vanished_node(self, tmp_path):
-        def broken(runtime=None):
+        def broken(env=None, timeout=None):
             raise RuntimeError("pw-dump exited 1")
         gst = FakeGst()
         capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=gst, dump=broken)
@@ -898,6 +922,13 @@ class TestFrameRate:
         rate = lp.parse_rate(rate_output([i / 10 for i in range(30)], ended=3.0))
         assert rate["fps"] == 10.0 and rate["max_gap_ms"] == 100
         assert "enough" in lp.describe_rate(rate)
+
+    def test_without_the_end_of_the_run_there_is_no_verdict(self):
+        """进程被杀掉，没打出停下的那一行：一串帧之后冻没冻住看不出来，不能说够。"""
+        rate = lp.parse_rate(rate_output([i / 30 for i in range(15)]))
+        text = lp.describe_rate(rate)
+        assert rate["window_s"] is None and rate["fps"] is not None
+        assert "not judged" in text and "enough" not in text
 
     def test_a_freeze_in_the_middle_is_not_enough(self):
         """平均每秒 20 多帧，中间冻了 0.8 秒：跟着战斗反应还是跟不上。"""

@@ -511,6 +511,9 @@ def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
 
 # 一帧最多等这么久。正常一秒内就有：起进程、连上 PipeWire、协商格式、等 gamescope 画下一帧。
 PIPEWIRE_TIMEOUT = 5.0
+# 到点时看一眼连接状态，最多花这么久。这一眼是在发 SIGINT 之前看的，看得越久，管道就多跑
+# 越久，用户也得把窗口状态多保持越久；pw-dump 平常零点几秒就回来。
+DEADLINE_LOOK_TIMEOUT = 2.0
 # 两条管道共用的流属性，道理见 pipewire_pipeline。值都写成 (string)true：不写类型会被解析
 # 成布尔值，pipewiresrc 用 g_value_transform 转成字符串，就成了 "TRUE"。
 STREAM_PROPERTIES = ('stream-properties="props,node.dont-fallback=(string)true,'
@@ -568,6 +571,17 @@ def run_bounded(cmd, timeout, grace=2.0, env=None, at_deadline=None, popen=subpr
     return proc.returncode, output, True, seen
 
 
+def find_node(dump, serial):
+    """pw-dump 里 object.serial 为 serial 的节点；没有就是 None。serial 不复用，同一个 serial
+    就是同一个节点，所以这里不再套发现时的名字和类别筛选：L1 选中的节点要是没标
+    Video/Source，后来别的 gamescope 冒出一个标了的，它也照样找得到。"""
+    for o in dump:
+        if (isinstance(o, dict) and o.get("type") == "PipeWire:Interface:Node"
+                and ((o.get("info") or {}).get("props") or {}).get("object.serial") == serial):
+            return o
+    return None
+
+
 def pipewire_links(dump, serial, consumer_pid):
     """从 object.serial 为 serial 的节点，接到 consumer_pid 那个进程（这一次的 gst-launch）的
     流上的连接，各自的状态，比如 negotiating、paused、active。
@@ -583,7 +597,7 @@ def pipewire_links(dump, serial, consumer_pid):
 
     objects = [o for o in dump if isinstance(o, dict)]
     nodes = [o for o in objects if o.get("type") == "PipeWire:Interface:Node"]
-    source = next((o.get("id") for o in nodes if props(o).get("object.serial") == serial), None)
+    source = (find_node(objects, serial) or {}).get("id")
     clients = {o.get("id") for o in objects if o.get("type") == "PipeWire:Interface:Client"
                and consumer_pid is not None
                and consumer_pid in (props(o).get("pipewire.sec.pid"),
@@ -676,15 +690,19 @@ def describe_rate(rate):
     if rate.get("fps") is None:
         return (f"No frame rate: {rate.get('frames', 0)} frames arrived in "
                 f"{rate.get('seconds')} s. {links}")
-    if rate["fps"] < REACT_FPS:
-        verdict = f"below the {REACT_FPS} a second a loop that reacts to the fight would need"
-    elif rate["max_gap_ms"] > REACT_MAX_GAP_MS:
-        verdict = (f"fast on average, but it froze for {rate['max_gap_ms']} ms, too long for a "
-                   "loop that reacts to the fight")
+    if rate.get("window_s") is None:
+        # 进程是被杀掉的，没打出停下的那一行：最后一帧之后冻没冻住看不出来，不下结论。
+        window = "(end of the run unknown)"
+        verdict = "not judged, since a stall after the last frame would not show"
     else:
-        verdict = "enough for a loop that reacts to the fight"
-    window = (f"in {rate['window_s']} s" if rate.get("window_s") is not None
-              else "(end of the run unknown, so a stall after the last frame would not show)")
+        window = f"in {rate['window_s']} s"
+        if rate["fps"] < REACT_FPS:
+            verdict = f"below the {REACT_FPS} a second a loop that reacts to the fight would need"
+        elif rate["max_gap_ms"] > REACT_MAX_GAP_MS:
+            verdict = (f"fast on average, but it froze for {rate['max_gap_ms']} ms, too long for "
+                       "a loop that reacts to the fight")
+        else:
+            verdict = "enough for a loop that reacts to the fight"
     first = (f", first after {rate['first_frame_ms']} ms"
              if rate.get("first_frame_ms") is not None else "")
     return (f"{rate['fps']} frames a second over {rate['stamped']} frames {window}{first}, "
@@ -713,8 +731,7 @@ class PipeWireCapture:
         self.last = {}
 
     def node_present(self):
-        nodes = pipewire_gamescope_nodes(self.dump(self.env))
-        return any(n["serial"] == self.serial for n in nodes)
+        return find_node(self.dump(self.env), self.serial) is not None
 
     def check_node(self):
         """节点还在吗：True、False，或者 pw-dump 读不出来时的错误文字（那不算没了）。"""
@@ -729,7 +746,8 @@ class PipeWireCapture:
         # 英文的出错信息：报告只收 ASCII，中文的会变成一串转义。
         return run_bounded(
             cmd, seconds, env=dict(self.env, LC_ALL="C"),
-            at_deadline=lambda pid: pipewire_links(self.dump(self.env), self.serial, pid),
+            at_deadline=lambda pid: pipewire_links(
+                self.dump(self.env, timeout=DEADLINE_LOOK_TIMEOUT), self.serial, pid),
             popen=self.popen)
 
     def measure_rate(self, seconds=RATE_SECONDS):
