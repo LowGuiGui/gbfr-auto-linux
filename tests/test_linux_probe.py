@@ -357,20 +357,21 @@ class TestPipeWireNode:
         node, code, _ = resolve(dump, [[2300, 1500], LINEAGE])
         assert (node["id"], code) == (68, "matched")
 
-    def test_a_lone_node_that_matches_nothing_is_only_assumed(self):
-        node, code, text = resolve(pw_dump(gamescope_objects(3000, 80, 79, 400)))
-        assert (node["id"], code) == (80, "assumed")
-        assert "assumption" in text
-
-    @pytest.mark.parametrize("instances, lineages", [
-        # 两个都和游戏无关
-        ([(3000, 80, 79, 400), (3100, 90, 89, 500)], [LINEAGE]),
-        # 两条链落在两个不同的 gamescope 上
-        ([(2000, 68, 67, 301), (3000, 80, 79, 400)], [LINEAGE, [3300, 3000, 1500]]),
+    @pytest.mark.parametrize("instances", [
+        [(3000, 80, 79, 400)],
+        [(3000, 80, 79, 400), (3100, 90, 89, 500)],
     ])
-    def test_two_candidates_are_never_guessed_between(self, instances, lineages):
-        dump = pw_dump(*(gamescope_objects(*i) for i in instances))
-        assert resolve(dump, lineages)[:2] == (None, "ambiguous")
+    def test_a_node_that_matches_nothing_is_never_used(self, instances):
+        """哪怕只有它一个：游戏的 gamescope 可能根本没有节点，它属于另一个 gamescope，
+        用它测出来的是别的游戏的画面。"""
+        node, code, text = resolve(pw_dump(*(gamescope_objects(*i) for i in instances)))
+        assert (node, code) == (None, "unmatched")
+        assert "none is used" in text
+
+    def test_two_owned_candidates_are_never_guessed_between(self):
+        """两条链落在两个不同的 gamescope 上。"""
+        dump = pw_dump(gamescope_objects(2000, 68, 67, 301), gamescope_objects(3000, 80, 79, 400))
+        assert resolve(dump, [LINEAGE, [3300, 3000, 1500]])[:2] == (None, "ambiguous")
 
     def test_one_process_with_two_nodes_is_ambiguous_too(self):
         second = pw_object(70, "Node", {"node.name": "gamescope", "media.class": "Video/Source",
@@ -430,7 +431,7 @@ class TestL1PipeWire:
     def test_the_game_s_node_is_kept_for_later_steps(self, l1):
         dump = pw_dump(gamescope_objects(3000, 80, 79, 400), gamescope_objects(2000, 68, 67, 301))
         state, text = l1(lambda runtime: dump)
-        assert state["pw_node"]["id"] == 68 and state["pw_node_code"] == "matched"
+        assert state["pw_node"]["id"] == 68 and state["pw_node"]["serial"] == 301
         assert "PipeWire node: Node 68 belongs to process 2000" in text
 
     def test_without_pw_dump_l1_goes_on(self, l1):
@@ -587,9 +588,10 @@ def present_then(*answers):
 
 class TestPipeWireCapture:
     def test_the_pipeline_targets_the_node_and_never_falls_back(self, tmp_path):
-        cmd = lp.pipewire_pipeline(68, tmp_path / "x.png")
+        cmd = lp.pipewire_pipeline(301, tmp_path / "x.png")
         assert cmd[:3] == ["gst-launch-1.0", "-q", "pipewiresrc"]
-        assert "path=68" in cmd and "num-buffers=1" in cmd
+        assert "target-object=301" in cmd and "num-buffers=1" in cmd
+        assert not any(a.startswith("path=") for a in cmd)
         assert 'stream-properties="props,node.dont-fallback=(string)true"' in cmd
         assert "video/x-raw,format=BGRx" in cmd
         assert cmd[-1] == f"location={tmp_path / 'x.png'}"
@@ -598,22 +600,24 @@ class TestPipeWireCapture:
         """dont-fallback 必须是字符串 "true"：布尔值转成字符串是 "TRUE"。"""
         target = tmp_path / "dir with space" / "x.png"
         printed = parse_with_gstreamer(
-            lp.pipewire_pipeline(68, target)[2:],
-            "print(src.get_property('path'), src.get_property('num-buffers'), repr(fallback),\n"
+            lp.pipewire_pipeline(301, target)[2:],
+            "print(src.get_property('target-object'), src.get_property('path'),\n"
+            "      src.get_property('num-buffers'), repr(fallback),\n"
             "      p.get_by_name('filesink0').get_property('location'), sep='|')\n")
-        assert printed == f"68|1|'true'|{target}"
+        assert printed == f"301|None|1|'true'|{target}"
 
     def test_the_rate_pipeline_parses_the_way_it_is_meant(self):
         printed = parse_with_gstreamer(
-            lp.pipewire_rate_pipeline(68)[2:],
+            lp.pipewire_rate_pipeline(301)[2:],
             "sink = p.get_by_name('fakesink0')\n"
-            "print(src.get_property('path'), src.get_property('do-timestamp'), repr(fallback),\n"
+            "print(src.get_property('target-object'), src.get_property('path'),\n"
+            "      src.get_property('do-timestamp'), repr(fallback),\n"
             "      sink.get_property('sync'), sink.get_property('silent'), sep='|')\n")
-        assert printed == "68|True|'true'|False|False"
+        assert printed == "301|None|True|'true'|False|False"
 
     def test_a_frame_is_read_back_and_the_node_checked(self, tmp_path):
         gst = FakeGst()
-        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", "/run/user/1000", popen=gst,
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", "/run/user/1000", popen=gst,
                                      dump=present_then(True))
         frame = capture()
         assert frame.shape == (4, 8, 3) and frame[0, 0].tolist() == [10, 200, 30]
@@ -625,9 +629,9 @@ class TestPipeWireCapture:
     def test_a_stall_is_a_result_not_a_hang(self, tmp_path):
         """headless 干跑里连接停在 negotiating、一帧也不来。要报出来，而不是一直等。"""
         gst = FakeGst(write=False, hang=True)
-        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=gst,
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=gst,
                                      dump=present_then("negotiating", True))
-        with pytest.raises(RuntimeError, match=r"no frame within 5 s; links from node 68: "
+        with pytest.raises(RuntimeError, match=r"no frame within 5 s; links from node serial 301: "
                                                r"\['negotiating'\]; node still there: True"):
             capture()
         import signal
@@ -637,7 +641,7 @@ class TestPipeWireCapture:
     def test_gstreamer_errors_are_reported(self, tmp_path):
         output = ("ERROR: from element /GstPipeline:pipeline0/GstPipeWireSrc:pipewiresrc0: "
                   "stream error: defined target not found\nAdditional debug info:\n...")
-        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=FakeGst(
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=FakeGst(
             write=False, returncode=255, output=output), dump=present_then(True))
         with pytest.raises(RuntimeError, match="gst-launch exited 255.*defined target not found"):
             capture()
@@ -645,7 +649,7 @@ class TestPipeWireCapture:
 
     def test_once_the_node_is_gone_no_pipeline_is_started(self, tmp_path):
         gst = FakeGst()
-        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=gst,
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=gst,
                                      dump=present_then(False))
         capture()
         assert capture.last["node_after"] is False
@@ -653,11 +657,20 @@ class TestPipeWireCapture:
             capture()
         assert len(gst.calls) == 1 and capture.last == {"node_after": False}
 
+    def test_a_node_that_reused_the_id_is_not_the_same_node(self, tmp_path):
+        """PipeWire 会复用对象 id：游戏的节点（serial 301）没了，另一个 gamescope 的节点拿到了
+        同一个 id 68。按 id 认的话它会被当成还在。"""
+        def replaced(runtime=None):
+            return pw_dump(gamescope_objects(3000, 68, 79, 999))
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=FakeGst(), dump=replaced)
+        capture()
+        assert capture.last["node_after"] is False and capture.gone
+
     def test_an_unreadable_graph_does_not_count_as_a_vanished_node(self, tmp_path):
         def broken(runtime=None):
             raise RuntimeError("pw-dump exited 1")
         gst = FakeGst()
-        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=gst, dump=broken)
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=gst, dump=broken)
         capture()
         capture()
         assert len(gst.calls) == 2 and "pw-dump exited 1" in capture.last["node_after"]
@@ -665,7 +678,7 @@ class TestPipeWireCapture:
     def test_a_stale_frame_from_an_earlier_capture_is_not_reused(self, tmp_path):
         shot = tmp_path / "pw.png"
         Image.new("RGB", (8, 4)).save(shot)
-        capture = lp.PipeWireCapture(68, shot, popen=FakeGst(write=False),
+        capture = lp.PipeWireCapture(301, shot, popen=FakeGst(write=False),
                                      dump=present_then(True))
         with pytest.raises(RuntimeError, match="wrote no frame"):
             capture()
@@ -675,14 +688,14 @@ class TestPipeWireCapture:
         outside.write_text("keep me")
         shot = tmp_path / "pw.png"
         shot.symlink_to(outside)
-        lp.PipeWireCapture(68, shot, popen=FakeGst(), dump=present_then(True))()
+        lp.PipeWireCapture(301, shot, popen=FakeGst(), dump=present_then(True))()
         assert outside.read_text() == "keep me" and not shot.is_symlink()
 
     def test_details_of_an_earlier_capture_do_not_stick(self, tmp_path):
         """这一次在起进程之前就失败了（比如没装 gst-launch），报告里不能挂着上一次的细节。"""
         def missing(cmd, **kwargs):
             raise FileNotFoundError(2, "No such file or directory", "gst-launch-1.0")
-        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=FakeGst(),
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=FakeGst(),
                                      dump=present_then(True))
         capture()
         capture.popen = missing
@@ -694,8 +707,8 @@ class TestPipeWireCapture:
         other = pw_object(130, "Link", {}, state="active",
                           **{"output-node-id": 30, "input-node-id": 140})
         dump = present_then("paused")()
-        assert lp.pipewire_links(dump + [other], 68) == ["paused"]
-        assert lp.pipewire_links(pw_dump(), 68) == []
+        assert lp.pipewire_links(dump + [other], 301) == ["paused"]
+        assert lp.pipewire_links(pw_dump(), 301) == []
 
 
 class TestFrameRate:
@@ -735,7 +748,7 @@ class TestFrameRate:
     def test_the_deadline_is_the_normal_end(self, tmp_path):
         import signal
         gst = FakeGst(write=False, hang=True, output=rate_output([i / 60 for i in range(120)]))
-        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=gst,
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=gst,
                                      dump=present_then("active", True))
         rate = capture.measure_rate()
         assert rate["fps"] == 60.0 and rate["links"] == ["active"] and "error" not in rate
@@ -746,7 +759,7 @@ class TestFrameRate:
     def test_a_pipeline_that_ends_by_itself_is_an_error(self, tmp_path):
         output = ("Setting pipeline to PAUSED ...\nERROR: from element "
                   "/GstPipeline:pipeline0/GstPipeWireSrc:pipewiresrc0: target not found\n")
-        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", dump=present_then(True),
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", dump=present_then(True),
                                      popen=FakeGst(write=False, returncode=1, output=output))
         rate = capture.measure_rate()
         assert rate["fps"] is None
@@ -754,7 +767,7 @@ class TestFrameRate:
 
     def test_no_rate_is_measured_once_the_node_is_gone(self, tmp_path):
         gst = FakeGst()
-        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=gst,
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=gst,
                                      dump=present_then(False))
         capture()
         assert "disappeared" in capture.measure_rate()["skipped"]
@@ -763,7 +776,7 @@ class TestFrameRate:
     def test_a_missing_gst_launch_is_reported_not_raised(self, tmp_path):
         def missing(cmd, **kwargs):
             raise FileNotFoundError(2, "No such file or directory", "gst-launch-1.0")
-        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=missing,
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=missing,
                                      dump=present_then(True))
         rate = capture.measure_rate()
         assert "FileNotFoundError" in rate["error"] and rate["node_after"] is True
@@ -793,7 +806,8 @@ class TestL2Choice:
         state = {}
         lp.step_l2(SimpleNamespace(), report, state)
         report.close()
-        records = [json.loads(line) for line in (tmp_path / "report.jsonl").read_text().splitlines()]
+        lines = (tmp_path / "report.jsonl").read_text().splitlines()
+        records = [json.loads(line) for line in lines]
         return state, records
 
     def content(self):
@@ -820,6 +834,21 @@ class TestL2Choice:
         detail = next(r["value"] for r in records if r["name"] == "focused / pipewire")
         assert detail["grade"] == "content" and detail["node_after"] is True
 
+    def test_a_capture_whose_node_vanished_is_not_handed_on(self, tmp_path, monkeypatch):
+        """失焦那轮截到了内容、后来节点没了：交给 L3、L4 只会一帧也截不到。"""
+        class VanishesAfterContent:
+            gone = False
+
+            def __call__(self):
+                frame = np.random.default_rng(7).integers(0, 255, (16, 16, 3), dtype=np.uint8)
+                self.gone = True
+                return frame
+        blank = np.zeros((16, 16, 3), np.uint8)
+        state, records = self.run_l2(tmp_path, monkeypatch, [("gamescopectl", lambda: blank),
+                                                             ("pipewire", VanishesAfterContent())])
+        assert "capture" not in state
+        assert any(r["name"] == "pipewire not used" for r in records)
+
     def test_every_pass_measures_the_frame_rate(self, tmp_path, monkeypatch):
         class Rated:
             def __call__(self):
@@ -835,7 +864,8 @@ class TestL2Choice:
     def test_capture_methods_offer_pipewire_only_with_a_node(self, tmp_path):
         report = lp.Report(tmp_path, echo=lambda s: None)
         assert lp.capture_methods({}, report) == []
-        names = [n for n, _ in lp.capture_methods({"pw_node": {"id": 68}}, report)]
+        assert lp.capture_methods({"pw_node": {"id": 68, "serial": None}}, report) == []
+        names = [n for n, _ in lp.capture_methods({"pw_node": {"id": 68, "serial": 301}}, report)]
         report.close()
         assert names == ["pipewire"]
 

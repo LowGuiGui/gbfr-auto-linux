@@ -362,8 +362,9 @@ def resolve_pipewire_node(nodes, lineages):
 
     沿每条链往上，第一个拥有 gamescope 节点的进程就是这个进程所在的 gamescope；gamescope
     里再套 gamescope 时，近的那层才是游戏用的显示。父进程先退出的进程会被托管给别的进程，
-    它的链上可能没有 gamescope，那条链就什么也不提供。所有链都对不上、而 PipeWire 里恰好
-    只有一个 gamescope 节点时，先用它，但注明是假定的：它也可能属于另一个 gamescope。
+    它的链上可能没有 gamescope，那条链就什么也不提供。所有链都对不上的节点一律不用，哪怕
+    PipeWire 里只有它一个：游戏的 gamescope 可能根本没有节点，那一个属于另一个 gamescope，
+    拿它的画面当游戏的，测出来的就是别的东西。
     """
     found = {}
     for lineage in lineages:
@@ -381,15 +382,12 @@ def resolve_pipewire_node(nodes, lineages):
         return None, "ambiguous", (f"Nodes {sorted(found)} each belong to an ancestor of some of "
                                    "the game's processes, so the probe cannot tell which is the "
                                    "game's.")
-    if len(nodes) == 1:
-        return nodes[0], "assumed", (f"Node {nodes[0]['id']} is the only gamescope node, but it "
-                                     "does not belong to an ancestor of the game's processes. It "
-                                     "is used on the assumption that it is the game's.")
     if not nodes:
         return None, "none", ("PipeWire has no gamescope node. This gamescope may be built "
                               "without PipeWire, or it has not set up its stream.")
-    return None, "ambiguous", (f"{len(nodes)} gamescope nodes, and none belongs to an ancestor "
-                               "of the game's processes.")
+    return None, "unmatched", (f"{len(nodes)} gamescope node(s), and none belongs to an ancestor "
+                               "of the game's processes, so none is used: they may belong to "
+                               "another gamescope.")
 
 
 # --- L2：截图 -----------------------------------------------------------------
@@ -463,12 +461,14 @@ def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
 PIPEWIRE_TIMEOUT = 5.0
 
 
-def pipewire_pipeline(node_id, location, frames=1):
-    """gst-launch-1.0 的命令行：从节点 node_id 取 frames 帧，转成 PNG 存到 location。
+def pipewire_pipeline(serial, location, frames=1):
+    """gst-launch-1.0 的命令行：从 object.serial 为 serial 的节点取 frames 帧，转成 PNG
+    存到 location。
 
-    - 按节点 id 连：path 就是 pw_stream_connect 的 target_id，WirePlumber 拿它去对节点 id。
-      target-object 也收 serial 或名字，但名字有歧义（每个 gamescope 都叫 gamescope）；
-      serial 照源码也该行，在这台机器上的一次 headless 试验里却没连上，id 连上了。
+    - 按 serial 连（target-object），WirePlumber 0.5 拿它去对节点的 object.serial。节点 id
+      会被复用：节点没了以后，同一个 id 可能落到别的节点上，按 id 连就可能连到那个上去；
+      serial 不复用。名字也不行，每个 gamescope 都叫 gamescope。按 serial 连在这台机器上
+      对一个测试图案的视频源试过，连得上。
     - node.dont-fallback：节点要是已经没了，WirePlumber 默认把流改接到默认的视频源上，
       那可能是摄像头。设了它，WirePlumber 0.5 回一个 "defined target not found" 错误，
       不改接。值写成 (string)true：不写类型会被解析成布尔值，转成字符串就成了 "TRUE"。
@@ -478,7 +478,7 @@ def pipewire_pipeline(node_id, location, frames=1):
     - PNG 用最低的压缩级别：一帧 2560x1440，压缩花的时间不该算进截图的耗时里。
     """
     return ["gst-launch-1.0", "-q",
-            "pipewiresrc", f"path={node_id}", f"num-buffers={frames}",
+            "pipewiresrc", f"target-object={serial}", f"num-buffers={frames}",
             'stream-properties="props,node.dont-fallback=(string)true"', "!",
             "video/x-raw,format=BGRx", "!", "videoconvert", "!",
             "pngenc", "compression-level=1", "!", "filesink", f"location={location}"]
@@ -512,17 +512,21 @@ def run_bounded(cmd, timeout, grace=2.0, env=None, at_deadline=None, popen=subpr
     return proc.returncode, output, True, seen
 
 
-def pipewire_links(dump, node_id):
-    """从 node_id 接出去的每条连接的状态，比如 negotiating、paused、active。
+def pipewire_links(dump, serial):
+    """从 object.serial 为 serial 的节点接出去的每条连接的状态，比如 negotiating、paused、
+    active。连接上记的是节点 id，所以先按 serial 找到节点现在的 id；节点不在了就没有连接。
 
     一条都没有，说明 WirePlumber 根本没把流接上；停在 negotiating，说明接上了但格式没谈拢。
     """
+    objects = [o for o in dump if isinstance(o, dict)]
+    node_id = next((o.get("id") for o in objects if o.get("type") == "PipeWire:Interface:Node"
+                    and ((o.get("info") or {}).get("props") or {}).get("object.serial") == serial),
+                   None)
     states = []
-    for o in dump:
-        if not isinstance(o, dict) or o.get("type") != "PipeWire:Interface:Link":
-            continue
+    for o in objects:
         info = o.get("info") or {}
-        if info.get("output-node-id") == node_id:
+        if (node_id is not None and o.get("type") == "PipeWire:Interface:Link"
+                and info.get("output-node-id") == node_id):
             states.append(info.get("state") or "?")
     return sorted(states)
 
@@ -537,12 +541,12 @@ SINK_CAPS = re.compile(r"GstFakeSink:fakesink0\.GstPad:sink: caps = (.+)")
 CAPS_FIELD = re.compile(r"([\w-]+)=\(\w+\)([^,]+)")
 
 
-def pipewire_rate_pipeline(node_id):
+def pipewire_rate_pipeline(serial):
     """连续取流的 gst-launch 命令行。目标、不改接和格式的道理同 pipewire_pipeline。
 
     do-timestamp：gamescope 的帧要是没带时间戳，就用帧到达时的流时间，否则算不出帧率。
     """
-    return ["gst-launch-1.0", "-v", "pipewiresrc", f"path={node_id}", "do-timestamp=true",
+    return ["gst-launch-1.0", "-v", "pipewiresrc", f"target-object={serial}", "do-timestamp=true",
             'stream-properties="props,node.dont-fallback=(string)true"', *RATE_TAIL]
 
 
@@ -574,8 +578,10 @@ def describe_rate(rate):
     if rate.get("skipped"):
         return f"Not measured: {rate['skipped']}."
     if rate.get("fps") is None:
-        why = rate.get("error") or f"{rate.get('frames', 0)} frames arrived in {rate.get('seconds')} s"
-        return f"No frame rate: {why}. Links from the node at the end: {rate.get('links') or 'none'}."
+        why = (rate.get("error")
+               or f"{rate.get('frames', 0)} frames arrived in {rate.get('seconds')} s")
+        return (f"No frame rate: {why}. Links from the node at the end: "
+                f"{rate.get('links') or 'none'}.")
     enough = ("enough for a loop that reacts to the fight" if rate["fps"] >= 10
               else "below the 10 a second a loop that reacts to the fight would need")
     return (f"{rate['fps']} frames a second over {rate['stamped']} frames, longest gap "
@@ -590,9 +596,9 @@ class PipeWireCapture:
     起管道。每次的细节放在 last 里，L2 把它和结果写在一起。
     """
 
-    def __init__(self, node_id, path, runtime_dir=None, timeout=PIPEWIRE_TIMEOUT,
+    def __init__(self, serial, path, runtime_dir=None, timeout=PIPEWIRE_TIMEOUT,
                  popen=subprocess.Popen, dump=read_pw_dump):
-        self.node_id = node_id
+        self.serial = serial
         # 和 capture_gamescopectl 一样用 absolute()：清理旧图时不顺着符号链接走。
         self.path = Path(path).absolute()
         self.runtime_dir = runtime_dir
@@ -604,7 +610,7 @@ class PipeWireCapture:
 
     def node_present(self):
         nodes = pipewire_gamescope_nodes(self.dump(self.runtime_dir))
-        return any(n["id"] == self.node_id for n in nodes)
+        return any(n["serial"] == self.serial for n in nodes)
 
     def check_node(self):
         """节点还在吗：True、False，或者 pw-dump 读不出来时的错误文字（那不算没了）。"""
@@ -622,7 +628,7 @@ class PipeWireCapture:
             env["XDG_RUNTIME_DIR"] = self.runtime_dir
         return run_bounded(
             cmd, seconds, env=env,
-            at_deadline=lambda: pipewire_links(self.dump(self.runtime_dir), self.node_id),
+            at_deadline=lambda: pipewire_links(self.dump(self.runtime_dir), self.serial),
             popen=self.popen)
 
     def measure_rate(self, seconds=RATE_SECONDS):
@@ -631,9 +637,10 @@ class PipeWireCapture:
         到点发 SIGINT 是这里的正常收尾；gst-launch 在那之前自己退出，才是出了错。
         """
         if self.gone:
-            return {"skipped": f"node {self.node_id} disappeared after an earlier capture"}
+            return {"skipped": f"node serial {self.serial} disappeared after an earlier "
+                               "capture"}
         try:
-            code, output, timed_out, links = self.run(pipewire_rate_pipeline(self.node_id),
+            code, output, timed_out, links = self.run(pipewire_rate_pipeline(self.serial),
                                                       seconds)
         except Exception as exc:
             return {"error": short_error(exc), "node_after": self.check_node()}
@@ -651,14 +658,15 @@ class PipeWireCapture:
         self.last = {}
         if self.gone:
             self.last["node_after"] = False
-            raise RuntimeError(f"node {self.node_id} disappeared after an earlier capture")
+            raise RuntimeError(f"node serial {self.serial} disappeared after an earlier "
+                               "capture")
         if self.path.is_symlink() or self.path.exists():
             self.path.unlink()
         started = time.monotonic()
-        code, output, timed_out, links = self.run(pipewire_pipeline(self.node_id, self.path),
+        code, output, timed_out, links = self.run(pipewire_pipeline(self.serial, self.path),
                                                   self.timeout)
         output = " ".join((output or "").split())
-        self.last = {"target": f"path={self.node_id}",
+        self.last = {"target": f"target-object={self.serial}",
                      "gst_ms": round((time.monotonic() - started) * 1000),
                      "exit": code, "timed_out": timed_out}
         if timed_out:
@@ -667,8 +675,8 @@ class PipeWireCapture:
             self.last["output"] = output[:300]
         present = self.last["node_after"] = self.check_node()
         if timed_out:
-            raise RuntimeError(f"no frame within {self.timeout:g} s; links from node "
-                               f"{self.node_id}: {links or 'none'}; node still there: {present}")
+            raise RuntimeError(f"no frame within {self.timeout:g} s; links from node serial "
+                               f"{self.serial}: {links or 'none'}; node still there: {present}")
         if code != 0:
             raise RuntimeError(f"gst-launch exited {code}: {output[:120]!r}")
         if not self.path.exists() or self.path.stat().st_size == 0:
@@ -960,7 +968,7 @@ def step_l1(args, report, state):
         node, code, text = resolve_pipewire_node(nodes, lineages)
         report.result("L1", "PipeWire node", {"code": code, "node": node}, text)
         if node is not None:
-            state.update(pw_node=node, pw_node_code=code)
+            state["pw_node"] = node
     except Exception as exc:
         report.result("L1", "PipeWire node", short_error(exc))
 
@@ -992,10 +1000,11 @@ def capture_methods(state, report):
         shot = report.dir / "gamescopectl-latest.png"
         methods.append(("gamescopectl",
                         lambda: capture_gamescopectl(shot, state["wayland"], state.get("runtime"))))
-    if state.get("pw_node") is not None:
+    # 按 object.serial 认节点，没有 serial 的节点（老版本的 PipeWire）就不取流。
+    serial = (state.get("pw_node") or {}).get("serial")
+    if isinstance(serial, int):
         # 同一个对象跑完三轮：节点在前一轮没了，后面几轮就不再起管道。
-        methods.append(("pipewire", PipeWireCapture(state["pw_node"]["id"],
-                                                    report.dir / "pipewire-latest.png",
+        methods.append(("pipewire", PipeWireCapture(serial, report.dir / "pipewire-latest.png",
                                                     state.get("runtime"))))
     return methods
 
@@ -1050,6 +1059,12 @@ def step_l2(args, report, state):
     # 每帧起一条管道的 PipeWire 排最后：它还没在游戏上量过，而且每多截一次，节点就多一次
     # 被协商失败拆掉的机会，L3、L4 要的是中途不会断的截图。
     for name in ("x11-window", "x11-root", "gamescopectl", "pipewire"):
+        # 前一轮截到了内容、后一轮节点没了的 PipeWire，交给 L3、L4 只会一帧也截不到。
+        if name in best and getattr(best[name], "gone", False):
+            report.result("L2", f"{name} not used", "gone",
+                          f"{name} captured content in the background, but its node "
+                          "disappeared afterwards, so L3 and L4 cannot use it.")
+            continue
         if name in best:
             state["capture"], state["capture_name"] = best[name], name
             report.result("L2", "verdict", name, f"background capture works with {name}")
