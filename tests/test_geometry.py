@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""geometry.py —— 全部用 Howard 真机上量到的数字。
+"""geometry.py —— 全部用仓库所有者真机上量到的数字。
 
 这些测试的价值在于它们钉死了一个**算错过的结论**：#46 原来说中键偏移是
 (11, 45)，实际是 (0, -17)。数字写死在这里，下次再有人凭直觉改就会红。
