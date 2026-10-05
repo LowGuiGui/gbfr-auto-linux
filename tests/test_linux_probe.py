@@ -441,6 +441,266 @@ class TestL1PipeWire:
         assert "PipeWire node: FileNotFoundError" in text
 
 
+class TestRunBounded:
+    """真的子进程：超时、SIGINT 和最后的 kill 都是操作系统做的，替身证明不了。"""
+
+    def test_a_quick_command_returns_its_output(self):
+        code, output, timed_out, seen = lp.run_bounded(
+            [sys.executable, "-c", "import sys; print('out'); print('err', file=sys.stderr)"], 10)
+        assert (code, timed_out, seen) == (0, False, None)
+        assert "out" in output and "err" in output
+
+    def test_a_hanging_command_is_stopped_after_a_look_at_the_scene(self):
+        import time
+        started = time.monotonic()
+        code, _, timed_out, seen = lp.run_bounded(
+            [sys.executable, "-c", "import time; time.sleep(30)"], 0.5, grace=5,
+            at_deadline=lambda: "looked")
+        assert timed_out and seen == "looked"
+        assert time.monotonic() - started < 5
+        assert code != 0
+
+    def test_a_command_that_ignores_sigint_is_killed(self):
+        import signal
+        code, _, timed_out, _ = lp.run_bounded(
+            [sys.executable, "-c", "import signal, time; signal.signal(signal.SIGINT, "
+                                   "signal.SIG_IGN); time.sleep(30)"], 1.0, grace=0.3)
+        assert timed_out and code == -signal.SIGKILL
+
+    def test_a_failing_look_does_not_stop_the_cleanup(self):
+        def broken():
+            raise RuntimeError("pw-dump went away")
+        _, _, timed_out, seen = lp.run_bounded(
+            [sys.executable, "-c", "import time; time.sleep(30)"], 0.3, at_deadline=broken)
+        assert timed_out and "pw-dump went away" in seen
+
+
+class FakeGst:
+    """subprocess.Popen 的替身，照文档：Popen(args, stdout=, stderr=, env=, text=) 返回进程
+    对象；communicate(timeout=None) 返回 (stdout, stderr)，到时抛 TimeoutExpired(cmd,
+    timeout)，再调一次不丢输出；send_signal(sig)、kill()；returncode 在进程结束后才有值。
+
+    write：像 filesink 那样把一张 PNG 写到 location=。hang：第一次 communicate 超时，
+    直到收到信号。
+    """
+
+    def __init__(self, write=True, hang=False, returncode=0, output=""):
+        self.write, self.hang = write, hang
+        self.returncode, self.output = returncode, output
+        self.calls, self.signals = [], []
+
+    def __call__(self, cmd, env=None, stdout=None, stderr=None, text=False):
+        import subprocess
+        assert stderr == subprocess.STDOUT and text
+        self.calls.append((cmd, env))
+        fake = self
+
+        class Process:
+            returncode = None
+
+            def communicate(self, timeout=None):
+                if fake.hang and not fake.signals:
+                    raise subprocess.TimeoutExpired(cmd, timeout)
+                if fake.write and not fake.signals:
+                    location = next(a for a in cmd if a.startswith("location="))
+                    Image.new("RGB", (8, 4), (10, 200, 30)).save(location.partition("=")[2])
+                self.returncode = -2 if fake.signals else fake.returncode
+                return fake.output, None
+
+            def send_signal(self, sig):
+                fake.signals.append(sig)
+
+            def kill(self):
+                fake.signals.append("kill")
+
+        return Process()
+
+
+def present_then(*answers):
+    """依次给出的 pw-dump：True 是节点 68 在，False 是不在，字符串是一份带这种状态连接的图。"""
+    queue = list(answers)
+
+    def dump(runtime=None):
+        answer = queue.pop(0) if len(queue) > 1 else queue[0]
+        if isinstance(answer, str):
+            link = pw_object(120, "Link", {"link.output.node": 68}, state=answer,
+                             **{"output-node-id": 68, "output-port-id": 69,
+                                "input-node-id": 110, "input-port-id": 111})
+            return pw_dump(gamescope_objects(2000, 68, 67, 301), extra=[link])
+        return pw_dump(gamescope_objects(2000, 68, 67, 301)) if answer else pw_dump()
+    return dump
+
+
+class TestPipeWireCapture:
+    def test_the_pipeline_targets_the_node_and_never_falls_back(self, tmp_path):
+        cmd = lp.pipewire_pipeline(68, tmp_path / "x.png")
+        assert cmd[:3] == ["gst-launch-1.0", "-q", "pipewiresrc"]
+        assert "path=68" in cmd and "num-buffers=1" in cmd
+        assert 'stream-properties="props,node.dont-fallback=(string)true"' in cmd
+        assert "video/x-raw,format=BGRx" in cmd
+        assert cmd[-1] == f"location={tmp_path / 'x.png'}"
+
+    def test_gstreamer_parses_it_the_way_it_is_meant(self, tmp_path):
+        """拿 gst-launch 自己用的解析器（gst_parse_launchv）解析一遍，不启动管道，不连
+        PipeWire。dont-fallback 必须是字符串 "true"：布尔值转成字符串是 "TRUE"。"""
+        import shutil
+        import subprocess
+        python = shutil.which("python3", path="/usr/bin")
+        if python is None:
+            pytest.skip("no system python3")
+        check = (
+            "import sys\n"
+            "try:\n"
+            "    import gi\n"
+            "    gi.require_version('Gst', '1.0')\n"
+            "    from gi.repository import Gst\n"
+            "except Exception:\n"
+            "    sys.exit(77)\n"
+            "Gst.init(None)\n"
+            "if Gst.ElementFactory.find('pipewiresrc') is None: sys.exit(77)\n"
+            "p = Gst.parse_launchv(sys.argv[1:])\n"
+            "src = p.get_by_name('pipewiresrc0')\n"
+            "v = src.get_property('stream-properties').get_value('node.dont-fallback')\n"
+            "print(src.get_property('path'), src.get_property('num-buffers'), repr(v),\n"
+            "      p.get_by_name('filesink0').get_property('location'), sep='|')\n")
+        target = tmp_path / "dir with space" / "x.png"
+        result = subprocess.run([python, "-c", check, *lp.pipewire_pipeline(68, target)[2:]],
+                                capture_output=True, text=True, timeout=30)
+        if result.returncode == 77:
+            pytest.skip("no GStreamer with pipewiresrc for the system python")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == f"68|1|'true'|{target}"
+
+    def test_a_frame_is_read_back_and_the_node_checked(self, tmp_path):
+        gst = FakeGst()
+        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", "/run/user/1000", popen=gst,
+                                     dump=present_then(True))
+        frame = capture()
+        assert frame.shape == (4, 8, 3) and frame[0, 0].tolist() == [10, 200, 30]
+        cmd, env = gst.calls[0]
+        assert env["XDG_RUNTIME_DIR"] == "/run/user/1000" and env["LC_ALL"] == "C"
+        assert capture.last["exit"] == 0 and capture.last["node_after"] is True
+        assert capture.last["timed_out"] is False and gst.signals == []
+
+    def test_a_stall_is_a_result_not_a_hang(self, tmp_path):
+        """headless 干跑里连接停在 negotiating、一帧也不来。要报出来，而不是一直等。"""
+        gst = FakeGst(write=False, hang=True)
+        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=gst,
+                                     dump=present_then("negotiating", True))
+        with pytest.raises(RuntimeError, match=r"no frame within 5 s; links from node 68: "
+                                               r"\['negotiating'\]; node still there: True"):
+            capture()
+        import signal
+        assert gst.signals == [signal.SIGINT]
+        assert capture.last["links"] == ["negotiating"] and capture.last["timed_out"]
+
+    def test_gstreamer_errors_are_reported(self, tmp_path):
+        output = ("ERROR: from element /GstPipeline:pipeline0/GstPipeWireSrc:pipewiresrc0: "
+                  "stream error: defined target not found\nAdditional debug info:\n...")
+        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=FakeGst(
+            write=False, returncode=255, output=output), dump=present_then(True))
+        with pytest.raises(RuntimeError, match="gst-launch exited 255.*defined target not found"):
+            capture()
+        assert capture.last["output"].startswith("ERROR: from element")
+
+    def test_once_the_node_is_gone_no_pipeline_is_started(self, tmp_path):
+        gst = FakeGst()
+        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=gst,
+                                     dump=present_then(False))
+        capture()
+        assert capture.last["node_after"] is False
+        with pytest.raises(RuntimeError, match="disappeared"):
+            capture()
+        assert len(gst.calls) == 1 and capture.last == {"node_after": False}
+
+    def test_an_unreadable_graph_does_not_count_as_a_vanished_node(self, tmp_path):
+        def broken(runtime=None):
+            raise RuntimeError("pw-dump exited 1")
+        gst = FakeGst()
+        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=gst, dump=broken)
+        capture()
+        capture()
+        assert len(gst.calls) == 2 and "pw-dump exited 1" in capture.last["node_after"]
+
+    def test_a_stale_frame_from_an_earlier_capture_is_not_reused(self, tmp_path):
+        shot = tmp_path / "pw.png"
+        Image.new("RGB", (8, 4)).save(shot)
+        capture = lp.PipeWireCapture(68, shot, popen=FakeGst(write=False),
+                                     dump=present_then(True))
+        with pytest.raises(RuntimeError, match="wrote no frame"):
+            capture()
+
+    def test_a_symlinked_frame_name_never_touches_its_target(self, tmp_path):
+        outside = tmp_path / "outside.txt"
+        outside.write_text("keep me")
+        shot = tmp_path / "pw.png"
+        shot.symlink_to(outside)
+        lp.PipeWireCapture(68, shot, popen=FakeGst(), dump=present_then(True))()
+        assert outside.read_text() == "keep me" and not shot.is_symlink()
+
+    def test_details_of_an_earlier_capture_do_not_stick(self, tmp_path):
+        """这一次在起进程之前就失败了（比如没装 gst-launch），报告里不能挂着上一次的细节。"""
+        def missing(cmd, **kwargs):
+            raise FileNotFoundError(2, "No such file or directory", "gst-launch-1.0")
+        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=FakeGst(),
+                                     dump=present_then(True))
+        capture()
+        capture.popen = missing
+        with pytest.raises(FileNotFoundError):
+            capture()
+        assert capture.last == {}
+
+    def test_links_are_read_from_the_node_outwards(self):
+        other = pw_object(130, "Link", {}, state="active",
+                          **{"output-node-id": 30, "input-node-id": 140})
+        dump = present_then("paused")()
+        assert lp.pipewire_links(dump + [other], 68) == ["paused"]
+        assert lp.pipewire_links(pw_dump(), 68) == []
+
+
+class TestL2Choice:
+    def run_l2(self, tmp_path, monkeypatch, methods):
+        monkeypatch.setattr(lp, "countdown", lambda *a, **k: None)
+        monkeypatch.setattr(lp, "capture_methods", lambda state, report: methods)
+        report = lp.Report(tmp_path, echo=lambda s: None)
+        state = {}
+        lp.step_l2(SimpleNamespace(), report, state)
+        report.close()
+        records = [json.loads(line) for line in (tmp_path / "report.jsonl").read_text().splitlines()]
+        return state, records
+
+    def content(self):
+        return np.random.default_rng(7).integers(0, 255, (16, 16, 3), dtype=np.uint8)
+
+    def test_pipewire_is_chosen_only_when_nothing_else_works(self, tmp_path, monkeypatch):
+        blank = np.zeros((16, 16, 3), np.uint8)
+        state, _ = self.run_l2(tmp_path, monkeypatch, [("gamescopectl", lambda: blank),
+                                                       ("pipewire", self.content)])
+        assert state["capture_name"] == "pipewire"
+
+    def test_gamescopectl_goes_before_pipewire(self, tmp_path, monkeypatch):
+        state, _ = self.run_l2(tmp_path, monkeypatch, [("pipewire", self.content),
+                                                       ("gamescopectl", self.content)])
+        assert state["capture_name"] == "gamescopectl"
+
+    def test_the_capture_details_go_into_the_report(self, tmp_path, monkeypatch):
+        class Detailed:
+            last = {"exit": 0, "node_after": True}
+
+            def __call__(self):
+                return np.random.default_rng(7).integers(0, 255, (16, 16, 3), dtype=np.uint8)
+        _, records = self.run_l2(tmp_path, monkeypatch, [("pipewire", Detailed())])
+        detail = next(r["value"] for r in records if r["name"] == "focused / pipewire")
+        assert detail["grade"] == "content" and detail["node_after"] is True
+
+    def test_capture_methods_offer_pipewire_only_with_a_node(self, tmp_path):
+        report = lp.Report(tmp_path, echo=lambda s: None)
+        assert lp.capture_methods({}, report) == []
+        names = [n for n, _ in lp.capture_methods({"pw_node": {"id": 68}}, report)]
+        report.close()
+        assert names == ["pipewire"]
+
+
 class FakeDisplay:
     """python-xlib Display 的替身，只有 send_key 用到的方法，签名照 Xlib 的文档：
     keysym_to_keycode(keysym)、xtest_fake_input(event_type, detail=0, ...)、sync()。"""
