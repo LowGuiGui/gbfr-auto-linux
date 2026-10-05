@@ -11,7 +11,7 @@
         gamescope 在 PipeWire 里的视频节点。只读。
     L2  后台能不能截到图：X11 GetImage（根窗口和游戏窗口）、gamescopectl 截图，以及从
         gamescope 的 PipeWire 节点取一帧，在聚焦、失焦、被遮住三种状态下各截一次。全黑算
-        失败，由 opencv.is_blank_frame 判定。
+        失败，由 opencv.is_blank_frame 判定。每一轮再连续取流几秒，量 PipeWire 的帧率。
     L3  经 XTest 送进嵌套 X 的 Escape，游戏收不收，宿主桌面会不会也收到。发之前先问。
     L4  失焦以后游戏停不停：聚焦、失焦各连拍一段，用 framediff 的 A4 判定；同时记下
         游戏窗口收到的 FocusIn/FocusOut 和 gamescope 根窗口属性的变化。
@@ -27,6 +27,7 @@ import argparse
 import itertools
 import json
 import os
+import re
 import select
 import signal
 import subprocess
@@ -65,7 +66,6 @@ def short_error(exc, limit=160):
 
 
 def strip_ansi(text):
-    import re
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
@@ -527,6 +527,61 @@ def pipewire_links(dump, node_id):
     return sorted(states)
 
 
+# 测帧率时连续取流的时长。一秒多花在起进程和协商上，剩下的够数出每秒十几帧和一百多帧的差别。
+RATE_SECONDS = 3.0
+# 帧率管道的后半段：不转码、不存文件，帧到了 fakesink 就扔。silent=false 加上 gst-launch -v，
+# 每帧打一行带时间戳的 last-message。sync=false：来一帧收一帧，不按时钟等。
+RATE_TAIL = ["!", "video/x-raw,format=BGRx", "!", "fakesink", "silent=false", "sync=false"]
+CHAIN_LINE = re.compile(r"last-message = chain .*?, pts: (?:(\d+):(\d\d):(\d\d)\.(\d{9})|none)")
+SINK_CAPS = re.compile(r"GstFakeSink:fakesink0\.GstPad:sink: caps = (.+)")
+CAPS_FIELD = re.compile(r"([\w-]+)=\(\w+\)([^,]+)")
+
+
+def pipewire_rate_pipeline(node_id):
+    """连续取流的 gst-launch 命令行。目标、不改接和格式的道理同 pipewire_pipeline。
+
+    do-timestamp：gamescope 的帧要是没带时间戳，就用帧到达时的流时间，否则算不出帧率。
+    """
+    return ["gst-launch-1.0", "-v", "pipewiresrc", f"path={node_id}", "do-timestamp=true",
+            'stream-properties="props,node.dont-fallback=(string)true"', *RATE_TAIL]
+
+
+def parse_rate(output):
+    """gst-launch -v 的输出 -> 收到几帧、几帧有时间戳、按时间戳算的帧率、最长的帧间隔，
+    以及协商出来的格式。格式一行都没有，说明协商没完成。"""
+    frames, stamps = 0, []
+    for match in CHAIN_LINE.finditer(output):
+        frames += 1
+        if match.group(1) is not None:
+            h, m, s, ns = (int(g) for g in match.groups())
+            stamps.append(h * 3600 + m * 60 + s + ns / 1e9)
+    result = {"frames": frames, "stamped": len(stamps), "fps": None, "max_gap_ms": None,
+              "caps": None}
+    caps = SINK_CAPS.search(output)
+    if caps:
+        fields = dict(CAPS_FIELD.findall(caps.group(1)))
+        result["caps"] = (f"{fields.get('format')} {fields.get('width')}x{fields.get('height')}"
+                          f" @ {fields.get('framerate')}")
+    if len(stamps) >= 2 and stamps[-1] > stamps[0]:
+        result["fps"] = round((len(stamps) - 1) / (stamps[-1] - stamps[0]), 1)
+        result["max_gap_ms"] = round(max(b - a for a, b in itertools.pairwise(stamps)) * 1000)
+    return result
+
+
+def describe_rate(rate):
+    """帧率结果 -> 给人看的一句话。每秒 10 帧是条粗线：点菜单每秒几帧就够，跟着战斗临场
+    反应要 10 帧以上。"""
+    if rate.get("skipped"):
+        return f"Not measured: {rate['skipped']}."
+    if rate.get("fps") is None:
+        why = rate.get("error") or f"{rate.get('frames', 0)} frames arrived in {rate.get('seconds')} s"
+        return f"No frame rate: {why}. Links from the node at the end: {rate.get('links') or 'none'}."
+    enough = ("enough for a loop that reacts to the fight" if rate["fps"] >= 10
+              else "below the 10 a second a loop that reacts to the fight would need")
+    return (f"{rate['fps']} frames a second over {rate['stamped']} frames, longest gap "
+            f"{rate['max_gap_ms']} ms, {rate['caps']}: {enough}.")
+
+
 class PipeWireCapture:
     """L2 的第四种截图办法：每截一次起一条 gst-launch 管道，从游戏的 gamescope 节点取一帧。
 
@@ -551,6 +606,46 @@ class PipeWireCapture:
         nodes = pipewire_gamescope_nodes(self.dump(self.runtime_dir))
         return any(n["id"] == self.node_id for n in nodes)
 
+    def check_node(self):
+        """节点还在吗：True、False，或者 pw-dump 读不出来时的错误文字（那不算没了）。"""
+        try:
+            present = self.node_present()
+        except Exception as exc:
+            present = short_error(exc)
+        self.gone = present is False
+        return present
+
+    def run(self, cmd, seconds):
+        # 英文的出错信息：报告只收 ASCII，中文的会变成一串转义。
+        env = dict(os.environ, LC_ALL="C")
+        if self.runtime_dir:
+            env["XDG_RUNTIME_DIR"] = self.runtime_dir
+        return run_bounded(
+            cmd, seconds, env=env,
+            at_deadline=lambda: pipewire_links(self.dump(self.runtime_dir), self.node_id),
+            popen=self.popen)
+
+    def measure_rate(self, seconds=RATE_SECONDS):
+        """连续取流 seconds 秒，量 PipeWire 每秒能给几帧。返回一个字典，从不抛异常。
+
+        到点发 SIGINT 是这里的正常收尾；gst-launch 在那之前自己退出，才是出了错。
+        """
+        if self.gone:
+            return {"skipped": f"node {self.node_id} disappeared after an earlier capture"}
+        try:
+            code, output, timed_out, links = self.run(pipewire_rate_pipeline(self.node_id),
+                                                      seconds)
+        except Exception as exc:
+            return {"error": short_error(exc), "node_after": self.check_node()}
+        rate = parse_rate(output or "")
+        rate.update(seconds=seconds, links=links)
+        if not timed_out:
+            first_error = (output or "").partition("ERROR")
+            detail = " ".join((first_error[1] + first_error[2]).split())[:160]
+            rate["error"] = f"gst-launch ended on its own with exit {code}: {detail!r}"
+        rate["node_after"] = self.check_node()
+        return rate
+
     def __call__(self):
         # 先清空：这一次要是在起进程之前就失败了，报告里不能挂着上一次的细节。
         self.last = {}
@@ -559,15 +654,9 @@ class PipeWireCapture:
             raise RuntimeError(f"node {self.node_id} disappeared after an earlier capture")
         if self.path.is_symlink() or self.path.exists():
             self.path.unlink()
-        # 英文的出错信息：报告只收 ASCII，中文的会变成一串转义。
-        env = dict(os.environ, LC_ALL="C")
-        if self.runtime_dir:
-            env["XDG_RUNTIME_DIR"] = self.runtime_dir
         started = time.monotonic()
-        code, output, timed_out, links = run_bounded(
-            pipewire_pipeline(self.node_id, self.path), self.timeout, env=env,
-            at_deadline=lambda: pipewire_links(self.dump(self.runtime_dir), self.node_id),
-            popen=self.popen)
+        code, output, timed_out, links = self.run(pipewire_pipeline(self.node_id, self.path),
+                                                  self.timeout)
         output = " ".join((output or "").split())
         self.last = {"target": f"path={self.node_id}",
                      "gst_ms": round((time.monotonic() - started) * 1000),
@@ -576,12 +665,7 @@ class PipeWireCapture:
             self.last["links"] = links
         if output:
             self.last["output"] = output[:300]
-        try:
-            present = self.node_present()
-        except Exception as exc:
-            present = short_error(exc)
-        self.last["node_after"] = present
-        self.gone = present is False
+        present = self.last["node_after"] = self.check_node()
         if timed_out:
             raise RuntimeError(f"no frame within {self.timeout:g} s; links from node "
                                f"{self.node_id}: {links or 'none'}; node still there: {present}")
@@ -955,6 +1039,13 @@ def step_l2(args, report, state):
             report.result("L2", f"{pass_name} / {name}", detail)
             if pass_name != "focused" and grade == "content":
                 best.setdefault(name, capture)
+        # 单帧截图说明不了连续取流能有多快；每一轮都量，看后台会不会把帧率压下来。
+        for name, capture in methods:
+            if hasattr(capture, "measure_rate"):
+                print(f"  Measuring the {name} frame rate for {RATE_SECONDS:g} seconds. "
+                      "Leave the windows as they are.")
+                rate = capture.measure_rate()
+                report.result("L2", f"{pass_name} / {name} frame rate", rate, describe_rate(rate))
     # 后面的步骤用最快的那个能在后台截到内容的办法；X11 比走文件的 gamescopectl 快。
     # 每帧起一条管道的 PipeWire 排最后：它还没在游戏上量过，而且每多截一次，节点就多一次
     # 被协商失败拆掉的机会，L3、L4 要的是中途不会断的截图。

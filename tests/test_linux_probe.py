@@ -516,6 +516,60 @@ class FakeGst:
         return Process()
 
 
+def parse_with_gstreamer(argv, show):
+    """拿 gst-launch 自己用的解析器（gst_parse_launchv）解析 argv，不启动管道，不连
+    PipeWire；再跑 show 这段代码把要看的属性打出来（可用的名字：p、src、fallback）。
+    系统 Python 没有带 pipewiresrc 的 GStreamer 时跳过。"""
+    import shutil
+    import subprocess
+    python = shutil.which("python3", path="/usr/bin")
+    if python is None:
+        pytest.skip("no system python3")
+    check = (
+        "import sys\n"
+        "try:\n"
+        "    import gi\n"
+        "    gi.require_version('Gst', '1.0')\n"
+        "    from gi.repository import Gst\n"
+        "except Exception:\n"
+        "    sys.exit(77)\n"
+        "Gst.init(None)\n"
+        "if Gst.ElementFactory.find('pipewiresrc') is None: sys.exit(77)\n"
+        "p = Gst.parse_launchv(sys.argv[1:])\n"
+        "src = p.get_by_name('pipewiresrc0')\n"
+        "fallback = src.get_property('stream-properties').get_value('node.dont-fallback')\n"
+        + show)
+    result = subprocess.run([python, "-c", check, *argv], capture_output=True, text=True,
+                            timeout=30)
+    if result.returncode == 77:
+        pytest.skip("no GStreamer with pipewiresrc for the system python")
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def pts(seconds):
+    return f"0:00:{seconds:012.9f}"
+
+
+def chain_line(stamp):
+    """fakesink silent=false 在 gst-launch -v 下每收一帧打的一行，格式照 GStreamer 1.28 的
+    真实输出（本机的 videotestsrc 打出来的）。"""
+    return ("/GstPipeline:pipeline0/GstFakeSink:fakesink0: last-message = chain   ******* "
+            f"(fakesink0:sink) (14745600 bytes, dts: none, pts: {stamp}, duration: none, "
+            "offset: -1, offset_end: -1, flags: 00000000 , meta: none) 0x7f0000000000")
+
+
+SINK_CAPS_LINE = ("/GstPipeline:pipeline0/GstFakeSink:fakesink0.GstPad:sink: caps = video/x-raw, "
+                  "format=(string)BGRx, width=(int)2560, height=(int)1440, "
+                  "framerate=(fraction)0/1, pixel-aspect-ratio=(fraction)1/1")
+
+
+def rate_output(stamps):
+    lines = ["Setting pipeline to PAUSED ...", SINK_CAPS_LINE]
+    lines += [chain_line(pts(s) if s is not None else "none") for s in stamps]
+    return "\n".join(lines + ["handling interrupt.", "Interrupt: Stopping pipeline ..."]) + "\n"
+
+
 def present_then(*answers):
     """依次给出的 pw-dump：True 是节点 68 在，False 是不在，字符串是一份带这种状态连接的图。"""
     queue = list(answers)
@@ -541,35 +595,21 @@ class TestPipeWireCapture:
         assert cmd[-1] == f"location={tmp_path / 'x.png'}"
 
     def test_gstreamer_parses_it_the_way_it_is_meant(self, tmp_path):
-        """拿 gst-launch 自己用的解析器（gst_parse_launchv）解析一遍，不启动管道，不连
-        PipeWire。dont-fallback 必须是字符串 "true"：布尔值转成字符串是 "TRUE"。"""
-        import shutil
-        import subprocess
-        python = shutil.which("python3", path="/usr/bin")
-        if python is None:
-            pytest.skip("no system python3")
-        check = (
-            "import sys\n"
-            "try:\n"
-            "    import gi\n"
-            "    gi.require_version('Gst', '1.0')\n"
-            "    from gi.repository import Gst\n"
-            "except Exception:\n"
-            "    sys.exit(77)\n"
-            "Gst.init(None)\n"
-            "if Gst.ElementFactory.find('pipewiresrc') is None: sys.exit(77)\n"
-            "p = Gst.parse_launchv(sys.argv[1:])\n"
-            "src = p.get_by_name('pipewiresrc0')\n"
-            "v = src.get_property('stream-properties').get_value('node.dont-fallback')\n"
-            "print(src.get_property('path'), src.get_property('num-buffers'), repr(v),\n"
-            "      p.get_by_name('filesink0').get_property('location'), sep='|')\n")
+        """dont-fallback 必须是字符串 "true"：布尔值转成字符串是 "TRUE"。"""
         target = tmp_path / "dir with space" / "x.png"
-        result = subprocess.run([python, "-c", check, *lp.pipewire_pipeline(68, target)[2:]],
-                                capture_output=True, text=True, timeout=30)
-        if result.returncode == 77:
-            pytest.skip("no GStreamer with pipewiresrc for the system python")
-        assert result.returncode == 0, result.stderr
-        assert result.stdout.strip() == f"68|1|'true'|{target}"
+        printed = parse_with_gstreamer(
+            lp.pipewire_pipeline(68, target)[2:],
+            "print(src.get_property('path'), src.get_property('num-buffers'), repr(fallback),\n"
+            "      p.get_by_name('filesink0').get_property('location'), sep='|')\n")
+        assert printed == f"68|1|'true'|{target}"
+
+    def test_the_rate_pipeline_parses_the_way_it_is_meant(self):
+        printed = parse_with_gstreamer(
+            lp.pipewire_rate_pipeline(68)[2:],
+            "sink = p.get_by_name('fakesink0')\n"
+            "print(src.get_property('path'), src.get_property('do-timestamp'), repr(fallback),\n"
+            "      sink.get_property('sync'), sink.get_property('silent'), sep='|')\n")
+        assert printed == "68|True|'true'|False|False"
 
     def test_a_frame_is_read_back_and_the_node_checked(self, tmp_path):
         gst = FakeGst()
@@ -658,6 +698,93 @@ class TestPipeWireCapture:
         assert lp.pipewire_links(pw_dump(), 68) == []
 
 
+class TestFrameRate:
+    def test_the_rate_is_read_from_real_gstreamer_output(self):
+        """真的 gst-launch -v：GStreamer 自带的测试图案源，每秒 30 帧，不碰 PipeWire。替身
+        的输出格式写错了的话，下面那些测试照样过，这个不会。"""
+        import shutil
+        import subprocess
+        if shutil.which("gst-launch-1.0") is None or subprocess.run(
+                ["gst-inspect-1.0", "videotestsrc"], capture_output=True).returncode != 0:
+            pytest.skip("no gst-launch-1.0 with videotestsrc")
+        # 两段 caps 不能直接相连（第二段会被当成元件名），中间隔一个 videoconvert，
+        # 后半段照用探测器自己的 RATE_TAIL。
+        cmd = ["gst-launch-1.0", "-v", "videotestsrc", "is-live=true", "do-timestamp=true",
+               "num-buffers=11", "!", "video/x-raw,width=64,height=36,framerate=30/1", "!",
+               "videoconvert", *lp.RATE_TAIL]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+                                env=dict(os.environ, LC_ALL="C"))
+        assert result.returncode == 0, result.stderr
+        rate = lp.parse_rate(result.stdout)
+        assert (rate["frames"], rate["stamped"]) == (11, 11)
+        assert 28 <= rate["fps"] <= 32
+        assert rate["caps"] == "BGRx 64x36 @ 30/1"
+
+    def test_the_rate_comes_from_the_timestamps(self):
+        rate = lp.parse_rate(rate_output([0.0, 0.1, 0.2, 0.5]))
+        assert rate == {"frames": 4, "stamped": 4, "fps": 6.0, "max_gap_ms": 300,
+                        "caps": "BGRx 2560x1440 @ 0/1"}
+
+    def test_frames_without_a_timestamp_are_counted_but_give_no_rate(self):
+        rate = lp.parse_rate(rate_output([None, None, 0.25]))
+        assert (rate["frames"], rate["stamped"], rate["fps"]) == (3, 1, None)
+
+    def test_no_caps_line_means_the_format_never_settled(self):
+        assert lp.parse_rate("Setting pipeline to PAUSED ...\n")["caps"] is None
+
+    def test_the_deadline_is_the_normal_end(self, tmp_path):
+        import signal
+        gst = FakeGst(write=False, hang=True, output=rate_output([i / 60 for i in range(120)]))
+        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=gst,
+                                     dump=present_then("active", True))
+        rate = capture.measure_rate()
+        assert rate["fps"] == 60.0 and rate["links"] == ["active"] and "error" not in rate
+        assert rate["node_after"] is True and gst.signals == [signal.SIGINT]
+        cmd, env = gst.calls[0]
+        assert cmd[:2] == ["gst-launch-1.0", "-v"] and env["LC_ALL"] == "C"
+
+    def test_a_pipeline_that_ends_by_itself_is_an_error(self, tmp_path):
+        output = ("Setting pipeline to PAUSED ...\nERROR: from element "
+                  "/GstPipeline:pipeline0/GstPipeWireSrc:pipewiresrc0: target not found\n")
+        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", dump=present_then(True),
+                                     popen=FakeGst(write=False, returncode=1, output=output))
+        rate = capture.measure_rate()
+        assert rate["fps"] is None
+        assert "exit 1" in rate["error"] and "target not found" in rate["error"]
+
+    def test_no_rate_is_measured_once_the_node_is_gone(self, tmp_path):
+        gst = FakeGst()
+        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=gst,
+                                     dump=present_then(False))
+        capture()
+        assert "disappeared" in capture.measure_rate()["skipped"]
+        assert len(gst.calls) == 1
+
+    def test_a_missing_gst_launch_is_reported_not_raised(self, tmp_path):
+        def missing(cmd, **kwargs):
+            raise FileNotFoundError(2, "No such file or directory", "gst-launch-1.0")
+        capture = lp.PipeWireCapture(68, tmp_path / "pw.png", popen=missing,
+                                     dump=present_then(True))
+        rate = capture.measure_rate()
+        assert "FileNotFoundError" in rate["error"] and rate["node_after"] is True
+
+    @pytest.mark.parametrize("rate, words", [
+        ({"fps": 59.9, "stamped": 150, "max_gap_ms": 40, "caps": "BGRx 2560x1440 @ 0/1"},
+         "59.9 frames a second over 150 frames, longest gap 40 ms, BGRx 2560x1440 @ 0/1: "
+         "enough"),
+        ({"fps": 10.0, "stamped": 30, "max_gap_ms": 120, "caps": "BGRx 2560x1440 @ 0/1"},
+         "enough"),
+        ({"fps": 4.0, "stamped": 9, "max_gap_ms": 400, "caps": "BGRx 2560x1440 @ 0/1"},
+         "below the 10 a second"),
+        ({"fps": None, "frames": 0, "seconds": 3.0, "links": ["negotiating"]},
+         "No frame rate: 0 frames arrived in 3.0 s. Links from the node at the end: "
+         "['negotiating']"),
+        ({"skipped": "node 68 disappeared after an earlier capture"}, "Not measured"),
+    ])
+    def test_descriptions(self, rate, words):
+        assert words in lp.describe_rate(rate)
+
+
 class TestL2Choice:
     def run_l2(self, tmp_path, monkeypatch, methods):
         monkeypatch.setattr(lp, "countdown", lambda *a, **k: None)
@@ -692,6 +819,18 @@ class TestL2Choice:
         _, records = self.run_l2(tmp_path, monkeypatch, [("pipewire", Detailed())])
         detail = next(r["value"] for r in records if r["name"] == "focused / pipewire")
         assert detail["grade"] == "content" and detail["node_after"] is True
+
+    def test_every_pass_measures_the_frame_rate(self, tmp_path, monkeypatch):
+        class Rated:
+            def __call__(self):
+                return np.random.default_rng(7).integers(0, 255, (16, 16, 3), dtype=np.uint8)
+
+            def measure_rate(self):
+                return {"fps": 59.9, "stamped": 150, "max_gap_ms": 40, "caps": "BGRx"}
+        _, records = self.run_l2(tmp_path, monkeypatch, [("pipewire", Rated())])
+        rates = [r["name"] for r in records if r["name"].endswith("frame rate")]
+        assert rates == ["focused / pipewire frame rate", "unfocused / pipewire frame rate",
+                         "covered / pipewire frame rate"]
 
     def test_capture_methods_offer_pipewire_only_with_a_node(self, tmp_path):
         report = lp.Report(tmp_path, echo=lambda s: None)
