@@ -47,8 +47,8 @@ X11_SOCKET_DIR = Path("/tmp/.X11-unix")
 # L3 只发这一个键。带 Super 的组合是 gamescope 的快捷键（截图、全屏……），绝不能发。
 SAFE_KEYS = frozenset({"Escape"})
 
-# 游戏窗口上的 WM_STATE：1 正常，3 最小化（steam-gaming 记录过嵌套窗口失焦后变成
-# Iconic、画面全黑的情况），0 撤回。
+# 游戏窗口上的 WM_STATE：1 正常，3 最小化（本机早先的一次测量记录过嵌套窗口失焦后
+# 变成 Iconic、画面全黑的情况），0 撤回。
 WM_STATES = {0: "withdrawn", 1: "normal", 3: "iconic"}
 MAP_STATES = {0: "unmapped", 1: "unviewable", 2: "viewable"}
 
