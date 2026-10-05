@@ -335,6 +335,9 @@ def pipewire_gamescope_nodes(dump):
     指向建它的 Client 对象，上面有两个进程号：pipewire.sec.pid 是 PipeWire 从套接字对端
     凭据读到的，客户端改不了；application.process.id 是客户端自己报的，进程在另一个 PID
     命名空间里时会不一样。两个都收下。
+
+    能取流的是标着 media.class=Video/Source 的那个（gamescope 3.16.20 就这么标）。同名的
+    节点要是不止一个，只留标了的；一个都没标（别的版本或别的编法），才退回只看名字。
     """
     def props(obj):
         return (obj.get("info") or {}).get("props") or {}
@@ -353,7 +356,8 @@ def pipewire_gamescope_nodes(dump):
         nodes.append({"id": o["id"], "serial": p.get("object.serial"),
                       "media_class": p.get("media.class"), "state": o["info"].get("state"),
                       "pids": sorted(pid for pid in pids if isinstance(pid, int))})
-    return sorted(nodes, key=lambda n: n["id"])
+    sources = [n for n in nodes if n["media_class"] == "Video/Source"]
+    return sorted(sources or nodes, key=lambda n: n["id"])
 
 
 def resolve_pipewire_node(nodes, lineages):
@@ -459,6 +463,10 @@ def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
 
 # 一帧最多等这么久。正常一秒内就有：起进程、连上 PipeWire、协商格式、等 gamescope 画下一帧。
 PIPEWIRE_TIMEOUT = 5.0
+# 两条管道共用的流属性，道理见 pipewire_pipeline。值都写成 (string)true：不写类型会被解析
+# 成布尔值，pipewiresrc 用 g_value_transform 转成字符串，就成了 "TRUE"。
+STREAM_PROPERTIES = ('stream-properties="props,node.dont-fallback=(string)true,'
+                     'node.dont-reconnect=(string)true"')
 
 
 def pipewire_pipeline(serial, location, frames=1):
@@ -469,9 +477,10 @@ def pipewire_pipeline(serial, location, frames=1):
       会被复用：节点没了以后，同一个 id 可能落到别的节点上，按 id 连就可能连到那个上去；
       serial 不复用。名字也不行，每个 gamescope 都叫 gamescope。按 serial 连在这台机器上
       对一个测试图案的视频源试过，连得上。
-    - node.dont-fallback：节点要是已经没了，WirePlumber 默认把流改接到默认的视频源上，
-      那可能是摄像头。设了它，WirePlumber 0.5 回一个 "defined target not found" 错误，
-      不改接。值写成 (string)true：不写类型会被解析成布尔值，转成字符串就成了 "TRUE"。
+    - 节点没了，绝不改接别的视频源，那可能是摄像头。连上之前没了：node.dont-fallback，
+      WirePlumber 0.5 回一个 "defined target not found" 错误。连上之后没了：
+      node.dont-reconnect，WirePlumber 不再给流找新目标。后者 pipewiresrc 1.6 本来就设
+      （它总带着 PW_STREAM_FLAG_DONT_RECONNECT 连），这里再明写一次，不靠它的默认。
     - 格式钉死在内存里的 BGRx。gamescope 的每种格式都给两份，一份带 DMA-BUF 的 modifier
       并标为必需，一份不带、走共享内存（3.16.20 的 src/pipewire.cpp）。不带 memory:DMABuf
       的 caps 只对得上后一份，DMA-BUF 和 NV12 都绕开了。
@@ -479,8 +488,7 @@ def pipewire_pipeline(serial, location, frames=1):
     """
     return ["gst-launch-1.0", "-q",
             "pipewiresrc", f"target-object={serial}", f"num-buffers={frames}",
-            'stream-properties="props,node.dont-fallback=(string)true"', "!",
-            "video/x-raw,format=BGRx", "!", "videoconvert", "!",
+            STREAM_PROPERTIES, "!", "video/x-raw,format=BGRx", "!", "videoconvert", "!",
             "pngenc", "compression-level=1", "!", "filesink", f"location={location}"]
 
 
@@ -539,6 +547,11 @@ RATE_TAIL = ["!", "video/x-raw,format=BGRx", "!", "fakesink", "silent=false", "s
 CHAIN_LINE = re.compile(r"last-message = chain .*?, pts: (?:(\d+):(\d\d):(\d\d)\.(\d{9})|none)")
 SINK_CAPS = re.compile(r"GstFakeSink:fakesink0\.GstPad:sink: caps = (.+)")
 CAPS_FIELD = re.compile(r"([\w-]+)=\(\w+\)([^,]+)")
+# 管道停下时 gst-launch 打的一行，和帧的时间戳从同一个起点算（进入 PLAYING 的那一刻）。
+END_LINE = re.compile(r"Execution ended after (\d+):(\d\d):(\d\d)\.(\d{9})")
+# 一条粗线：每秒 10 帧以下，或者中间冻住超过半秒，跟着战斗临场反应就跟不上。
+REACT_FPS = 10
+REACT_MAX_GAP_MS = 500
 
 
 def pipewire_rate_pipeline(serial):
@@ -546,46 +559,69 @@ def pipewire_rate_pipeline(serial):
 
     do-timestamp：gamescope 的帧要是没带时间戳，就用帧到达时的流时间，否则算不出帧率。
     """
-    return ["gst-launch-1.0", "-v", "pipewiresrc", f"target-object={serial}", "do-timestamp=true",
-            'stream-properties="props,node.dont-fallback=(string)true"', *RATE_TAIL]
+    return ["gst-launch-1.0", "-v", "pipewiresrc", f"target-object={serial}",
+            "do-timestamp=true", STREAM_PROPERTIES, *RATE_TAIL]
+
+
+def stamp_seconds(h, m, s, ns):
+    return int(h) * 3600 + int(m) * 60 + int(s) + int(ns) / 1e9
 
 
 def parse_rate(output):
-    """gst-launch -v 的输出 -> 收到几帧、几帧有时间戳、按时间戳算的帧率、最长的帧间隔，
-    以及协商出来的格式。格式一行都没有，说明协商没完成。"""
+    """gst-launch -v 的输出 -> 收到几帧、几帧有时间戳、帧率、最长的空档、管道跑了多久，以及
+    协商出来的格式。格式一行都没有，说明协商没完成。
+
+    帧率和空档都算到管道停下为止，不只算到最后一帧：前半秒来了一串、后面两秒多一帧也不来的
+    流，只看帧与帧之间会显得又快又顺。停下的那一行没有时（进程是被杀掉的），只能算到最后
+    一帧，window_s 记为 None。
+    """
     frames, stamps = 0, []
     for match in CHAIN_LINE.finditer(output):
         frames += 1
         if match.group(1) is not None:
-            h, m, s, ns = (int(g) for g in match.groups())
-            stamps.append(h * 3600 + m * 60 + s + ns / 1e9)
+            stamps.append(stamp_seconds(*match.groups()))
+    end = END_LINE.search(output)
+    window = stamp_seconds(*end.groups()) if end else None
     result = {"frames": frames, "stamped": len(stamps), "fps": None, "max_gap_ms": None,
-              "caps": None}
+              "window_s": None if window is None else round(window, 3), "caps": None}
     caps = SINK_CAPS.search(output)
     if caps:
         fields = dict(CAPS_FIELD.findall(caps.group(1)))
         result["caps"] = (f"{fields.get('format')} {fields.get('width')}x{fields.get('height')}"
                           f" @ {fields.get('framerate')}")
-    if len(stamps) >= 2 and stamps[-1] > stamps[0]:
-        result["fps"] = round((len(stamps) - 1) / (stamps[-1] - stamps[0]), 1)
-        result["max_gap_ms"] = round(max(b - a for a, b in itertools.pairwise(stamps)) * 1000)
+    if len(stamps) >= 2:
+        last = stamps[-1] if window is None else max(window, stamps[-1])
+        if last > stamps[0]:
+            gaps = [b - a for a, b in itertools.pairwise(stamps)] + [last - stamps[-1]]
+            result["fps"] = round((len(stamps) - 1) / (last - stamps[0]), 1)
+            result["max_gap_ms"] = round(max(gaps) * 1000)
     return result
 
 
 def describe_rate(rate):
-    """帧率结果 -> 给人看的一句话。每秒 10 帧是条粗线：点菜单每秒几帧就够，跟着战斗临场
-    反应要 10 帧以上。"""
+    """帧率结果 -> 给人看的一句话。管道提前停了（出错、EOS）就先说这个，哪怕停之前来过几帧：
+    那几帧的帧率不代表连续取流。"""
     if rate.get("skipped"):
         return f"Not measured: {rate['skipped']}."
+    links = f"Links from the node at the end: {rate.get('links') or 'none'}."
+    if rate.get("error"):
+        before = (f" Before it stopped: {rate['fps']} frames a second over {rate['stamped']} "
+                  "frames." if rate.get("fps") is not None else "")
+        return f"No usable frame rate: {rate['error']}.{before} {links}"
     if rate.get("fps") is None:
-        why = (rate.get("error")
-               or f"{rate.get('frames', 0)} frames arrived in {rate.get('seconds')} s")
-        return (f"No frame rate: {why}. Links from the node at the end: "
-                f"{rate.get('links') or 'none'}.")
-    enough = ("enough for a loop that reacts to the fight" if rate["fps"] >= 10
-              else "below the 10 a second a loop that reacts to the fight would need")
-    return (f"{rate['fps']} frames a second over {rate['stamped']} frames, longest gap "
-            f"{rate['max_gap_ms']} ms, {rate['caps']}: {enough}.")
+        return (f"No frame rate: {rate.get('frames', 0)} frames arrived in "
+                f"{rate.get('seconds')} s. {links}")
+    if rate["fps"] < REACT_FPS:
+        verdict = f"below the {REACT_FPS} a second a loop that reacts to the fight would need"
+    elif rate["max_gap_ms"] > REACT_MAX_GAP_MS:
+        verdict = (f"fast on average, but it froze for {rate['max_gap_ms']} ms, too long for a "
+                   "loop that reacts to the fight")
+    else:
+        verdict = "enough for a loop that reacts to the fight"
+    window = (f"in {rate['window_s']} s" if rate.get("window_s") is not None
+              else "(end of the run unknown, so a stall after the last frame would not show)")
+    return (f"{rate['fps']} frames a second over {rate['stamped']} frames {window}, longest gap "
+            f"{rate['max_gap_ms']} ms, {rate['caps']}: {verdict}.")
 
 
 class PipeWireCapture:

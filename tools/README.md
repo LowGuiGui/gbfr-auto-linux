@@ -12,8 +12,8 @@ four questions, and each is answered by a measurement that can come out either w
 
 | Step | Question | How |
 |---|---|---|
-| L1 | Where is the game? | Reads `/proc` for processes that carry the game's Steam app id and were started by gamescope, and takes the nested `DISPLAY` and `GAMESCOPE_WAYLAND_DISPLAY` from their environment. Connects to that X display and finds the window gamescope marks as the game. Also finds this gamescope's video node in PipeWire with `pw-dump`: gamescope publishes its output as a node named `gamescope`, and the probe keeps the one owned by an ancestor of the game's processes. A node no ancestor owns is never used, even when it is the only one, because it may belong to another gamescope. Read-only; the stream is not opened. |
-| L2 | Can frames be captured while the game is in the background? | X11 `GetImage` of the root window and of the game window, `gamescopectl screenshot`, and one frame from gamescope's PipeWire node through `gst-launch-1.0`, each with the game focused, unfocused, and covered. A black or flat frame counts as a failure (`opencv.is_blank_frame`). For PipeWire it also records whether the node survived each capture, and when no frame arrives within 5 seconds it records the state of the link (for example `negotiating`) instead of waiting. In each pass it then streams from the node for 3 seconds and reports frames per second, the longest gap between frames and the negotiated format: a loop that reacts to the fight would need 10 or more frames a second in the background. |
+| L1 | Where is the game? | Reads `/proc` for processes that carry the game's Steam app id and were started by gamescope, and takes the nested `DISPLAY` and `GAMESCOPE_WAYLAND_DISPLAY` from their environment. Connects to that X display and finds the window gamescope marks as the game. Also finds this gamescope's video node in PipeWire with `pw-dump`: gamescope publishes its output as a node named `gamescope` tagged `Video/Source`, and the probe keeps the one owned by an ancestor of the game's processes (untagged namesakes count only when no node is tagged). A node no ancestor owns is never used, even when it is the only one, because it may belong to another gamescope. Read-only; the stream is not opened. |
+| L2 | Can frames be captured while the game is in the background? | X11 `GetImage` of the root window and of the game window, `gamescopectl screenshot`, and one frame from gamescope's PipeWire node through `gst-launch-1.0`, each with the game focused, unfocused, and covered. A black or flat frame counts as a failure (`opencv.is_blank_frame`). For PipeWire it also records whether the node survived each capture, and when no frame arrives within 5 seconds it records the state of the link (for example `negotiating`) instead of waiting. In each pass it then streams from the node for 3 seconds and reports frames per second, the longest gap and the negotiated format, both counted up to the moment the pipeline stopped, so a stream that freezes shows as slow. A loop that reacts to the fight would need, roughly, 10 or more frames a second and no freeze longer than half a second. A pipeline that stops early is reported as an error, whatever arrived before. |
 | L3 | Does input sent through XTest reach the game, and only the game? | Sends Escape twice to the nested X server, after asking. Checks whether the X server delivered the key to the game's window, whether the picture changed, and whether the key also reached this terminal on the host. |
 | L4 | Does the game pause when its window loses focus? | Captures a series of frames while the game is focused and another while it is not, and compares the motion with the logic of the Windows probe's A4 test (`framediff`). Also records the focus events the game window receives. |
 
@@ -56,9 +56,11 @@ report is written as the probe goes, so a crash keeps everything up to that poin
 - run `gamescopectl` without naming the game's gamescope instance, which could reach another
   game's instance instead
 - open any PipeWire video source other than the game's gamescope node. The stream targets the
-  node's `object.serial`, which PipeWire never reuses (object ids are reused), and sets
-  `node.dont-fallback`, so if the node has gone, WirePlumber answers with an error instead of
-  connecting the default video source, which could be a camera
+  node's `object.serial`, which PipeWire never reuses (object ids are reused). It sets
+  `node.dont-fallback`, so if the node has gone before the stream connects, WirePlumber answers
+  with an error instead of connecting the default video source, which could be a camera, and
+  `node.dont-reconnect`, so if it goes while the stream runs, WirePlumber does not move the
+  stream to another source
 - change Steam, gamescope or Reloaded-II settings
 
 ### What has been checked
@@ -73,13 +75,15 @@ report is written as the probe goes, so a crash keeps everything up to that poin
 - The PipeWire capture is covered by unit tests with a stand-in for `gst-launch-1.0`, plus
   real child processes for the time limit: a command that hangs is interrupted, and one that
   ignores the interrupt is killed. A test parses the command line with GStreamer's own
-  parser, without starting it. That `node.dont-fallback` stops WirePlumber from connecting
-  another video source comes from reading WirePlumber 0.5.13's source; it has not been
-  triggered here. Not checked: getting a frame from a real gamescope over PipeWire.
+  parser, without starting it. That `node.dont-fallback` and `node.dont-reconnect` stop
+  WirePlumber from connecting another video source comes from reading WirePlumber 0.5.13's
+  source and its documented linking properties; neither has been triggered here. Not
+  checked: getting a frame from a real gamescope over PipeWire.
 - Targeting by serial was tried once on this machine (PipeWire 1.6.2, WirePlumber 0.5.13)
   against GStreamer's test pattern published as a PipeWire video source: it delivered frames,
   as targeting by id did.
-- The frame rate is read from the per-frame lines that `gst-launch-1.0 -v` prints. A test
+- The frame rate is read from the per-frame lines that `gst-launch-1.0 -v` prints, up to its
+  closing "Execution ended after" line, which uses the same clock as the frames. A test
   runs GStreamer's own test pattern at 30 frames a second through the same sink and expects
   28 to 32. It skips where `gst-launch-1.0` is not installed.
 - A dry run against a real gamescope 3.16.20 in headless mode, with a stand-in X11 window

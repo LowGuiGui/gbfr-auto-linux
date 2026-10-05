@@ -326,6 +326,21 @@ class TestPipeWireNode:
             {"id": 68, "serial": 301, "media_class": "Video/Source", "state": "suspended",
              "pids": [12, 2000]}]
 
+    def test_the_tagged_source_wins_over_an_untagged_namesake(self):
+        """同一个 gamescope 要是露出两个叫 gamescope 的节点，只有标着 Video/Source 的能取流。"""
+        untagged = pw_object(69, "Node", {"node.name": "gamescope", "client.id": 67,
+                                          "object.serial": 302}, state="idle")
+        dump = pw_dump(gamescope_objects(2000, 68, 67, 301), extra=[untagged])
+        assert [n["id"] for n in lp.pipewire_gamescope_nodes(dump)] == [68]
+        node, code, _ = resolve(dump)
+        assert (node["id"], code) == (68, "matched")
+
+    def test_untagged_nodes_count_when_none_is_tagged(self):
+        """别的版本的 gamescope 可能不标 media.class：只看名字，照样找得到。"""
+        client, node = gamescope_objects(2000, 68, 67, 301)
+        del node["info"]["props"]["media.class"]
+        assert [n["id"] for n in lp.pipewire_gamescope_nodes(pw_dump([client, node]))] == [68]
+
     def test_other_objects_and_removed_ones_are_ignored(self):
         """pw-dump 也会列出 info 为 null 的对象（刚被删掉的）。"""
         removed = {"id": 90, "type": "PipeWire:Interface:Node", "version": 3,
@@ -519,7 +534,8 @@ class FakeGst:
 
 def parse_with_gstreamer(argv, show):
     """拿 gst-launch 自己用的解析器（gst_parse_launchv）解析 argv，不启动管道，不连
-    PipeWire；再跑 show 这段代码把要看的属性打出来（可用的名字：p、src、fallback）。
+    PipeWire；再跑 show 这段代码把要看的属性打出来（可用的名字：p、src、fallback、
+    reconnect）。
     系统 Python 没有带 pipewiresrc 的 GStreamer 时跳过。"""
     import shutil
     import subprocess
@@ -538,7 +554,9 @@ def parse_with_gstreamer(argv, show):
         "if Gst.ElementFactory.find('pipewiresrc') is None: sys.exit(77)\n"
         "p = Gst.parse_launchv(sys.argv[1:])\n"
         "src = p.get_by_name('pipewiresrc0')\n"
-        "fallback = src.get_property('stream-properties').get_value('node.dont-fallback')\n"
+        "props = src.get_property('stream-properties')\n"
+        "fallback = props.get_value('node.dont-fallback')\n"
+        "reconnect = props.get_value('node.dont-reconnect')\n"
         + show)
     result = subprocess.run([python, "-c", check, *argv], capture_output=True, text=True,
                             timeout=30)
@@ -565,10 +583,15 @@ SINK_CAPS_LINE = ("/GstPipeline:pipeline0/GstFakeSink:fakesink0.GstPad:sink: cap
                   "framerate=(fraction)0/1, pixel-aspect-ratio=(fraction)1/1")
 
 
-def rate_output(stamps):
+def rate_output(stamps, ended=None):
+    """ended：管道停下的时刻，gst-launch 停下时打 "Execution ended after ..."（中断和 EOS
+    都打，格式照本机 GStreamer 1.28 的真实输出）。None 表示没有这一行，比如进程被杀掉了。"""
     lines = ["Setting pipeline to PAUSED ...", SINK_CAPS_LINE]
     lines += [chain_line(pts(s) if s is not None else "none") for s in stamps]
-    return "\n".join(lines + ["handling interrupt.", "Interrupt: Stopping pipeline ..."]) + "\n"
+    lines += ["handling interrupt.", "Interrupt: Stopping pipeline ..."]
+    if ended is not None:
+        lines += [f"Execution ended after {pts(ended)}", "Setting pipeline to NULL ..."]
+    return "\n".join(lines) + "\n"
 
 
 def present_then(*answers):
@@ -592,28 +615,28 @@ class TestPipeWireCapture:
         assert cmd[:3] == ["gst-launch-1.0", "-q", "pipewiresrc"]
         assert "target-object=301" in cmd and "num-buffers=1" in cmd
         assert not any(a.startswith("path=") for a in cmd)
-        assert 'stream-properties="props,node.dont-fallback=(string)true"' in cmd
+        assert lp.STREAM_PROPERTIES in cmd
         assert "video/x-raw,format=BGRx" in cmd
         assert cmd[-1] == f"location={tmp_path / 'x.png'}"
 
     def test_gstreamer_parses_it_the_way_it_is_meant(self, tmp_path):
-        """dont-fallback 必须是字符串 "true"：布尔值转成字符串是 "TRUE"。"""
+        """dont-fallback、dont-reconnect 都必须是字符串 "true"：布尔值转成字符串是 "TRUE"。"""
         target = tmp_path / "dir with space" / "x.png"
         printed = parse_with_gstreamer(
             lp.pipewire_pipeline(301, target)[2:],
             "print(src.get_property('target-object'), src.get_property('path'),\n"
-            "      src.get_property('num-buffers'), repr(fallback),\n"
+            "      src.get_property('num-buffers'), repr(fallback), repr(reconnect),\n"
             "      p.get_by_name('filesink0').get_property('location'), sep='|')\n")
-        assert printed == f"301|None|1|'true'|{target}"
+        assert printed == f"301|None|1|'true'|'true'|{target}"
 
     def test_the_rate_pipeline_parses_the_way_it_is_meant(self):
         printed = parse_with_gstreamer(
             lp.pipewire_rate_pipeline(301)[2:],
             "sink = p.get_by_name('fakesink0')\n"
             "print(src.get_property('target-object'), src.get_property('path'),\n"
-            "      src.get_property('do-timestamp'), repr(fallback),\n"
+            "      src.get_property('do-timestamp'), repr(fallback), repr(reconnect),\n"
             "      sink.get_property('sync'), sink.get_property('silent'), sep='|')\n")
-        assert printed == "301|None|True|'true'|False|False"
+        assert printed == "301|None|True|'true'|'true'|False|False"
 
     def test_a_frame_is_read_back_and_the_node_checked(self, tmp_path):
         gst = FakeGst()
@@ -730,13 +753,34 @@ class TestFrameRate:
         assert result.returncode == 0, result.stderr
         rate = lp.parse_rate(result.stdout)
         assert (rate["frames"], rate["stamped"]) == (11, 11)
+        assert rate["window_s"] is not None and rate["window_s"] >= 10 / 30
         assert 28 <= rate["fps"] <= 32
         assert rate["caps"] == "BGRx 64x36 @ 30/1"
 
     def test_the_rate_comes_from_the_timestamps(self):
         rate = lp.parse_rate(rate_output([0.0, 0.1, 0.2, 0.5]))
         assert rate == {"frames": 4, "stamped": 4, "fps": 6.0, "max_gap_ms": 300,
-                        "caps": "BGRx 2560x1440 @ 0/1"}
+                        "window_s": None, "caps": "BGRx 2560x1440 @ 0/1"}
+
+    def test_a_stream_that_stalls_does_not_look_smooth(self):
+        """半秒里来了 15 帧，后面两秒半一帧也没有。只看帧与帧之间是每秒 30 帧、最长空档
+        33 ms；算到管道停下，才是每秒不到 5 帧、冻了两秒半。"""
+        rate = lp.parse_rate(rate_output([i / 30 for i in range(15)], ended=3.0))
+        assert rate["window_s"] == 3.0
+        assert rate["fps"] == 4.7 and rate["max_gap_ms"] == 2533
+        assert "below the 10 a second" in lp.describe_rate(dict(rate, links=["active"]))
+
+    def test_a_steady_stream_keeps_its_rate(self):
+        rate = lp.parse_rate(rate_output([i / 30 for i in range(61)], ended=2.02))
+        assert rate["fps"] == 29.7 and rate["max_gap_ms"] == 33
+        assert "enough" in lp.describe_rate(rate)
+
+    def test_a_freeze_in_the_middle_is_not_enough(self):
+        """平均每秒 20 多帧，中间冻了 0.8 秒：跟着战斗反应还是跟不上。"""
+        stamps = [i / 30 for i in range(31)] + [1.8 + i / 30 for i in range(36)]
+        rate = lp.parse_rate(rate_output(stamps, ended=3.0))
+        assert rate["fps"] > 10 and rate["max_gap_ms"] == 800
+        assert "froze for 800 ms" in lp.describe_rate(rate)
 
     def test_frames_without_a_timestamp_are_counted_but_give_no_rate(self):
         rate = lp.parse_rate(rate_output([None, None, 0.25]))
@@ -747,11 +791,13 @@ class TestFrameRate:
 
     def test_the_deadline_is_the_normal_end(self, tmp_path):
         import signal
-        gst = FakeGst(write=False, hang=True, output=rate_output([i / 60 for i in range(120)]))
+        gst = FakeGst(write=False, hang=True,
+                      output=rate_output([i / 60 for i in range(120)], ended=2.0))
         capture = lp.PipeWireCapture(301, tmp_path / "pw.png", popen=gst,
                                      dump=present_then("active", True))
         rate = capture.measure_rate()
-        assert rate["fps"] == 60.0 and rate["links"] == ["active"] and "error" not in rate
+        assert rate["fps"] == 59.5 and rate["window_s"] == 2.0
+        assert rate["links"] == ["active"] and "error" not in rate
         assert rate["node_after"] is True and gst.signals == [signal.SIGINT]
         cmd, env = gst.calls[0]
         assert cmd[:2] == ["gst-launch-1.0", "-v"] and env["LC_ALL"] == "C"
@@ -764,6 +810,19 @@ class TestFrameRate:
         rate = capture.measure_rate()
         assert rate["fps"] is None
         assert "exit 1" in rate["error"] and "target not found" in rate["error"]
+
+    def test_an_early_end_after_a_burst_is_not_a_good_rate(self, tmp_path):
+        """停之前来过几帧，帧率算得出来；但管道自己停了，那几帧不代表连续取流。"""
+        output = rate_output([i / 30 for i in range(12)], ended=0.4) + (
+            "ERROR: from element /GstPipeline:pipeline0/GstPipeWireSrc:pipewiresrc0: "
+            "stream error\n")
+        capture = lp.PipeWireCapture(301, tmp_path / "pw.png", dump=present_then(True),
+                                     popen=FakeGst(write=False, returncode=1, output=output))
+        rate = capture.measure_rate()
+        text = lp.describe_rate(rate)
+        assert rate["fps"] is not None and "error" in rate
+        assert text.startswith("No usable frame rate: gst-launch ended on its own")
+        assert "Before it stopped:" in text and "enough" not in text
 
     def test_no_rate_is_measured_once_the_node_is_gone(self, tmp_path):
         gst = FakeGst()
@@ -782,13 +841,18 @@ class TestFrameRate:
         assert "FileNotFoundError" in rate["error"] and rate["node_after"] is True
 
     @pytest.mark.parametrize("rate, words", [
-        ({"fps": 59.9, "stamped": 150, "max_gap_ms": 40, "caps": "BGRx 2560x1440 @ 0/1"},
-         "59.9 frames a second over 150 frames, longest gap 40 ms, BGRx 2560x1440 @ 0/1: "
-         "enough"),
-        ({"fps": 10.0, "stamped": 30, "max_gap_ms": 120, "caps": "BGRx 2560x1440 @ 0/1"},
-         "enough"),
-        ({"fps": 4.0, "stamped": 9, "max_gap_ms": 400, "caps": "BGRx 2560x1440 @ 0/1"},
-         "below the 10 a second"),
+        ({"fps": 59.9, "stamped": 150, "max_gap_ms": 40, "window_s": 2.98,
+          "caps": "BGRx 2560x1440 @ 0/1"},
+         "59.9 frames a second over 150 frames in 2.98 s, longest gap 40 ms, "
+         "BGRx 2560x1440 @ 0/1: enough"),
+        ({"fps": 10.0, "stamped": 30, "max_gap_ms": 500, "window_s": 3.0,
+          "caps": "BGRx 2560x1440 @ 0/1"}, "enough"),
+        ({"fps": 30.0, "stamped": 60, "max_gap_ms": 501, "window_s": 3.0,
+          "caps": "BGRx 2560x1440 @ 0/1"}, "froze for 501 ms"),
+        ({"fps": 4.0, "stamped": 9, "max_gap_ms": 400, "window_s": 3.0,
+          "caps": "BGRx 2560x1440 @ 0/1"}, "below the 10 a second"),
+        ({"fps": 30.0, "stamped": 60, "max_gap_ms": 40, "window_s": None,
+          "caps": "BGRx 2560x1440 @ 0/1"}, "end of the run unknown"),
         ({"fps": None, "frames": 0, "seconds": 3.0, "links": ["negotiating"]},
          "No frame rate: 0 frames arrived in 3.0 s. Links from the node at the end: "
          "['negotiating']"),
