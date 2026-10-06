@@ -679,9 +679,10 @@ class TestHolding:
 
 class TestModifiersHeldElsewhere:
     @pytest.mark.parametrize("state", [X.ShiftMask, X.ControlMask, X.Mod1Mask, X.Mod4Mask,
-                                       X.Mod5Mask, X.ShiftMask | X.LockMask])
+                                       X.Mod5Mask, X.ShiftMask | X.LockMask, X.Mod3Mask])
     def test_nothing_is_pressed_while_a_modifier_is_down(self, state):
-        """人正按着 Shift（或者别的客户端按着 Ctrl）：发出去的 3 会变成 Shift+3。"""
+        """人正按着 Shift（或者别的客户端按着 Ctrl）：发出去的 3 会变成 Shift+3。Mod3 这一组
+        一个键都没有：亮着就说明有什么在设它，也算。"""
         d, w = nested()
         w.root.state = state
         xi = live_input(d, w)
@@ -706,6 +707,27 @@ class TestModifiersHeldElsewhere:
         d.modifiers[4] = [77, 92]
         d.keys_down.add(92)
         w.root.state = X.Mod2Mask
+        xi = live_input(d, w)
+        xi.key_tap("3")
+        assert d.events == [] and xi.skipped == 1
+
+    def test_a_modifier_latched_in_num_lock_s_group_counts(self):
+        """StickyKeys 把和 Num Lock 同组的选档位键"粘"上了：松了手，QueryKeymap 里一个键都没
+        按着，那一位却亮着，发出去的键会带上它。组里不全是锁定键，就分不清，算按着。"""
+        d, w = nested()
+        d.modifiers[4] = [77, 92]
+        w.root.state = X.Mod2Mask
+        xi = live_input(d, w)
+        xi.key_tap("3")
+        assert d.events == [] and xi.skipped == 1
+
+    def test_a_lock_key_alone_in_its_group_counts_while_it_is_held(self):
+        """键上的符号是 Caps_Lock，却单独占着 Control 那一组（按着时当 Ctrl 用）：正按着，就算。"""
+        d, w = nested()
+        d.modifiers[1] = [0, 0]
+        d.modifiers[2] = [66]
+        d.keys_down.add(66)
+        w.root.state = X.ControlMask
         xi = live_input(d, w)
         xi.key_tap("3")
         assert d.events == [] and xi.skipped == 1

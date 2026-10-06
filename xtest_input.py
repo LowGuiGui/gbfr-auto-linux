@@ -27,8 +27,9 @@ Linux 上的那一个。
          的键码可能已经是另一个字，甚至成了修饰键，或者成了 Num Lock 会改掉的小键盘键，那就
          不再发，并且不再算就绪；
        - 没有修饰键按着（人正按着 Shift，3 就成了 Shift+3）；Caps Lock、Num Lock 常年亮着，
-         不算，可它们那一组里要是有键正按着，照样算。哪个键是锁定键按此刻的映射认。Shift
-         Lock 不在其内：它让每个键都用 Shift 档，3 就成了 #；
+         不算，但只在它们那一组里全是锁定键、而且一个都没按着时才不算：组里还有别的修饰键，
+         亮着的那一位也可能是它"粘"上的（StickyKeys 松了手也还亮着），分不清就算。哪个键是
+         锁定键按此刻的映射认。Shift Lock 不在其内：它让每个键都用 Shift 档，3 就成了 #；
        - 键盘在第一套布局上（XKB 的组）：在几套布局之间切换不改映射，也不按修饰键，只改
          服务器状态里的组，同一个键码打出来的却是另一套布局里的字。鼠标不管这一条；
        - 这个键（或中键）没有被别处按着：这边不替别人按下，更不在之后替别人松开。
@@ -257,10 +258,11 @@ class XTestInput:
     def _modifier_held(self, state, what):
         """有修饰键按着就记一笔、返回真：这时发出去的键会拼成组合键。
 
-        锁定键（Caps Lock、Num Lock）亮着时它那一组的位也是亮的，那不算；但只在组里一个键都
-        没有按着时才不算：和 Num Lock 同组的另一个键（比如选档位的键）正按着，照样算。锁定键
-        是此刻映射里第一个符号是 Caps_Lock 或 Num_Lock 的键码：映射变过，就按变了以后的认。
-        修饰键映射的第 i 组对应状态里的 1 << i 那一位。
+        锁定键（Caps Lock、Num Lock）亮着时它那一组的位也是亮的，那不算；但只在组里全是锁定键、
+        而且一个都没按着时才不算。组里还有别的键（比如选档位的键），那一位亮着可能是它按着、
+        锁着，或者被 StickyKeys "粘"着（松了手也还亮着，QueryKeymap 看不出来），分不清就算按着。
+        锁定键是此刻映射里第一个符号是 Caps_Lock 或 Num_Lock 的键码：映射变过，就按变了以后的
+        认。修饰键映射的第 i 组对应状态里的 1 << i 那一位；一个键都没有的组亮着，也算。
         """
         locks = {code for code, keysyms in state["keymap"].items()
                  if keysyms and keysyms[0] in LOCK_KEYSYMS}
@@ -270,7 +272,7 @@ class XTestInput:
             if not state["mask"] & bit:
                 continue
             members = [code for code in codes if code]
-            if (any(code in locks for code in members)
+            if (members and all(code in locks for code in members)
                     and not any(_is_down(state["keys_down"], code) for code in members)):
                 continue
             held |= bit
