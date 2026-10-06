@@ -47,7 +47,8 @@ def frame_of(page, seed=99):
 
 
 class Backend:
-    """输入后端的替身：只记下被叫了什么。press_lands 为假时，模拟输入那一层没按下去。"""
+    """输入后端的替身：记下被叫了什么，并像 XTestInput 那样维护 input.held。input.accepts
+    为假时什么都按不下去；input.press_lands 为假时只有中键按不下去（取不到窗口中心）。"""
 
     def __init__(self, window_input=None):
         self.calls = []
@@ -68,12 +69,18 @@ class Backend:
 
     def release_move(self):
         self._record("release_move")
+        if self.input is not None:
+            self.input.held = [h for h in self.input.held if h != "w"]
 
     def battle_press(self):
         self._record("battle_press")
+        if self.input is not None and self.input.accepts and self.input.press_lands:
+            self.input.held = sorted(set(self.input.held) | {"middle"})
 
     def battle_release(self):
         self._record("battle_release")
+        if self.input is not None:
+            self.input.held = [h for h in self.input.held if h != "middle"]
 
     def again(self):
         self._record("again")
@@ -90,8 +97,9 @@ class Backend:
 class Input:
     """XTestInput 里循环会看的那几样：skipped、held、release_all。"""
 
-    def __init__(self, accepts=True):
+    def __init__(self, accepts=True, press_lands=True):
         self.accepts = accepts
+        self.press_lands = press_lands
         self.skipped = 0
         self.held = []
         self.releases = 0
@@ -221,6 +229,30 @@ class TestActing:
         assert backend.calls == ["hold_move", "battle_press", "hold_move", "battle_press"]
 
 
+class TestHalfLandedStarts:
+    def test_a_start_where_only_w_landed_is_finished_next_round(self):
+        """KmbBackend 取不到窗口中心时不发中键：W 按着、中键没有，不能当成已经开打。"""
+        window_input = Input(press_lands=False)
+        f, backend, *_ = make(PAGE_NAME.BATTLE, window_input=window_input,
+                              battle_inputs={"w", "middle"})
+        f.tick()
+        window_input.press_lands = True
+        f.tick()
+        f.tick()
+        assert backend.calls == ["hold_move", "battle_press", "hold_move", "battle_press"]
+        assert window_input.held == ["middle", "w"]
+
+    def test_a_half_landed_start_is_let_go_on_the_next_page(self):
+        window_input = Input(press_lands=False)
+        f, backend, *_ = make(PAGE_NAME.BATTLE, PAGE_NAME.SCORE, window_input=window_input,
+                              battle_inputs={"w", "middle"})
+        f.tick()
+        f.tick()
+        assert backend.calls == ["hold_move", "battle_press", "release_move", "battle_release",
+                                 "confirm"]
+        assert window_input.held == []
+
+
 class TestCounting:
     def test_a_result_page_without_a_battle_before_it_does_not_count(self):
         f, *_ = make(PAGE_NAME.SCORE, PAGE_NAME.BATTLE, PAGE_NAME.SCORE, PAGE_NAME.SCORE)
@@ -241,17 +273,20 @@ class TestStopping:
         assert "停止" in f.tick()
         assert f._capture.calls == 0 and backend.calls == []
 
-    def test_a_stop_during_the_capture_ends_it_before_acting(self):
+    def test_a_stop_during_the_capture_ends_it_before_matching(self):
+        """匹配要花零点几秒；停止已经来了，就不该再花这个时间。"""
         f, backend, controls, _ = make(PAGE_NAME.SCORE)
         capture = f._capture
+        matched = []
 
         def capture_then_stop():
             frame = capture()
             controls.stop_requested = True
             return frame
         f._capture = capture_then_stop
+        f._recognise = lambda frame: matched.append(frame) or (PAGE_NAME.SCORE, {})
         assert "停止" in f.tick()
-        assert backend.calls == []
+        assert backend.calls == [] and matched == []
 
     def test_a_lost_window_stops_it_and_says_so(self):
         """supervisor 的说法是"正在重新查找"，这一版并不找，所以理由要是自己的这一句。"""
@@ -290,6 +325,35 @@ class TestStopping:
         assert (reason is not None and "超过" in reason) is stops
 
 
+class TestLateCommands:
+    """截图和匹配要花时间。这期间来的停止或暂停，不能再放过一个按键。"""
+
+    def _arrives_during(self, f, controls, step, command):
+        original = getattr(f, step)
+
+        def then_command(*args):
+            result = original(*args)
+            if command == "stop":
+                controls.stop_requested = True
+            else:
+                controls.paused = True
+            return result
+        setattr(f, step, then_command)
+
+    @pytest.mark.parametrize("step", ["_capture", "_recognise"])
+    def test_a_pause_that_arrives_mid_round_sends_nothing(self, step):
+        f, backend, controls, _ = make(PAGE_NAME.SCORE)
+        self._arrives_during(f, controls, step, "pause")
+        assert f.tick() is None
+        assert backend.calls == ["release_all"]
+
+    def test_a_stop_that_arrives_during_matching_sends_nothing(self):
+        f, backend, controls, _ = make(PAGE_NAME.SCORE)
+        self._arrives_during(f, controls, "_recognise", "stop")
+        assert "停止" in f.tick()
+        assert backend.calls == []
+
+
 class TestPausing:
     def test_a_pause_lets_go_once_and_captures_nothing(self):
         f, backend, controls, _ = make(PAGE_NAME.BATTLE)
@@ -302,6 +366,17 @@ class TestPausing:
         controls.paused = False
         f.tick()
         assert backend.calls[-2:] == ["hold_move", "battle_press"]
+
+    def test_paused_time_does_not_count_against_the_page(self):
+        f, _, controls, clock = make(PAGE_NAME.SCORE)
+        f.tick()
+        controls.paused = True
+        f.tick()
+        clock.now += 500
+        controls.paused = False
+        assert f.tick() is None
+        clock.now += 60
+        assert f.tick() is None
 
     def test_presses_that_keep_missing_pause_it(self):
         window_input = Input(accepts=False)
@@ -325,6 +400,18 @@ class TestRun:
         assert f.run() == "enough"
         assert controls.waits == [3.0]
 
+    def test_every_template_is_scored_when_scores_are_logged(self, log_file):
+        """战斗页在判定树的第一条就命中了；记分数时其余几张也得算，日志里才不缺。"""
+        f, *_ = make(PAGE_NAME.BATTLE, settings=cfg(detect__log_scores=True))
+        f.tick()
+        line = next(line for line in log_file().splitlines() if "页面 battle" in line)
+        assert all(name in line for name in NAMES)
+
+    def test_without_score_logging_matching_stops_early(self, log_file):
+        f, *_ = make(PAGE_NAME.BATTLE)
+        page, scores = f._recognise(frame_of(PAGE_NAME.BATTLE))
+        assert page == PAGE_NAME.BATTLE and list(scores) == ["flag_battle"]
+
     def test_one_log_line_per_round_with_the_scores_when_asked(self, log_file):
         f, *_ = make(PAGE_NAME.SCORE, settings=cfg(detect__log_scores=True))
         f.tick()
@@ -341,6 +428,20 @@ class TestAnomalies:
         for _ in range(4):
             f.tick()
         assert len(saved) == 2 and all(p.parent == tmp_path / "anomalies" for p in saved)
+
+    def test_the_cap_counts_frames_already_in_the_directory(self, tmp_path):
+        """上限管的是目录：每次重跑都再存满一遍，目录就会一直长下去。"""
+        anomalies = tmp_path / "anomalies"
+        anomalies.mkdir()
+        for i in range(2):
+            (anomalies / f"unknown-earlier-{i}.png").write_bytes(b"x")
+        saved = []
+        f, *_ = make(PAGE_NAME.UNKNOWN, anomaly_dir=anomalies,
+                     settings=cfg(detect__save_anomaly_frames=True, detect__max_anomaly_frames=3),
+                     save_frame=lambda frame, path: saved.append(path))
+        for _ in range(3):
+            f.tick()
+        assert len(saved) == 1
 
     def test_nothing_is_saved_unless_asked(self, tmp_path):
         saved = []

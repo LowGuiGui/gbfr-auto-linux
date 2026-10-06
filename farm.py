@@ -28,8 +28,9 @@ KmbBackend、命令行里拼出来的观测函数、control.py 的套接字。�
      的那两个键松开，再做 pagetree.PAGE_ACTIONS 里写的动作。认不出的页面点一下确认，最多
      连着 loop.max_blind_taps 次，之后只记不按。
   6. 宁可停下也不瞎猜。同一页待得太久（战斗页超过 loop.max_battle_s 秒，别的页超过
-     loop.max_page_s 秒）就停下。输入那一层连着三次没按下去（焦点或指针不在游戏上），就
-     暂停，等人接回来。
+     loop.max_page_s 秒）就停下；暂停的时间不算，接着跑时重新计时。输入那一层连着三次没
+     按下去（焦点、指针或修饰键不对），就暂停，等人接回来。动作发出去之前再看一眼停止和
+     暂停：截图和匹配要花一两秒，这期间来的命令不该再放过一个按键。
 
 不管从哪条路出去（停止命令、到数、限制、出错），都先把按着的全部松开。空跑由输入那一层
 管（XTestInput 的 live），这里照常做每一个决定、记每一行日志。
@@ -92,7 +93,11 @@ class Farm:
     """一轮一轮地跑，直到该停下。run() 返回停下的理由，一句给人看的话。"""
 
     def __init__(self, capture, backend, observe, controls, templates, cfg, window_input=None,
-                 repeats=None, clock=time.monotonic, anomaly_dir=None, save_frame=save_png):
+                 repeats=None, clock=time.monotonic, anomaly_dir=None, save_frame=save_png,
+                 battle_inputs=None):
+        """battle_inputs：开打以后 window_input.held 里应该有的那几样（比如 {"w", "middle"}）。
+        全都按住了才算开打；只按住一部分（中键因为取不到窗口中心没发出去），下一轮接着按。
+        不给就退一步，按住了任何东西都算。"""
         self._capture = capture
         self._backend = backend
         self._observe = observe
@@ -104,6 +109,7 @@ class Farm:
         self._clock = clock
         self._anomaly_dir = Path(anomaly_dir) if anomaly_dir else None
         self._save_frame = save_frame
+        self._battle_inputs = set(battle_inputs) if battle_inputs else None
         self.battles = 0
         self.page = None
         self._page_since = None
@@ -111,7 +117,7 @@ class Farm:
         self._battling = False
         self._unknown_streak = 0
         self._capture_failures = 0
-        self._anomalies = 0
+        self._anomalies = None      # 第一次要存时，从目录里已有的文件数起
         self._window = None
         self._pause_noted = False
 
@@ -141,14 +147,13 @@ class Farm:
         if self._controls.stop_requested:
             return "收到停止命令"
         if self._controls.paused:
-            if not self._pause_noted:
-                self._release("暂停")
-                log.info("已暂停，等 resume")
-                self._pause_noted = True
+            self._enter_pause()
             return None
         if self._pause_noted:
             log.info("接着跑")
             self._pause_noted = False
+            # 暂停的时间不算在这一页上：从下一次认出页面重新计时
+            self.page = None
 
         reason = self._check_world()
         if reason:
@@ -188,6 +193,12 @@ class Farm:
         if stayed > limit:
             return f"在 {page} 页上待了 {stayed:.0f} 秒，超过了 {limit} 秒"
 
+        # 截图和匹配要花时间，这期间来了停止或暂停，就不再按这一下
+        if self._controls.stop_requested:
+            return "收到停止命令"
+        if self._controls.paused:
+            self._enter_pause()
+            return None
         action = self._act(page, frame)
         log.info("页面 %s | %s | 截图 %s ms | 匹配 %d ms%s", page, action,
                  getattr(self._capture, "last_ms", None), match_ms, self._scores_text(scores))
@@ -201,6 +212,12 @@ class Farm:
         return None
 
     # --- 每一轮里的几步 -------------------------------------------------------
+
+    def _enter_pause(self):
+        if not self._pause_noted:
+            self._release("暂停")
+            log.info("已暂停，等 resume")
+            self._pause_noted = True
 
     def _check_world(self):
         obs = self._observe()
@@ -217,14 +234,18 @@ class Farm:
 
     def _recognise(self, frame):
         threshold = self._cfg.get("detect.threshold")
-        scores = {}
+        found = {}
+        if self._cfg.get("detect.log_scores"):
+            # 记分数时每张模板都算一遍：判定树命中早的那一条就不往下试了，日志里会缺几张
+            found = {name: cv_best_match(frame, tpl) for name, tpl in self._templates.items()}
 
         def matches(name):
-            found = cv_best_match(frame, self._templates[name])
-            scores[name] = found[4] if found else None
-            return found is not None and found[4] >= threshold
+            if name not in found:
+                found[name] = cv_best_match(frame, self._templates[name])
+            return found[name] is not None and found[name][4] >= threshold
 
-        return pages.resolve(PAGE_RULES, matches, PAGE_NAME.UNKNOWN), scores
+        page = pages.resolve(PAGE_RULES, matches, PAGE_NAME.UNKNOWN)
+        return page, {name: (hit[4] if hit else None) for name, hit in found.items()}
 
     def _act(self, page, frame):
         if page == PAGE_NAME.BATTLE:
@@ -233,9 +254,9 @@ class Farm:
                 return "在打"
             self._backend.hold_move()
             self._backend.battle_press()
-            # 输入那一层可能因为焦点或指针没按下去；没按下去就下一轮再按
-            self._battling = self._input is None or bool(self._input.held)
-            return "开打" if self._battling else "开打，没按下去"
+            # 输入那一层可能没按下去（焦点、指针、修饰键），也可能只按下去一半；那就下一轮再按
+            self._battling = self._battle_started()
+            return "开打" if self._battling else "开打，没全按下去"
         self._end_battle()
         if page == PAGE_NAME.UNKNOWN:
             return self._unknown_page(frame)
@@ -263,8 +284,15 @@ class Farm:
                         "（detect.template_scale），或者游戏停在了模板里没有的画面上", cap)
         return "认不出，不按"
 
+    def _battle_started(self):
+        if self._input is None:
+            return True
+        held = set(self._input.held)
+        return self._battle_inputs <= held if self._battle_inputs else bool(held)
+
     def _end_battle(self):
-        if self._battling:
+        # 只按下去一半的开打（W 按住了、中键没有）也算按着，换页时一样要松开
+        if self._battling or (self._input is not None and self._input.held):
             self._backend.release_move()
             self._backend.battle_release()
             self._battling = False
@@ -283,6 +311,10 @@ class Farm:
         if not self._cfg.get("detect.save_anomaly_frames") or self._anomaly_dir is None:
             return
         limit = self._cfg.get("detect.max_anomaly_frames")
+        if self._anomalies is None:
+            # 上限管的是这个目录，不是这一次运行：每次重跑都再存满一遍，目录会越来越大
+            self._anomalies = (len(list(self._anomaly_dir.glob("unknown-*.png")))
+                               if self._anomaly_dir.is_dir() else 0)
         if self._anomalies >= limit:
             return
         path = self._anomaly_dir / f"unknown-{datetime.now():%Y%m%d-%H%M%S-%f}.png"
