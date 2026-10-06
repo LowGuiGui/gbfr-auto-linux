@@ -36,6 +36,7 @@ KmbBackend、命令行里拼出来的观测函数、control.py 的套接字。�
 管（XTestInput 的 live），这里照常做每一个决定、记每一行日志。
 """
 
+import math
 import time
 from datetime import datetime
 from pathlib import Path
@@ -53,8 +54,11 @@ log = get_logger(__name__)
 # 连着这么多轮截不到画面（或者截到空白帧）就停下：截图那一路坏了，接着跑只会对着坏画面
 # 瞎按。
 CAPTURE_FAILURES_TO_STOP = 3
-# 输入那一层连着这么多次没按下去，就暂停。
+# 输入那一层连着这么多次没按下去，或者开打连着这么多次没全按下去，就暂停。
 SKIPS_TO_PAUSE = 3
+# 缩放以后模板至少要这么宽、这么高（像素）。再小就认不出东西了：缩成一个像素的模板没有
+# 方差，归一化相关系数对它给满分，第一条规则就会把每一帧都认成战斗页。
+MIN_TEMPLATE_SIDE = 8
 
 
 def load_templates(directory, scale=1.0, files=TEMPLATE_FILES):
@@ -62,10 +66,15 @@ def load_templates(directory, scale=1.0, files=TEMPLATE_FILES):
 
     读不到就抛异常，不带着缺的模板开跑：缺了哪一张，那一页就永远认不出来，循环只会一直
     盲按确认。scale 是 detect.template_scale：模板截图时的分辨率和现在游戏的不一样时用。
+    它得是一个正的有限数，缩出来的每张模板至少 MIN_TEMPLATE_SIDE 见方、而且不是一整块纯色，
+    否则也抛异常：那样的模板跟什么画面都"像"。
     """
     import cv2
     from PIL import Image
 
+    if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not math.isfinite(scale) \
+            or scale <= 0:
+        raise RuntimeError(f"detect.template_scale 得是一个正数，现在是 {scale!r}")
     templates = {}
     for filename in files:
         path = Path(directory, filename)
@@ -76,9 +85,15 @@ def load_templates(directory, scale=1.0, files=TEMPLATE_FILES):
             raise RuntimeError(f"读不到模板 {path}: {exc}") from exc
         if scale != 1.0:
             height, width = pixels.shape[:2]
-            size = (max(1, round(width * scale)), max(1, round(height * scale)))
+            size = (round(width * scale), round(height * scale))
+            if min(size) < MIN_TEMPLATE_SIDE:
+                raise RuntimeError(f"detect.template_scale = {scale} 把模板 {filename} 缩成了 "
+                                   f"{size[0]}x{size[1]}，太小了，认不出东西")
             interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
             pixels = cv2.resize(pixels, size, interpolation=interpolation)
+        if is_blank_frame(pixels):
+            raise RuntimeError(f"模板 {filename} 是一整块纯色（缩放倍数 {scale}），拿它匹配，"
+                               "什么画面都像")
         templates[Path(filename).stem] = pixels
     return templates
 
@@ -116,6 +131,7 @@ class Farm:
         self._seen_battle = False
         self._battling = False
         self._unknown_streak = 0
+        self._failed_starts = 0     # 开打连着几次没全按下去
         self._capture_failures = 0
         self._anomalies = None      # 第一次要存时，从目录里已有的文件数起
         self._window = None
@@ -152,6 +168,7 @@ class Farm:
         if self._pause_noted:
             log.info("接着跑")
             self._pause_noted = False
+            self._failed_starts = 0
             # 暂停的时间不算在这一页上：从下一次认出页面重新计时
             self.page = None
 
@@ -209,10 +226,14 @@ class Farm:
                  getattr(self._capture, "last_ms", None), match_ms, self._scores_text(scores))
 
         skipped = getattr(self._input, "skipped", 0)
-        if skipped >= SKIPS_TO_PAUSE:
-            self._controls.pause(f"连着 {skipped} 次没按下去：焦点或指针不在游戏窗口上")
+        if skipped >= SKIPS_TO_PAUSE or self._failed_starts >= SKIPS_TO_PAUSE:
+            # 开打没全按下去，输入那一层未必知道（KmbBackend 取不到窗口中心时，中键根本没发），
+            # 所以这里自己也数着
+            why = (f"连着 {skipped} 次没按下去：焦点、指针或修饰键不对" if skipped >= SKIPS_TO_PAUSE
+                   else f"连着 {self._failed_starts} 次开打没全按下去")
+            self._controls.pause(why)
             self._release("暂停")
-            log.warning("连着 %d 次没按下去，暂停，等人看过以后 resume", skipped)
+            log.warning("%s，暂停，等人看过以后 resume", why)
             self._pause_noted = True
         return None
 
@@ -261,7 +282,12 @@ class Farm:
             self._backend.battle_press()
             # 输入那一层可能没按下去（焦点、指针、修饰键），也可能只按下去一半；那就下一轮再按
             self._battling = self._battle_started()
-            return "开打" if self._battling else "开打，没全按下去"
+            if self._battling:
+                self._failed_starts = 0
+                return "开打"
+            self._failed_starts += 1
+            return f"开打，没全按下去（连续第 {self._failed_starts} 次）"
+        self._failed_starts = 0
         self._end_battle()
         if page == PAGE_NAME.UNKNOWN:
             return self._unknown_page(frame)

@@ -242,6 +242,27 @@ class TestHalfLandedStarts:
         assert backend.calls == ["hold_move", "battle_press", "hold_move", "battle_press"]
         assert window_input.held == ["middle", "w"]
 
+    def test_starts_that_keep_landing_only_halfway_pause_it(self):
+        """取不到窗口中心时 KmbBackend 根本不发中键，输入那一层的 skipped 不会动：循环自己数。"""
+        window_input = Input(press_lands=False)
+        f, backend, controls, _ = make(PAGE_NAME.BATTLE, window_input=window_input,
+                                       battle_inputs={"w", "middle"})
+        f.tick()
+        f.tick()
+        assert not controls.paused
+        f.tick()
+        assert controls.paused and "开打" in controls.pauses[0]
+        assert backend.calls[-1] == "release_all" and window_input.held == []
+
+    def test_a_start_that_lands_resets_the_count(self):
+        window_input = Input(press_lands=False)
+        f, backend, controls, _ = make(PAGE_NAME.BATTLE, PAGE_NAME.BATTLE, PAGE_NAME.SCORE,
+                                       PAGE_NAME.BATTLE, PAGE_NAME.BATTLE,
+                                       window_input=window_input, battle_inputs={"w", "middle"})
+        for _ in range(5):
+            f.tick()
+        assert not controls.paused
+
     def test_a_half_landed_start_is_let_go_on_the_next_page(self):
         window_input = Input(press_lands=False)
         f, backend, *_ = make(PAGE_NAME.BATTLE, PAGE_NAME.SCORE, window_input=window_input,
@@ -481,6 +502,22 @@ class TestTemplates:
         for name in NAMES:
             h, w = full[name].shape[:2]
             assert half[name].shape[:2] == (round(h * 0.5), round(w * 0.5))
+
+    @pytest.mark.parametrize("scale", [0, -0.5, float("nan"), float("inf")])
+    def test_a_scale_that_is_not_a_positive_number_is_refused(self, scale):
+        with pytest.raises(RuntimeError, match="正数"):
+            farm.load_templates(self.TEMPLATE_DIR, scale=scale)
+
+    def test_a_scale_that_shrinks_a_template_to_nothing_is_refused(self):
+        """缩成一个像素的模板没有方差，归一化相关系数对它给满分：每一帧都会被认成战斗页。"""
+        with pytest.raises(RuntimeError, match="太小"):
+            farm.load_templates(self.TEMPLATE_DIR, scale=0.01)
+
+    def test_a_flat_template_is_refused(self, tmp_path):
+        from PIL import Image
+        Image.new("RGB", (40, 24), (90, 90, 90)).save(tmp_path / "flat.png")
+        with pytest.raises(RuntimeError, match="纯色"):
+            farm.load_templates(tmp_path, files=["flat.png"])
 
     def test_a_missing_template_stops_it_from_starting(self, tmp_path):
         with pytest.raises(RuntimeError, match="flag_battle.png"):
