@@ -72,15 +72,70 @@ class TestFindingTheGame:
     def test_one_instance_is_one_group(self, tmp_path):
         proc = fake_proc(tmp_path, {101: {"environ": GAME_ENV},
                                     102: {"environ": GAME_ENV}})
-        groups = lp.group_instances(lp.find_game_processes("881020", proc))
-        assert list(groups) == [(":3", "gamescope-1")]
-        assert len(groups[(":3", "gamescope-1")]) == 2
+        groups = lp.group_instances(lp.find_game_processes("881020", proc), proc)
+        assert list(groups) == ["DISPLAY :3"]
+        assert len(groups["DISPLAY :3"]) == 2
 
     def test_two_instances_are_kept_apart(self, tmp_path):
         """两个实例必须报出来，而不是随便挑一个去量。"""
         other = dict(GAME_ENV, DISPLAY=":4", GAMESCOPE_WAYLAND_DISPLAY="gamescope-2")
         proc = fake_proc(tmp_path, {101: {"environ": GAME_ENV}, 105: {"environ": other}})
-        assert len(lp.group_instances(lp.find_game_processes("881020", proc))) == 2
+        assert len(lp.group_instances(lp.find_game_processes("881020", proc), proc)) == 2
+
+    def test_the_steam_runtime_container_does_not_split_one_gamescope(self, tmp_path):
+        """2026-10-05 对着游戏实测：容器外的进程报 gamescope-0，Steam Linux Runtime 容器
+        里的进程报 /run/pressure-vessel/gamescope-socket，XAUTHORITY 也换成了容器里的路径。
+        按环境变量分组会说"两个实例在跑这个游戏"，其实只有一个 gamescope。"""
+        host = dict(GAME_ENV, DISPLAY=":2", GAMESCOPE_WAYLAND_DISPLAY="gamescope-0")
+        inside = dict(host, GAMESCOPE_WAYLAND_DISPLAY="/run/pressure-vessel/gamescope-socket",
+                      XAUTHORITY="/run/pressure-vessel/Xauthority")
+        proc = fake_proc(tmp_path, {
+            1500: {"ppid": 1, "comm": "steam"},
+            2000: {"ppid": 1500, "comm": "gamescope-wl"},
+            2100: {"ppid": 2000, "comm": "reaper", "environ": host},
+            2200: {"ppid": 2100, "comm": "srt-bwrap", "environ": inside},
+            2300: {"ppid": 2200, "comm": "granblue_fantas", "environ": inside},
+        })
+        groups = lp.group_instances(lp.find_game_processes("881020", proc), proc)
+        assert list(groups) == ["gamescope 2000"]
+        assert [m["pid"] for m in groups["gamescope 2000"]] == [2100, 2200, 2300]
+
+    def test_a_process_without_a_gamescope_ancestor_joins_its_display_s(self, tmp_path):
+        """父进程先退出、被托管到 gamescope 外面的进程，跟着同一个 DISPLAY 的 gamescope 走。"""
+        proc = fake_proc(tmp_path, {
+            2000: {"ppid": 1, "comm": "gamescope-wl"},
+            2100: {"ppid": 2000, "environ": GAME_ENV},
+            2400: {"ppid": 1, "environ": GAME_ENV},
+        })
+        groups = lp.group_instances(lp.find_game_processes("881020", proc), proc)
+        assert list(groups) == ["gamescope 2000"] and len(groups["gamescope 2000"]) == 2
+
+    def test_values_that_exist_on_the_host_win(self, tmp_path, monkeypatch):
+        """容器里报的路径在宿主上不存在；gamescopectl 要的是宿主上的套接字名。"""
+        runtime = tmp_path / "run-user"
+        runtime.mkdir()
+        (runtime / "gamescope-0").touch()
+        host_auth = tmp_path / "host-auth"
+        host_auth.touch()
+        x11 = tmp_path / "x11"
+        x11.mkdir()
+        (x11 / "X2").touch()
+        monkeypatch.setattr(lp, "X11_SOCKET_DIR", x11)
+        inside = {"DISPLAY": ":99", "GAMESCOPE_WAYLAND_DISPLAY": "/run/pressure-vessel/gamescope-socket",
+                  "XAUTHORITY": "/run/pressure-vessel/Xauthority", "XDG_RUNTIME_DIR": str(runtime)}
+        host = dict(inside, DISPLAY=":2", GAMESCOPE_WAYLAND_DISPLAY="gamescope-0",
+                    XAUTHORITY=str(host_auth))
+        # 容器里的进程排在前面也不行
+        assert lp.instance_values([inside, host]) == {
+            "display": ":2", "wayland": "gamescope-0", "xauth": str(host_auth),
+            "runtime": str(runtime)}
+
+    def test_with_nothing_usable_the_first_value_is_kept(self, tmp_path):
+        only = {"DISPLAY": ":9", "GAMESCOPE_WAYLAND_DISPLAY": "gamescope-9",
+                "XAUTHORITY": str(tmp_path / "none"), "XDG_RUNTIME_DIR": str(tmp_path / "none")}
+        assert lp.instance_values([only]) == {
+            "display": ":9", "wayland": "gamescope-9", "xauth": str(tmp_path / "none"),
+            "runtime": str(tmp_path / "none")}
 
     def test_environ_parsing_keeps_odd_bytes_and_skips_junk(self, tmp_path):
         proc = tmp_path / "proc"
@@ -495,7 +550,7 @@ def l1(tmp_path, monkeypatch):
                                         "XDG_RUNTIME_DIR")},
             "PIPEWIRE_REMOTE": "pipewire-game", "PIPEWIRE_RUNTIME_DIR": None}
     monkeypatch.setattr(lp, "find_game_processes", lambda appid: [game])
-    monkeypatch.setattr(lp, "process_lineage", lambda pid: LINEAGE)
+    monkeypatch.setattr(lp, "process_lineage", lambda pid, proc="/proc": LINEAGE)
     monkeypatch.setattr(lp, "read_proc_text", lambda pid, name, proc="/proc": "x")
     monkeypatch.setattr(lp, "is_gamescope_process", lambda pid, proc="/proc": pid == 2000)
     monkeypatch.setattr(lp.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
