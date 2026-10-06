@@ -7,7 +7,10 @@
 这一层不碰平台。截图、输入和"世界现在是什么样"都从外面传进来：
 
     capture()   一帧 RGB 数组，已经是游戏自己的分辨率；截不到就是 None
-    backend     backend.KmbBackend 这样的输入后端：hold_move、battle_press、again……
+    backend     backend.KmbBackend 这样的输入后端：hold_move、battle_press、again……；
+                prefer 说它是哪一种（默认 "kmb"），观测里它不可用就停下
+    window_input  能说出"现在按着什么"的那一层（held、skipped、release_all），比如
+                xtest_input.XTestInput。必须有：开打按下去没有，只有它看得到
     observe()   一个 supervisor.Observation：游戏窗口还在不在、输入还能不能用
     controls    停止和暂停：stop_requested、paused 两个属性，pause(理由)，以及一个能被
                 打断的 wait(秒)
@@ -107,9 +110,9 @@ def save_png(frame, path):
 class Farm:
     """一轮一轮地跑，直到该停下。run() 返回停下的理由，一句给人看的话。"""
 
-    def __init__(self, capture, backend, observe, controls, templates, cfg, window_input=None,
+    def __init__(self, capture, backend, observe, controls, templates, cfg, window_input,
                  repeats=None, clock=time.monotonic, anomaly_dir=None, save_frame=save_png,
-                 battle_inputs=None):
+                 battle_inputs=None, prefer="kmb"):
         """battle_inputs：开打以后 window_input.held 里应该有的那几样（比如 {"w", "middle"}）。
         全都按住了才算开打；只按住一部分（中键因为取不到窗口中心没发出去），下一轮接着按。
         不给就退一步，按住了任何东西都算。"""
@@ -125,6 +128,7 @@ class Farm:
         self._anomaly_dir = Path(anomaly_dir) if anomaly_dir else None
         self._save_frame = save_frame
         self._battle_inputs = set(battle_inputs) if battle_inputs else None
+        self._prefer = prefer
         self.battles = 0
         self.page = None
         self._page_since = None
@@ -247,15 +251,22 @@ class Farm:
 
     def _check_world(self):
         obs = self._observe()
-        decision = supervisor.decide("kmb", obs, current_hwnd=self._window)
+        decision = supervisor.decide(self._prefer, obs, current_hwnd=self._window)
         if not obs.hwnd_valid:
             return "游戏窗口不在了"
         if self._window is None:
             self._window = obs.hwnd
         if "reconnect_transport" in decision.actions:
             return "游戏窗口换了一个，游戏多半重启过"
-        if decision.backend != "kmb":
+        if decision.backend != self._prefer:
+            # 循环只有这一个后端；supervisor 退到别的后端，就是这一个用不了
             return f"输入用不了：{decision.reason}"
+        # supervisor 还可能要别的（spoof_off：关掉 Windows 上的焦点伪装）。这一版做不了的，
+        # 宁可停下，也不当没看见
+        unsupported = [a for a in decision.actions
+                       if a not in ("release_all", "reconnect_transport", "reacquire_window")]
+        if unsupported:
+            return f"supervisor 要做 {', '.join(unsupported)}，这一版做不了"
         return None
 
     def _recognise(self, frame):
@@ -316,14 +327,12 @@ class Farm:
         return "认不出，不按"
 
     def _battle_started(self):
-        if self._input is None:
-            return True
         held = set(self._input.held)
         return self._battle_inputs <= held if self._battle_inputs else bool(held)
 
     def _end_battle(self):
         # 只按下去一半的开打（W 按住了、中键没有）也算按着，换页时一样要松开
-        if self._battling or (self._input is not None and self._input.held):
+        if self._battling or self._input.held:
             self._backend.release_move()
             self._backend.battle_release()
             self._battling = False
@@ -344,8 +353,13 @@ class Farm:
         limit = self._cfg.get("detect.max_anomaly_frames")
         if self._anomalies is None:
             # 上限管的是这个目录，不是这一次运行：每次重跑都再存满一遍，目录会越来越大
-            self._anomalies = (len(list(self._anomaly_dir.glob("unknown-*.png")))
-                               if self._anomaly_dir.is_dir() else 0)
+            try:
+                self._anomalies = (len(list(self._anomaly_dir.glob("unknown-*.png")))
+                                   if self._anomaly_dir.is_dir() else 0)
+            except OSError as exc:
+                # 数不了就不存了：和存图失败一样只记一笔，不能为它停下循环
+                log.warning("数不了 %s 里已有的画面（%s），这一趟不再存", self._anomaly_dir, exc)
+                self._anomalies = limit
         if self._anomalies >= limit:
             return
         path = self._anomaly_dir / f"unknown-{datetime.now():%Y%m%d-%H%M%S-%f}.png"

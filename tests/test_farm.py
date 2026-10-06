@@ -324,6 +324,27 @@ class TestStopping:
         assert f.tick() is None
         assert "换了一个" in f.tick()
 
+    def test_the_preferred_backend_is_the_one_checked(self):
+        """循环只有一个后端：观测里它可用就跑，supervisor 想退到另一个，就停下。"""
+        pad_only = supervisor.Observation(hwnd=0x400000, hwnd_valid=True, kmb_ready=False,
+                                          pad_ready=True)
+        f, *_ = make(PAGE_NAME.SCORE, observe=lambda: pad_only, prefer="pad")
+        assert f.tick() is None
+        f, *_ = make(PAGE_NAME.SCORE, observe=lambda: pad_only)
+        assert f.tick().startswith("输入用不了")
+        # 两个都可用时，supervisor 照偏好选；偏好没传给它的话，它会选 kmb，循环就停了
+        both = supervisor.Observation(hwnd=0x400000, hwnd_valid=True, kmb_ready=True,
+                                      pad_ready=True)
+        f, *_ = make(PAGE_NAME.SCORE, observe=lambda: both, prefer="pad")
+        assert f.tick() is None
+
+    def test_an_action_this_version_cannot_carry_out_stops_it(self):
+        """观测里说焦点伪装开着：supervisor 要 spoof_off，这一版没有伪装可关，就停下。"""
+        spoofed = supervisor.Observation(hwnd=0x400000, hwnd_valid=True, kmb_ready=True,
+                                         spoof_on=True)
+        f, *_ = make(PAGE_NAME.SCORE, observe=lambda: spoofed)
+        assert "spoof_off" in f.tick()
+
     def test_three_unusable_captures_in_a_row_stop_it(self):
         blank = np.zeros((180, 200, 3), np.uint8)
         f, *_ = make(None, blank, None)
@@ -479,12 +500,32 @@ class TestAnomalies:
             f.tick()
         assert len(saved) == 1
 
+    def test_a_directory_that_cannot_be_listed_does_not_stop_it(self, tmp_path, monkeypatch,
+                                                                log_file):
+        def unreadable(self, pattern):
+            raise OSError(5, "Input/output error")
+        monkeypatch.setattr(farm.Path, "glob", unreadable)
+        saved = []
+        f, *_ = make(PAGE_NAME.UNKNOWN, anomaly_dir=tmp_path,
+                     settings=cfg(detect__save_anomaly_frames=True),
+                     save_frame=lambda frame, path: saved.append(path))
+        assert f.tick() is None and f.tick() is None
+        assert saved == [] and "数不了" in log_file()
+
     def test_nothing_is_saved_unless_asked(self, tmp_path):
         saved = []
         f, *_ = make(PAGE_NAME.UNKNOWN, anomaly_dir=tmp_path,
                      save_frame=lambda frame, path: saved.append(path))
         f.tick()
         assert saved == []
+
+
+class TestConstruction:
+    def test_a_window_input_is_required(self):
+        """开打按下去没有，只有输入那一层看得到：没有它，就没法判断，不能当成都成功了。"""
+        with pytest.raises(TypeError):
+            farm.Farm(Frames(PAGE_NAME.SCORE), Backend(), lambda: world(), Controls(),
+                      TEMPLATES, cfg())
 
 
 class TestTemplates:
