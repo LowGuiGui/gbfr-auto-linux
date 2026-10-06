@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-# Runtime dependencies of the platform-free core.
+# Runtime dependencies: the platform-free core, and the Linux platform layer.
 #
 # Direct dependencies only, exactly pinned. Versions were resolved and import-
 # verified on Linux (CPython 3.13) on 2026-08-23.
@@ -22,6 +22,10 @@ numpy==2.5.2
 opencv-python==5.0.0.93
 pillow==12.3.0
 
+# X11 client for the Linux platform layer and the probe: finding the game's window
+# in gamescope's nested X server and sending it keys through XTest
+# (xtest_input.py). Pure Python, LGPL-2.1-or-later.
+python-xlib==0.33
+
 # pyautogui, pynput and pywin32 served the Windows app layer and left the tree
-# with it (docs/provenance/README.md). The Linux platform layer adds its own once
-# the probe has shown which capture and input routes work.
+# with it (docs/provenance/README.md).
