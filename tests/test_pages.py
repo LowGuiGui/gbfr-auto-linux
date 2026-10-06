@@ -162,6 +162,22 @@ class TestTheRealTree:
         for name in pages.templates_used(m.PAGE_RULES):
             assert name in shipped, f"{name} 不在 TEMPLATE_FILES 里"
 
+    def test_every_template_file_is_in_the_repository(self):
+        """TEMPLATE_FILES 是从树里收集的，上一条对它只查得出收集有没有写错。
+        文件到底在不在，要看 template/ 目录本身。"""
+        m = self._tree()
+        missing = [f for f in m.TEMPLATE_FILES if not (REPO / "template" / f).is_file()]
+        assert not missing, f"template/ 里没有: {missing}"
+
+    def test_page_values_are_what_the_ui_shows(self):
+        """界面和日志显示的是 .value，换写法时不能悄悄变成别的。"""
+        m = self._tree()
+        assert {p.name: p.value for p in m.PAGE_NAME} == {
+            "BATTLE": "battle", "REWARD_AGAIN": "reward_again",
+            "REWARD_EXIT": "reward_exit", "SCORE": "score",
+            "PAUSE": "pause", "UNKNOWN": "unknown",
+        }
+
     def test_every_reachable_page_has_an_action_or_is_deliberately_special(self):
         m = self._tree()
         special = {m.PAGE_NAME.BATTLE, m.PAGE_NAME.UNKNOWN}

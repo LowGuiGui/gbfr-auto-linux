@@ -22,7 +22,7 @@ and refer to the archive, [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbf
 | `test_opencv.py` | template matching, which inputs it takes and which it refuses (PIL images, alpha, grayscale, a template larger than the screen), every read-failure path, resolution sensitivity (#12), and the NCC degeneracy that makes a black frame score 1.0 |
 | `test_diagnostics.py` | the blank-frame guard (judged per colour channel), and that the best match always reports its score |
 | `test_framediff.py` | frame differences and the motion and input verdicts built on them (the Windows probe's A4 logic) |
-| `test_pages.py` | the page-tree engine, and the real tree in `pagetree.py` checked against its own tables |
+| `test_pages.py` | the page-tree engine, and the real tree in `pagetree.py` checked against its own tables and the files in `template/` |
 | `test_geometry.py` | client-area offsets, borders and centre, with the numbers measured for #46 |
 | `test_supervisor.py` | `decide()`: when to switch, degrade, pause or recover, and the physical-pad watch |
 | `test_backend.py` | the intent vocabulary for keyboard/mouse and pad, and that `release_all` keeps a switch from stranding a held key |
