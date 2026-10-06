@@ -24,7 +24,8 @@ Linux 上的那一个。
   3. 每次按下之前，一次读齐服务器此刻的状态再决定：
        - 输入焦点得是游戏窗口或者它里面的窗口（焦点在 Wine 的对话框、覆盖层上就不发）；
        - 键盘映射和指针映射还是构造时的样子：运行中改了映射（比如重新设了一套布局），缓存
-         的键码可能已经是另一个字，甚至成了修饰键，那就不再发，并且不再算就绪；
+         的键码可能已经是另一个字，甚至成了修饰键，或者成了 Num Lock 会改掉的小键盘键，那就
+         不再发，并且不再算就绪；
        - 没有修饰键按着（人正按着 Shift，3 就成了 Shift+3）；Caps Lock、Num Lock 常年亮着，
          不算，可它们那一组里要是有键正按着，照样算。哪个键是锁定键按此刻的映射认。Shift
          Lock 不在其内：它让每个键都用 Shift 档，3 就成了 #；
@@ -117,6 +118,12 @@ def _is_keypad(keysym):
     return 0xFF80 <= keysym <= 0xFFBD or 0x11000000 <= keysym <= 0x1100FFFF
 
 
+def _num_lock_changes(keysyms):
+    """照 X 协议，Num Lock 亮着时，第二档是小键盘符号的键用第二档：KP_End 成了 KP_1。第二档
+    和第一档一样的（KP_Add），Num Lock 改不了它。"""
+    return len(keysyms) > 1 and _is_keypad(keysyms[1]) and keysyms[1] != keysyms[0]
+
+
 def _group(mask):
     """状态里的 XKB 组，也就是第几套键盘布局，0 是第一套。X 服务器把它放在第 13、14 位
     （XkbBuildCoreState），QueryPointer 应答里的 mask 也带着它。"""
@@ -163,10 +170,8 @@ class XTestInput:
             if display.keycode_to_keysym(keycode, 0) != keysym:
                 raise InputRefused(f"{name!r} 在嵌套 X 里要配合修饰键才打得出来，不发：只发"
                                    "不按 Shift 等键就能打出的那个字")
-            # 照 X 协议，Num Lock 亮着时，第二档是小键盘符号的键用第二档：KP_End 成了 KP_1。
-            # Num Lock 亮着不算按着修饰键，所以这种键干脆不发
-            second = display.keycode_to_keysym(keycode, 1)
-            if _is_keypad(second) and second != keysym:
+            # Num Lock 亮着不算按着修饰键，所以它会改掉的小键盘键干脆不发
+            if _num_lock_changes((keysym, display.keycode_to_keysym(keycode, 1))):
                 raise InputRefused(f"{name!r} 是小键盘上的键，Num Lock 一亮打出来的就是另一个字，"
                                    "不发")
             self._keycodes[name] = keycode
@@ -288,10 +293,10 @@ class XTestInput:
         state = self._read_state(what)
         if state is None:
             return False
-        keysyms = state["keymap"].get(keycode)
-        if not keysyms or keysyms[0] != self._keysyms[name] or keycode in _codes(state["modifier_map"]):
-            log.warning("嵌套 X 的键盘映射变了：键码 %d 已经不是 %r（或者成了修饰键），不再发键",
-                        keycode, name)
+        if not self._still_configured(name, keycode, state["keymap"],
+                                      _codes(state["modifier_map"])):
+            log.warning("嵌套 X 的键盘映射变了：键码 %d 已经不是 %r（或者成了修饰键、Num Lock 会"
+                        "改掉的键），不再发键", keycode, name)
             self._ready = False
             return False
         if self._modifier_held(state, what) or self._other_layout(state, what):
@@ -474,13 +479,19 @@ class XTestInput:
             self.release_all()
         return intact
 
+    def _still_configured(self, name, keycode, keymap, modifiers):
+        """此刻的映射里，这个键码还是配置里的那个键：第一个符号没变，不是修饰键，Num Lock 也
+        改不了它。构造时查过的，映射一变就得重新查。"""
+        keysyms = keymap.get(keycode)
+        return (bool(keysyms) and keysyms[0] == self._keysyms[name]
+                and keycode not in modifiers and not _num_lock_changes(keysyms))
+
     def _held_still_mapped(self, state):
-        """按着的键码还是配置里的那个字、没成修饰键，按着的物理按钮还是中键。映射变了，连发
-        出去的就成了另一个键：返回假，并且不再算就绪。"""
+        """按着的键码还是配置里的那个键（_still_configured），按着的物理按钮还是中键。映射
+        变了，连发出去的就成了另一个键：返回假，并且不再算就绪。"""
         modifiers = _codes(state["modifier_map"])
         changed = [name for code, name in self._held_keys.items()
-                   if code in modifiers
-                   or (state["keymap"].get(code) or (None,))[0] != self._keysyms[name]]
+                   if not self._still_configured(name, code, state["keymap"], modifiers)]
         changed += [button for button, detail in self._held_buttons.items()
                     if _physical(BUTTONS[button], state["pointer_map"]) != detail]
         if changed:

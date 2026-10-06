@@ -468,6 +468,24 @@ class TestServerState:
         xi.key_press("w")
         assert d.events == [] and not xi.is_ready()
 
+    @pytest.mark.parametrize("held", [False, True])
+    def test_a_keypad_key_remapped_so_num_lock_changes_it_is_not_sent(self, held):
+        """构造时 KP_Add 两档都是 KP_Add，Num Lock 改不了它；运行中第二档换成了 KP_1，Num Lock
+        一亮打出来的就是 KP_1。按下之前和按着的每一轮都得重新查这一条。"""
+        d, w = nested()
+        xi = live_input(d, w, keys=dict(KEYS, move="KP_Add"))
+        if held:
+            xi.key_press("KP_Add")
+            d.events.clear()
+        d.keymap[86] = ["KP_Add", "KP_1"]
+        if held:
+            assert not xi.check_holds()
+            assert d.events == [(X.KeyRelease, 86)] and xi.held == []
+        else:
+            xi.key_tap("KP_Add")
+            assert d.events == []
+        assert not xi.is_ready()
+
     def test_the_middle_button_follows_a_new_pointer_mapping(self):
         d, w = nested()
         xi = live_input(d, w)
