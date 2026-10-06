@@ -32,8 +32,8 @@ KmbBackend、命令行里拼出来的观测函数、control.py 的套接字。�
      连着 loop.max_blind_taps 次，之后只记不按。
   6. 宁可停下也不瞎猜。同一页待得太久（战斗页超过 loop.max_battle_s 秒，别的页超过
      loop.max_page_s 秒）就停下；暂停的时间不算，接着跑时重新计时。输入那一层连着三次没
-     按下去（焦点、指针或修饰键不对），就暂停，等人接回来。动作发出去之前再看一眼停止和
-     暂停：截图和匹配要花一两秒，这期间来的命令不该再放过一个按键。
+     按下去（焦点、指针或修饰键不对），就暂停，等人接回来；接着跑以后从头数。动作发出去之前
+     再看一眼停止和暂停：截图和匹配要花一两秒，这期间来的命令不该再放过一个按键。
 
 不管从哪条路出去（停止命令、到数、限制、出错），都先把按着的全部松开。空跑由输入那一层
 管（XTestInput 的 live），这里照常做每一个决定、记每一行日志。
@@ -115,7 +115,12 @@ class Farm:
                  battle_inputs=None, prefer="kmb"):
         """battle_inputs：开打以后 window_input.held 里应该有的那几样（比如 {"w", "middle"}）。
         全都按住了才算开打；只按住一部分（中键因为取不到窗口中心没发出去），下一轮接着按。
-        不给就退一步，按住了任何东西都算。"""
+        不给就退一步，按住了任何东西都算。repeats：完成几次就停，None 是不限；prefer：用哪个
+        后端，"kmb" 或 "pad"。"""
+        if repeats is not None and repeats < 1:
+            raise ValueError(f"repeats must be at least 1, or None for no limit: {repeats!r}")
+        if prefer not in ("kmb", "pad"):
+            raise ValueError(f"prefer must be 'kmb' or 'pad': {prefer!r}")
         self._capture = capture
         self._backend = backend
         self._observe = observe
@@ -136,6 +141,7 @@ class Farm:
         self._battling = False
         self._unknown_streak = 0
         self._failed_starts = 0     # 开打连着几次没全按下去
+        self._skips_at_resume = 0   # resume 时输入那一层已经数到的跳过次数：之后从这里重新数
         self._capture_failures = 0
         self._anomalies = None      # 第一次要存时，从目录里已有的文件数起
         self._window = None
@@ -173,6 +179,9 @@ class Farm:
             log.info("接着跑")
             self._pause_noted = False
             self._failed_starts = 0
+            # 暂停前的那几次跳过已经有人看过了：不然 resume 以后哪怕一下都没再按，也会因为
+            # 同一个计数马上又暂停
+            self._skips_at_resume = getattr(self._input, "skipped", 0)
             # 暂停的时间不算在这一页上：从下一次认出页面重新计时
             self.page = None
 
@@ -230,6 +239,10 @@ class Farm:
                  getattr(self._capture, "last_ms", None), match_ms, self._scores_text(scores))
 
         skipped = getattr(self._input, "skipped", 0)
+        if skipped < self._skips_at_resume:
+            # resume 以后有一下按下去了，输入那一层自己从零数起
+            self._skips_at_resume = 0
+        skipped -= self._skips_at_resume
         if skipped >= SKIPS_TO_PAUSE or self._failed_starts >= SKIPS_TO_PAUSE:
             # 开打没全按下去，输入那一层未必知道（KmbBackend 取不到窗口中心时，中键根本没发），
             # 所以这里自己也数着

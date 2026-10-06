@@ -47,8 +47,9 @@ def frame_of(page, seed=99):
 
 
 class Backend:
-    """输入后端的替身：记下被叫了什么，并像 XTestInput 那样维护 input.held。input.accepts
-    为假时什么都按不下去；input.press_lands 为假时只有中键按不下去（取不到窗口中心）。"""
+    """输入后端的替身：记下被叫了什么，并像 XTestInput 那样维护 input.held 和 input.skipped
+    （按下去一次就从零数起）。input.accepts 为假时什么都按不下去；input.press_lands 为假时
+    只有中键按不下去（取不到窗口中心）。"""
 
     def __init__(self, window_input=None):
         self.calls = []
@@ -64,6 +65,7 @@ class Backend:
         self._record("hold_move")
         if self.input is not None and self.input.accepts:
             self.input.held = sorted(set(self.input.held) | {"w"})
+            self.input.skipped = 0
         elif self.input is not None:
             self.input.skipped += 1
 
@@ -89,6 +91,8 @@ class Backend:
         self._record("confirm")
         if self.input is not None and not self.input.accepts:
             self.input.skipped += 1
+        elif self.input is not None:
+            self.input.skipped = 0
 
     def release_all(self):
         self._record("release_all")
@@ -286,6 +290,12 @@ class TestCounting:
         assert "到数" in f.run()
         assert backend.calls[-1] == "release_all" and f.battles == 1
 
+    @pytest.mark.parametrize("repeats", [0, -1])
+    def test_a_count_below_one_is_refused(self, repeats):
+        """不限次数是 None；0 次要是照收，循环会先打完一场才发现到数了。"""
+        with pytest.raises(ValueError, match="repeats"):
+            make(PAGE_NAME.SCORE, repeats=repeats)
+
 
 class TestStopping:
     def test_a_stop_ends_it_before_the_next_capture(self):
@@ -337,6 +347,11 @@ class TestStopping:
                                       pad_ready=True)
         f, *_ = make(PAGE_NAME.SCORE, observe=lambda: both, prefer="pad")
         assert f.tick() is None
+
+    def test_an_unknown_backend_preference_is_refused(self):
+        """拼错的偏好，supervisor 照样会选出 kmb，循环却永远对不上它，第一轮就停下。"""
+        with pytest.raises(ValueError, match="prefer"):
+            make(PAGE_NAME.SCORE, prefer="kbm")
 
     def test_an_action_this_version_cannot_carry_out_stops_it(self):
         """观测里说焦点伪装开着：supervisor 要 spoof_off，这一版没有伪装可关，就停下。"""
@@ -442,6 +457,48 @@ class TestPausing:
             f.tick()
         assert controls.paused and len(controls.pauses) == 1
         assert window_input.releases == 1 and backend.calls[-1] == "release_all"
+
+    def test_a_resume_does_not_pause_again_on_the_misses_already_seen(self):
+        """认不出的页面已经点满了，resume 以后一下都不再按：输入那一层的计数还停在 3，可那几次
+        暂停前就有人看过了，不能马上又暂停。"""
+        window_input = Input(accepts=False)
+        f, _, controls, _ = make(PAGE_NAME.UNKNOWN, window_input=window_input,
+                                 settings=cfg(loop__max_blind_taps=3))
+        for _ in range(3):
+            f.tick()
+        assert len(controls.pauses) == 1
+        controls.paused = False
+        f.tick()
+        f.tick()
+        assert not controls.paused and len(controls.pauses) == 1
+
+    def test_three_new_misses_after_a_resume_pause_it_again(self):
+        window_input = Input(accepts=False)
+        f, _, controls, _ = make(PAGE_NAME.SCORE, window_input=window_input)
+        for _ in range(3):
+            f.tick()
+        controls.paused = False
+        f.tick()
+        f.tick()
+        assert not controls.paused
+        f.tick()
+        assert controls.paused and len(controls.pauses) == 2
+
+    def test_a_press_that_lands_after_a_resume_restarts_the_count(self):
+        """按下去一次，输入那一层就从零数起；resume 时记下的那个数就不再作数。"""
+        window_input = Input(accepts=False)
+        f, _, controls, _ = make(PAGE_NAME.SCORE, window_input=window_input)
+        for _ in range(3):
+            f.tick()
+        controls.paused = False
+        window_input.accepts = True
+        f.tick()
+        window_input.accepts = False
+        f.tick()
+        f.tick()
+        assert not controls.paused
+        f.tick()
+        assert controls.paused and len(controls.pauses) == 2
 
 
 class TestRun:
