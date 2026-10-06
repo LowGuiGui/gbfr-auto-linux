@@ -23,17 +23,21 @@ Linux 上的那一个。
      中键，物理按钮号按服务器的指针映射查。
   3. 每次按下之前，一次读齐服务器此刻的状态再决定：
        - 输入焦点得是游戏窗口或者它里面的窗口（焦点在 Wine 的对话框、覆盖层上就不发）；
-       - 键盘映射和指针映射还是构造时的样子：运行中换了布局，缓存的键码可能已经是另一个
-         字，甚至成了修饰键，那就不再发，并且不再算就绪；
+       - 键盘映射和指针映射还是构造时的样子：运行中改了映射（比如重新设了一套布局），缓存
+         的键码可能已经是另一个字，甚至成了修饰键，那就不再发，并且不再算就绪；
        - 没有修饰键按着（人正按着 Shift，3 就成了 Shift+3）；Caps Lock、Num Lock 这类锁定
-         键常年亮着，不算，可和锁定键同一组的别的键要是正按着，照样算；
+         键常年亮着，不算，可和锁定键同一组的别的键要是正按着，照样算。哪个键是锁定键按此刻
+         的映射认；
+       - 键盘在第一套布局上（XKB 的组）：在几套布局之间切换不改映射，也不按修饰键，只改
+         服务器状态里的组，同一个键码打出来的却是另一套布局里的字。鼠标不管这一条；
        - 这个键（或中键）没有被别处按着：这边不替别人按下，更不在之后替别人松开。
      中键还要看点下去的那一点：按钮事件落到指针下面最里层的窗口，那得是游戏窗口或者它
      里面的；指针移过去以后再看一次，移过去可能刚好叫出一个弹窗。
      不满足的就不发，记一笔，连续跳过的次数记在 skipped 上，暂停与否由调用方决定。
   4. 按住不放的键，服务器会自动连发，连发不再经过上面这几道关。所以按着东西时，调用方每
-     一轮叫一次 check_holds()：焦点离开了游戏、有修饰键按下了、映射变了、或者按着的已经被
-     别处松开了，就全部松开，交给下一轮重新按。连发漏到别处的时间最多是一轮。
+     一轮叫一次 check_holds()：输入不再就绪了、焦点离开了游戏、有修饰键按下了、切换了布局、
+     映射变了、或者按着的已经被别处松开了，就全部松开，交给下一轮重新按。连发漏到别处的
+     时间最多是一轮。点一下时松开没发出去，那个键就还记着按着，下一轮也由这里再松一次。
   5. 按着什么自己记着，release_all 把它们全部松开，可以重复调用。按下的请求发出去以后，不管
      sync 有没有回来，都当它按着；松开的请求发成功了才不再记着，release_everything 也一样。
      松开不看焦点和修饰键：按着的不管落到哪里都得松开。
@@ -73,6 +77,9 @@ BUTTONS = {"middle": 2}
 # key_tap 按下到松开之间等多久，和探测器 L3 用的一样。
 TAP_HOLD_S = 0.05
 
+# 亮着也不算"按着修饰键"的锁定键（除非它们那一组里别的键正按着）。
+LOCK_KEYSYMS = {XK.XK_Caps_Lock, XK.XK_Shift_Lock, XK.XK_Num_Lock}
+
 
 class InputRefused(RuntimeError):
     """这个 X 显示或这份按键配置不能用来给游戏发输入。"""
@@ -97,6 +104,12 @@ def _physical(logical, pointer_map):
 def _button_mask(logical):
     """状态里表示这个逻辑按钮按着的那一位：Button1Mask 是 1 << 8，往上依次是 2、3……"""
     return X.Button1Mask << (logical - 1)
+
+
+def _group(mask):
+    """状态里的 XKB 组，也就是第几套键盘布局，0 是第一套。X 服务器把它放在第 13、14 位
+    （XkbBuildCoreState），QueryPointer 应答里的 mask 也带着它。"""
+    return (mask >> 13) & 3
 
 
 class XTestInput:
@@ -145,9 +158,11 @@ class XTestInput:
         for button, logical in BUTTONS.items():
             if _physical(logical, pointer_map) is None:
                 raise InputRefused(f"嵌套 X 的指针映射里没有哪个物理按钮对应逻辑上的 {button} 键")
-        # 锁定键常年亮着，它们所在那一组的位不算"按着修饰键"（除非组里别的键正按着）
-        self._lock_keys = {display.keysym_to_keycode(XK.string_to_keysym(name))
-                           for name in ("Caps_Lock", "Shift_Lock", "Num_Lock")} - {0}
+        # 服务器的键码范围，连接建立时就定了。每次读状态都按它读整张键盘映射：python-xlib
+        # 的 keysym_to_keycode 查的是连接时缓存的那一张，不收 MappingNotify 就不会更新
+        info = display.display.info
+        self._first_keycode = info.min_keycode
+        self._keycode_count = info.max_keycode - info.min_keycode + 1
         self._ready = True
         if not self._live:
             log.warning("空跑：一个 XTest 事件都不会发，只记日志")
@@ -197,16 +212,20 @@ class XTestInput:
                    describe_focus(focus), hex(self._window.id))
         return False
 
-    def _read_state(self, what, keycode=None):
-        """一次读齐按下之前要看的服务器状态。读不到就不再算就绪，返回 None。"""
+    def _read_state(self, what):
+        """一次读齐按下之前要看的服务器状态。读不到就不再算就绪，返回 None。
+
+        键盘映射读整张（键码 -> 各档的符号）：要发的键、按着的键、哪些是锁定键，都按此刻的
+        这一张认。mask 里有修饰键、鼠标键和 XKB 组。
+        """
         try:
+            rows = self._d.get_keyboard_mapping(self._first_keycode, self._keycode_count)
             return {
                 "modifier_map": self._d.get_modifier_mapping(),
+                "keymap": dict(enumerate(rows, start=self._first_keycode)),
                 "mask": self._d.screen().root.query_pointer().mask,
                 "keys_down": self._d.query_keymap(),
                 "pointer_map": self._d.get_pointer_mapping(),
-                "keysyms": (self._d.get_keyboard_mapping(keycode, 1)[0]
-                            if keycode is not None else None),
             }
         except Exception:
             log.warning("读不到嵌套 X 的键盘和指针状态，%s 不发", what, exc_info=True)
@@ -217,9 +236,12 @@ class XTestInput:
         """有修饰键按着就记一笔、返回真：这时发出去的键会拼成组合键。
 
         锁定键（Caps Lock、Num Lock）亮着时它那一组的位也是亮的，那不算；但只在组里别的键
-        都没有按着时才不算：和 Num Lock 同组的另一个键（比如选档位的键）正按着，照样算。
+        都没有按着时才不算：和 Num Lock 同组的另一个键（比如选档位的键）正按着，照样算。锁定键
+        是此刻映射里第一个符号是锁定键符号的键码：映射变过，就按变了以后的认。
         修饰键映射的第 i 组对应状态里的 1 << i 那一位。
         """
+        locks = {code for code, keysyms in state["keymap"].items()
+                 if keysyms and keysyms[0] in LOCK_KEYSYMS}
         held = 0
         for index, codes in enumerate(state["modifier_map"]):
             bit = 1 << index
@@ -227,27 +249,36 @@ class XTestInput:
                 continue
             members = [code for code in codes if code]
             others_down = any(_is_down(state["keys_down"], code) for code in members
-                              if code not in self._lock_keys)
-            if any(code in self._lock_keys for code in members) and not others_down:
+                              if code not in locks)
+            if any(code in locks for code in members) and not others_down:
                 continue
             held |= bit
         if held:
             self._skip(what, "嵌套 X 里有修饰键按着（状态 %#x），发出去会变成组合键", held)
         return bool(held)
 
+    def _other_layout(self, state, what):
+        """键盘不在第一套布局上就记一笔、返回真。映射里核对过的是第一套布局的字，换到别的
+        布局，同一个键码打出来的是那一套里的字。"""
+        group = _group(state["mask"])
+        if group:
+            self._skip(what, "嵌套 X 的键盘在第 %d 套布局上（切换过布局），同一个键打出来的不是"
+                       "配置里的字", group + 1)
+        return bool(group)
+
     def _clear_to_press_key(self, name, keycode, what):
         if not self._ready or not self._focus_on_game(what):
             return False
-        state = self._read_state(what, keycode)
+        state = self._read_state(what)
         if state is None:
             return False
-        keysyms = state["keysyms"]
+        keysyms = state["keymap"].get(keycode)
         if not keysyms or keysyms[0] != self._keysyms[name] or keycode in _codes(state["modifier_map"]):
             log.warning("嵌套 X 的键盘映射变了：键码 %d 已经不是 %r（或者成了修饰键），不再发键",
                         keycode, name)
             self._ready = False
             return False
-        if self._modifier_held(state, what):
+        if self._modifier_held(state, what) or self._other_layout(state, what):
             return False
         if _is_down(state["keys_down"], keycode):
             self._skip(what, "%s 已经被别处按着：这边不替别人按，也不替别人松", name)
@@ -395,15 +426,24 @@ class XTestInput:
         """按着东西时，调用方每一轮叫一次。还该按着就返回真。
 
         按住不放的键，服务器会自动连发，连发不再经过按下时的那几道关。所以每一轮看一眼：
-        焦点离开了游戏、有修饰键按下了、或者（实跑时）按着的已经被别处松开了，就把按着的
-        全部松开，返回假，交给下一轮重新按。
+        输入不再就绪了、焦点离开了游戏、有修饰键按下了、（按着键时）切换了布局、映射变了、或者
+        （实跑时）按着的已经被别处松开了，就把按着的全部松开，返回假，交给下一轮重新按。
+
+        不再就绪也包括点一下时松开没发出去：那个键还记着按着，这里每一轮都再松一次，而不是
+        把它当成该按着的。
         """
         if not self._held_keys and not self._held_buttons:
             return True
         what = "继续按着 " + "、".join(self.held)
-        intact = self._focus_on_game(what)
+        if not self._ready:
+            log.warning("输入不再就绪，不再%s，全部松开", what)
+            intact = False
+        else:
+            intact = self._focus_on_game(what)
         state = self._read_state(what) if intact else None
-        if state is None or self._modifier_held(state, what) or not self._held_still_mapped(state):
+        if (state is None or self._modifier_held(state, what)
+                or (self._held_keys and self._other_layout(state, what))
+                or not self._held_still_mapped(state)):
             intact = False
         elif self._live:
             lost = [name for code, name in self._held_keys.items()
@@ -422,15 +462,9 @@ class XTestInput:
         """按着的键码还是配置里的那个字、没成修饰键，按着的物理按钮还是中键。映射变了，连发
         出去的就成了另一个键：返回假，并且不再算就绪。"""
         modifiers = _codes(state["modifier_map"])
-        try:
-            changed = [name for code, name in self._held_keys.items()
-                       if code in modifiers
-                       or (self._d.get_keyboard_mapping(code, 1)[0] or (None,))[0]
-                       != self._keysyms[name]]
-        except Exception:
-            log.warning("读不到按着的键现在的映射", exc_info=True)
-            self._ready = False
-            return False
+        changed = [name for code, name in self._held_keys.items()
+                   if code in modifiers
+                   or (state["keymap"].get(code) or (None,))[0] != self._keysyms[name]]
         changed += [button for button, detail in self._held_buttons.items()
                     if _physical(BUTTONS[button], state["pointer_map"]) != detail]
         if changed:

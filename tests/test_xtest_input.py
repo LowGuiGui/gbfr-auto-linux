@@ -7,9 +7,10 @@
 嵌套 X 用替身，方法签名照 python-xlib 0.33 的源码：xtest_fake_input(event_type,
 detail=0, time=X.CurrentTime, root=X.NONE, x=0, y=0)、get_modifier_mapping() 返回八组键码、
 keycode_to_keysym(keycode, index)、窗口的 translate_coords(src_window, src_x, src_y) 返回带
-child、x、y 的应答（TestTheDoubleFollowsPythonXlib 对着库本身核对这些字段名）。这里守的是
-那几道关：连错显示、焦点不在游戏上、指针下面不是游戏、键不在配置里或者要修饰键、空跑时发了
-东西、按着的没松开。
+child、x、y 的应答、连接建立时的应答里有 min_keycode 和 max_keycode
+（TestTheDoubleFollowsPythonXlib 对着库本身核对这些字段名）。这里守的是那几道关：连错显示、
+焦点不在游戏上、指针下面不是游戏、键不在配置里或者要修饰键、切换了键盘布局、空跑时发了东西、
+按着的没松开。
 """
 
 from types import SimpleNamespace
@@ -86,8 +87,13 @@ class NestedX:
         self.focus = focus
         self.xtest = xtest
         self.keymap = dict(keymap)
+        # python-xlib 连接时缓存的那一张：keysym_to_keycode、keycode_to_keysym 查它，不收
+        # MappingNotify 就不更新。测试里改 keymap 是改服务器上的映射，缓存不跟着变
+        self.cached_keymap = dict(keymap)
         self.modifiers = [list(codes) for codes in modifiers]
         self.pointer_map = pointer_map
+        # 连接建立时的应答（python-xlib 的 Display.display.info）：服务器的键码范围
+        self.display = SimpleNamespace(info=SimpleNamespace(min_keycode=8, max_keycode=255))
         self.events = []
         self.fail = False
         self.keys_down = set()      # 像服务器那样记着哪些键按着：fake 的按下、松开会改它
@@ -110,17 +116,22 @@ class NestedX:
         return list(self.pointer_map)
 
     def keysym_to_keycode(self, keysym):
-        """照 python-xlib：有好几个键都带这个符号时，取档位最低、其次键码最小的那个。"""
-        found = [(index, code) for code, names in self.keymap.items()
+        """照 python-xlib：查缓存；有好几个键都带这个符号时，取档位最低、其次键码最小的那个。"""
+        found = [(index, code) for code, names in self.cached_keymap.items()
                  for index, name in enumerate(names) if XK.string_to_keysym(name) == keysym]
         return min(found)[1] if found else 0
 
     def keycode_to_keysym(self, keycode, index):
-        names = self.keymap.get(keycode, [])
+        """照 python-xlib：查缓存。"""
+        names = self.cached_keymap.get(keycode, [])
         return XK.string_to_keysym(names[index]) if index < len(names) else X.NoSymbol
 
     def get_keyboard_mapping(self, first_keycode, count):
-        """照 python-xlib：从 first_keycode 起 count 个键，每个键一组各档的符号。"""
+        """照 python-xlib：问服务器，从 first_keycode 起 count 个键，每个键一组各档的符号。
+        超出服务器的键码范围，服务器回 BadValue。"""
+        info = self.display.info
+        if first_keycode < info.min_keycode or first_keycode + count - 1 > info.max_keycode:
+            raise ValueError("BadValue: keycode range outside the server's")
         return [tuple(XK.string_to_keysym(name) for name in self.keymap.get(code, []))
                 for code in range(first_keycode, first_keycode + count)]
 
@@ -567,6 +578,20 @@ class TestHolding:
         xi.key_press("w")
         assert xi.check_holds() and xi.held == ["w"]
 
+    def test_a_tap_whose_release_failed_is_let_go_by_the_next_check(self):
+        """松开没发出去，那个键还记着按着、服务器上也还按着：下一轮的检查不能把它当成该按着
+        的（它会一直连发），而是再松一次。"""
+        d, w = nested()
+
+        def connection_drops(seconds):
+            d.fail = True
+        xi = XTestInput(d, w.game, KEYS, live=True, sleep=connection_drops)
+        xi.key_tap("3")
+        assert xi.held == ["3"] and not xi.is_ready()
+        d.fail = False
+        assert not xi.check_holds()
+        assert d.events == [(X.KeyPress, 12), (X.KeyRelease, 12)] and xi.held == []
+
     def test_release_everything_skips_a_middle_button_the_mapping_no_longer_has(self):
         """按构造时的号去松，松开的会是现在映射到那个号上的另一个按钮。"""
         d, w = nested()
@@ -621,6 +646,28 @@ class TestModifiersHeldElsewhere:
         xi.key_tap("3")
         assert d.events == [] and xi.skipped == 1
 
+    def test_num_lock_moved_to_another_key_still_does_not_count(self):
+        """运行中换了映射，Num Lock 到了另一个键码上：锁定键按此刻的映射认。"""
+        d, w = nested()
+        xi = live_input(d, w)
+        del d.keymap[77]
+        d.keymap[78] = ["Num_Lock"]
+        d.modifiers[4] = [78, 0]
+        w.root.state = X.Mod2Mask
+        xi.key_tap("3")
+        assert d.events == [(X.KeyPress, 12), (X.KeyRelease, 12)]
+
+    def test_a_former_lock_key_turned_level_shift_counts(self):
+        """原来的 Caps Lock 键运行中成了选档位的键：它那一组亮着，就是修饰键亮着。"""
+        d, w = nested()
+        xi = live_input(d, w)
+        d.keymap[66] = ["ISO_Level3_Shift"]
+        d.modifiers[1] = [0, 0]
+        d.modifiers[7] = [92, 66]
+        w.root.state = X.Mod5Mask
+        xi.key_tap("3")
+        assert d.events == [] and xi.skipped == 1
+
     def test_releases_go_out_even_with_a_modifier_down(self):
         d, w = nested()
         xi = live_input(d, w)
@@ -628,6 +675,39 @@ class TestModifiersHeldElsewhere:
         w.root.state = X.ShiftMask
         xi.release_all()
         assert d.events == [(X.KeyPress, 25), (X.KeyRelease, 25)]
+
+
+class TestKeyboardLayouts:
+    """在几套布局之间切换只改服务器状态里的 XKB 组（mask 的第 13、14 位），映射和修饰键
+    都不变。"""
+
+    @pytest.mark.parametrize("layout", [2, 3, 4])
+    def test_no_key_goes_out_on_another_layout(self, layout):
+        """第二套布局上，w 那个键码打出来的可能是 ц：键不发，鼠标不管布局。"""
+        d, w = nested()
+        w.root.state = (layout - 1) << 13
+        xi = live_input(d, w)
+        xi.key_press("w")
+        xi.key_tap("3")
+        assert d.events == [] and xi.skipped == 2 and xi.is_ready()
+        xi.mouse_press(5, 5, "middle")
+        assert d.events == [(X.MotionNotify, 0, 5, 5), (X.ButtonPress, 2)]
+
+    def test_a_layout_switch_under_a_held_key_lets_go(self):
+        d, w = nested()
+        xi = live_input(d, w)
+        xi.key_press("w")
+        xi.mouse_press(5, 5, "middle")
+        w.root.state |= 1 << 13
+        assert not xi.check_holds()
+        assert xi.held == [] and xi.is_ready()
+
+    def test_a_held_button_alone_does_not_care_about_the_layout(self):
+        d, w = nested()
+        xi = live_input(d, w)
+        xi.mouse_press(5, 5, "middle")
+        w.root.state |= 1 << 13
+        assert xi.check_holds() and xi.held == ["middle"]
 
 
 class TestDryRun:
@@ -696,4 +776,10 @@ class TestTheDoubleFollowsPythonXlib:
         from Xlib.protocol import request
         names = [f.name for f in request.QueryPointer._reply.fields if f.name]
         assert "mask" in names
+
+    def test_the_connection_setup_reply_carries_the_keycode_range(self):
+        """python-xlib 自己也是从 Display.display.info 的这两个字段读键码范围的。"""
+        from Xlib.protocol import display as xprotocol
+        names = [f.name for f in xprotocol.ConnectionSetupRequest._success_reply.fields if f.name]
+        assert {"min_keycode", "max_keycode"} <= set(names)
 
