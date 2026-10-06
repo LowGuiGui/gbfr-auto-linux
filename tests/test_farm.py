@@ -347,6 +347,21 @@ class TestLateCommands:
         assert f.tick() is None
         assert backend.calls == ["release_all"]
 
+    def test_a_pause_during_a_failed_capture_lets_go_at_once(self):
+        f, backend, controls, _ = make(PAGE_NAME.BATTLE, None)
+        f.tick()
+        self._arrives_during(f, controls, "_capture", "pause")
+        assert f.tick() is None
+        assert backend.calls == ["hold_move", "battle_press", "release_all"]
+        assert f._capture_failures == 0
+
+    def test_a_pause_on_the_third_failed_capture_pauses_instead_of_stopping(self):
+        f, _, controls, _ = make(None)
+        f.tick()
+        f.tick()
+        self._arrives_during(f, controls, "_capture", "pause")
+        assert f.tick() is None and controls.paused
+
     def test_a_stop_that_arrives_during_matching_sends_nothing(self):
         f, backend, controls, _ = make(PAGE_NAME.SCORE)
         self._arrives_during(f, controls, "_recognise", "stop")

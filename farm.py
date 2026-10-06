@@ -162,6 +162,11 @@ class Farm:
         frame = self._capture()
         if self._controls.stop_requested:
             return "收到停止命令"
+        # 截图期间来的暂停先办：不然一张截坏的图会让它记一次失败、按着的键留到下一轮，
+        # 正好是第三次失败的话，循环就停了，而不是暂停
+        if self._controls.paused:
+            self._enter_pause()
+            return None
         if frame is None or is_blank_frame(frame):
             self._capture_failures += 1
             log.warning("这一轮没有可用的画面（%s，连续第 %d 次）",
