@@ -95,7 +95,7 @@ max_battle_s     = 900      # 战斗页最多待多少秒，超过就停下
 max_page_s       = 120      # 别的页面最多待多少秒，超过就停下
 
 [detect]
-threshold           = 0.8   # 模板匹配得分阈值，0-1
+threshold           = 0.8   # 模板匹配得分阈值，大于 0、最多是 1
 template_scale      = 1.0   # 模板缩放倍数，写小数；模板和游戏分辨率不一致时调它
 log_scores          = false # 每帧记录每个模板的最高分（调参时打开）
 save_anomaly_frames = false # 认不出页面时把截图存下来，用于事后修模板

@@ -101,15 +101,19 @@ class Backend:
 class Input:
     """XTestInput 里循环会看的那几样：skipped、held、release_all。"""
 
-    def __init__(self, accepts=True, press_lands=True):
+    def __init__(self, accepts=True, press_lands=True, failing_releases=0):
         self.accepts = accepts
         self.press_lands = press_lands
+        self.failing_releases = failing_releases     # 前几次松开会失败（传输一时断了）
         self.skipped = 0
         self.held = []
         self.releases = 0
 
     def release_all(self):
         self.releases += 1
+        if self.failing_releases:
+            self.failing_releases -= 1
+            raise RuntimeError("input transport down")
         self.held = []
 
 
@@ -348,6 +352,21 @@ class TestStopping:
         f, *_ = make(PAGE_NAME.SCORE, observe=lambda: both, prefer="pad")
         assert f.tick() is None
 
+    @pytest.mark.parametrize("threshold", [-1.0, 0.0, 1.5, float("nan"), float("inf")])
+    def test_a_threshold_outside_its_range_is_refused(self, threshold):
+        """阈值不大于 0，什么画面都"像"第一条规则（战斗页），循环就会按着错的页面按键。"""
+        with pytest.raises(RuntimeError, match="detect.threshold"):
+            make(PAGE_NAME.SCORE, settings=cfg(detect__threshold=threshold))
+
+    @pytest.mark.parametrize("interval", [0, -1000])
+    def test_a_poll_interval_that_is_not_positive_is_refused(self, interval):
+        """间隔不大于 0，循环一刻不停地截图、按确认。"""
+        with pytest.raises(RuntimeError, match="poll_interval_ms"):
+            make(PAGE_NAME.SCORE, settings=cfg(loop__poll_interval_ms=interval))
+
+    def test_the_edges_of_the_ranges_are_accepted(self):
+        make(PAGE_NAME.SCORE, settings=cfg(detect__threshold=1.0, loop__poll_interval_ms=1))
+
     def test_an_unknown_backend_preference_is_refused(self):
         """拼错的偏好，supervisor 照样会选出 kmb，循环却永远对不上它，第一轮就停下。"""
         with pytest.raises(ValueError, match="prefer"):
@@ -450,10 +469,12 @@ class TestLateCommands:
 
 class TestPausing:
     def test_a_pause_lets_go_once_and_captures_nothing(self):
+        """松开在进暂停的那一轮就得发生，不能等到下一轮（下一轮的重试只管上一次没松开的）。"""
         f, backend, controls, _ = make(PAGE_NAME.BATTLE)
         f.tick()
         controls.paused = True
         f.tick()
+        assert backend.calls == ["hold_move", "battle_press", "release_all"]
         f.tick()
         assert backend.calls == ["hold_move", "battle_press", "release_all"]
         assert f._capture.calls == 1
@@ -471,6 +492,20 @@ class TestPausing:
         assert f.tick() is None
         clock.now += 60
         assert f.tick() is None
+
+    def test_a_release_that_failed_on_pausing_is_tried_again_while_paused(self):
+        """进暂停时松开没成，按着的就一直按着：暂停着的每一轮都再松一次，松开了就不再松。"""
+        window_input = Input(failing_releases=1)
+        f, _, controls, _ = make(PAGE_NAME.BATTLE, window_input=window_input,
+                                 battle_inputs={"w", "middle"})
+        f.tick()
+        controls.paused = True
+        f.tick()
+        assert window_input.held == ["middle", "w"]
+        f.tick()
+        assert window_input.held == []
+        f.tick()
+        assert window_input.releases == 2
 
     def test_presses_that_keep_missing_pause_it(self):
         window_input = Input(accepts=False)

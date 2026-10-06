@@ -123,6 +123,14 @@ class Farm:
             raise ValueError(f"repeats must be at least 1, or None for no limit: {repeats!r}")
         if prefer not in ("kmb", "pad"):
             raise ValueError(f"prefer must be 'kmb' or 'pad': {prefer!r}")
+        # 配置只查类型。这两个值出了界不会自己停下：阈值不大于 0，什么画面都"像"第一条规则，
+        # 循环就照着错的页面按键；间隔不大于 0，就是一刻不停地截图、按确认
+        threshold = cfg.get("detect.threshold")
+        if not 0 < threshold <= 1:
+            raise RuntimeError(f"detect.threshold 得大于 0、最多是 1，现在是 {threshold!r}")
+        interval = cfg.get("loop.poll_interval_ms")
+        if not interval > 0:
+            raise RuntimeError(f"loop.poll_interval_ms 得大于 0，现在是 {interval!r}")
         self._capture = capture
         self._backend = backend
         self._observe = observe
@@ -260,10 +268,14 @@ class Farm:
     # --- 每一轮里的几步 -------------------------------------------------------
 
     def _enter_pause(self):
+        """松开按着的，记一笔。松开要是没成（输入那一层还记着按着什么），暂停着的每一轮都再
+        松一次，直到松开为止：不然按着的会一直按到 resume。"""
         if not self._pause_noted:
             self._release("暂停")
             log.info("已暂停，等 resume")
             self._pause_noted = True
+        elif self._input.held:
+            self._release("暂停")
 
     def _check_world(self):
         obs = self._observe()
