@@ -1,137 +1,151 @@
 # -*- coding: utf-8 -*-
-# SPDX-FileCopyrightText: 2026 zhiyual <https://github.com/zhiyual>
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
-# SPDX-License-Identifier: GPL-2.0-only
-#
-# Derived from zhiyual/gbfr_auto; changed by LowGuiGui since 2026-08-23. The git
-# history records each change and its date. Upstream's lines are GPL-2.0-only (see
-# COPYRIGHT), so this file as a whole is too.
+# SPDX-License-Identifier: GPL-2.0-or-later
 
-# 模板匹配工具
-# 用于在全图中查找模板图像的位置，返回匹配位置和匹配得分。
+"""模板匹配，以及截图的空帧检查。
+
+两件互不依赖的事：
+
+    cv_best_match / cv_find_template   在截图里找一张模板，给出位置和得分
+    is_blank_frame                     截图本身是不是坏的（全黑或纯色）
+
+约定：
+  - 截图是 RGB 顺序的 uint8 数组，PIL Image 也收。模板从文件读，读进来就转成
+    RGB；两边通道顺序一致，分数才有意义。
+  - 匹配在彩色图上做，用归一化相关系数（TM_CCOEFF_NORMED），得分落在 0..1，
+    不同模板之间可以比。只匹配一个尺度：截图分辨率和截模板时不同就找不到
+    （#12，tests/test_opencv.py 里有回归基线）。
+  - 读不到模板必须留下痕迹（#4）：缺文件、空文件、解码失败分开记，匹配这一层
+    再记一次拒绝。原来静默返回 None，结果每一页都被判成 UNKNOWN。
+  - cv2 只用 13 个符号，清单钉在 tests/test_opencv.py 里（#9）。
+
+空帧为什么要单独查：归一化相关的分母是方差，模板是纯色时 OpenCV 直接给满分。
+全黑截图配上一张低纹理模板，得到的就是一次高置信度的误判，而不是"认不出"。
+匹配这一层分辨不了，只能在截图进来时先验。
+"""
+
+import os
+from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image
 
 from applog import get_logger
+from config import DEFAULTS
 
 log = get_logger(__name__)
 
+# 不传阈值时用的默认值，和配置文件里 detect.threshold 的默认值同出一处。
+DEFAULT_THRESHOLD = DEFAULTS["detect"]["threshold"]
 
+# 空帧判据：每个颜色通道在整幅图上的标准差都不超过它。量纲是 0..255 的灰阶。
+#
+# 截图失败时整幅图是同一个颜色，标准差就是 0。平坦区域上下一个灰阶的随机起伏，
+# 标准差约 0.8。真实画面通常有几十，哪怕几乎全黑、只有一小块暗淡的内容（tests 里
+# 那块占 4% 面积、亮度 40 的方块）也有 7 以上。取 1：刚好盖过那点起伏，离真实内容
+# 还很远。
 BLANK_FRAME_STD = 1.0
 
 
-def is_blank_frame(image, tolerance=BLANK_FRAME_STD):
-    """判断一帧是不是死图（全黑或纯色）。
+def _brief(obj):
+    """日志里怎么称呼一个输入：路径原样照抄，别的对象只报类型名。
 
-    为什么必须单独判：TM_CCOEFF_NORMED 的分母是两边的方差。模板和画面都平坦时
-    分子分母同时趋零，OpenCV 返回 **1.0** —— 满分。而 PrintWindow 对 D3D 窗口
-    经常返回全黑位图。两件事叠起来，得到的不是"认不出页面"，而是一次高置信度的
-    **误判**。所以截图必须自己验，指望匹配环节兜底是错的。
+    截图是几兆的数组，原样写进日志没有任何用处。
     """
-    if image is None:
-        return True
-    if isinstance(image, Image.Image):
-        array = np.asarray(image.convert("L"))
-    else:
-        array = np.asarray(image)
-        if array.ndim == 3:
-            array = array.mean(axis=2)
-    if array.size == 0:
-        return True
-    return float(array.std()) < tolerance
-
-
-def _brief(value):
-    """日志里只保留有用的部分：路径原样打印，图像对象只留类型名。"""
-    return value if isinstance(value, str) else type(value).__name__
+    if isinstance(obj, (str, os.PathLike)):
+        return os.fspath(obj)
+    return type(obj).__name__
 
 
 def _cv_read_image(path):
-    # 用 np.fromfile + imdecode 而不是 cv2.imread：后者遇到中文路径会静默失败。
-    #
-    # 这个函数原本把所有异常吞成 None。模板读不到 -> 匹配返回 None -> 页面判成
-    # UNKNOWN -> 机器人对着游戏一直敲键。整条链路上一个字都不会说，所以这里的
-    # 每条失败路径都必须留下记录。
+    """从文件读一张图，返回 RGB 的 uint8 数组；读不出来返回 None，并记下原因。
+
+    先自己把字节读进来再交给 imdecode，不让 OpenCV 直接按路径读：那样缺文件、
+    空文件和坏文件得到的都只是一个 None，日志里分不出是哪一种。
+    """
     try:
-        data = np.fromfile(path, dtype=np.uint8)
-    except Exception:
-        log.exception("读取图片失败: %s", path)
+        data = Path(path).read_bytes()
+    except (OSError, ValueError) as exc:  # ValueError: 路径里有 NUL
+        log.error("读取图片失败: %s (%s: %s)", path, type(exc).__name__, exc)
         return None
-
-    if data.size == 0:
-        log.error("图片为空或不存在: %s", path)
+    if not data:
+        log.error("读取图片失败: %s: 图片为空或不存在（文件是 0 字节）", path)
         return None
+    bgr = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if bgr is None:
+        log.error("读取图片失败: %s: 解码失败（%d 字节，不是 OpenCV 认得的图片格式）",
+                  path, len(data))
+        return None
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-    image = cv2.imdecode(data, cv2.IMREAD_COLOR)
+
+def _as_rgb(image):
+    """把截图或模板统一成 (高, 宽, 3) 的 uint8 RGB 数组；用不了就返回 None。
+
+    收三种输入：文件路径（当作模板读）、ndarray、PIL Image 这类能转成数组的对象。
+    四通道的去掉 alpha。灰度图和其它形状不去猜，记一笔，返回 None。
+    """
     if image is None:
-        log.error("图片解码失败（文件损坏或格式不支持）: %s", path)
-    return image
+        return None
+    if isinstance(image, (str, os.PathLike)):
+        return _cv_read_image(image)
+    pixels = np.asarray(image)
+    if pixels.dtype != np.uint8 or pixels.ndim != 3 or pixels.shape[2] not in (3, 4):
+        log.error("图像格式不支持: %s shape=%s dtype=%s",
+                  _brief(image), pixels.shape, pixels.dtype)
+        return None
+    # 切掉 alpha 之后数组不再连续，OpenCV 要的是连续内存
+    return np.ascontiguousarray(pixels[:, :, :3])
 
 
-def cv_best_match(full_image: str | Image.Image | np.ndarray, template_image: str | Image.Image | np.ndarray)->tuple[int, int, int, int, float] | None:
+def cv_best_match(screen, template):
+    """模板在截图里得分最高的位置，分数高低都交出来。
+
+    返回 (x, y, w, h, score)：x, y 是命中区域的左上角，w, h 是模板的宽和高，
+    score 是 0..1 的相关系数。输入用不了（读不到模板、截图为空、模板比截图还大）
+    时返回 None。
+
+    阈值留给调用方：调 detect.threshold 全靠这里交出来的分数。
     """
-    使用OpenCV进行模板匹配，在全图中查找模板图像的位置
-    
-    参数:
-        full_image: 待搜索的全图，可以是图像文件路径字符串、PIL Image对象或numpy数组
-        template_image: 模板图像，可以是图像文件路径字符串、PIL Image对象或numpy数组
-        threshold: 匹配得分阈值，默认0.8，得分大于等于此值则认为匹配成功
-    
-    返回:
-        匹配成功时返回元组，包含匹配位置(x, y)、模板宽高(w, h)和匹配得分(score)；匹配失败返回None
-    """
-    # 初始化OpenCV格式的图像变量
-    full_cv = None
-    temp_cv = None
-
-    # 处理全图输入，转换为OpenCV的BGR格式
-    if isinstance(full_image, str):
-        # 如果是文件路径，直接读取图像
-        full_cv = _cv_read_image(full_image)
-    elif isinstance(full_image, Image.Image):
-        # 如果是PIL Image，先转为numpy数组再转换颜色空间为BGR
-        full_cv = cv2.cvtColor(np.array(full_image), cv2.COLOR_RGB2BGR)
-    elif isinstance(full_image, np.ndarray):
-        # 如果是numpy数组，直接转换颜色空间为BGR（假设输入是RGB格式）
-        full_cv = cv2.cvtColor(full_image, cv2.COLOR_RGB2BGR)
-
-    # 处理模板图像输入，转换为OpenCV的BGR格式
-    if isinstance(template_image, str):
-        # 如果是文件路径，直接读取图像
-        temp_cv = _cv_read_image(template_image)
-    elif isinstance(template_image, Image.Image):
-        # 如果是PIL Image，先转为numpy数组再转换颜色空间为BGR
-        temp_cv = cv2.cvtColor(np.array(template_image), cv2.COLOR_RGB2BGR)
-    elif isinstance(template_image, np.ndarray):
-        # 如果是numpy数组，直接转换颜色空间为BGR（假设输入是RGB格式）
-        temp_cv = cv2.cvtColor(template_image, cv2.COLOR_RGB2BGR)
-
-    # 检查输入是否有效，若转换失败则返回None
-    if full_cv is None or temp_cv is None:
-        # 原本是 print()，而打包后是 --windowed，没有控制台，这行谁也看不见。
-        # 实际最常见的原因也不是"类型不对"，而是模板文件读不到。
-        log.error(
-            "模板匹配输入无效（读取失败或类型不支持）: full_image=%s, template_image=%s",
-            _brief(full_image), _brief(template_image),
-        )
+    screen_rgb = _as_rgb(screen)
+    template_rgb = _as_rgb(template)
+    if screen_rgb is None or template_rgb is None:
+        log.error("模板匹配输入无效: screen=%s template=%s", _brief(screen), _brief(template))
         return None
 
-    # 获取模板图像的尺寸（OpenCV中图像shape为(高度, 宽度, 通道数)）
-    h, w, _ = temp_cv.shape
-    # 使用归一化相关系数法进行模板匹配
-    match_result = cv2.matchTemplate(full_cv, temp_cv, cv2.TM_CCOEFF_NORMED)
-    # 获取匹配结果中的极值和对应位置，max_loc为最佳匹配的左上角坐标
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(match_result)
-    x, y = max_loc
-
-    # 无论是否过阈值都把最佳匹配交出去 —— 调参时看不到分数就只能靠猜
-    return (x, y, w, h, max_val)
-
-def cv_find_template(full_image, template_image, threshold=0.8):
-    """cv_best_match 加一道阈值。历史签名，调用方遍布 main.py。"""
-    result = cv_best_match(full_image, template_image)
-    if result is None or result[4] < threshold:
+    h, w = template_rgb.shape[:2]
+    screen_h, screen_w = screen_rgb.shape[:2]
+    if h > screen_h or w > screen_w:
+        log.error("模板 %s (%dx%d) 比截图 (%dx%d) 还大，没法匹配",
+                  _brief(template), w, h, screen_w, screen_h)
         return None
-    return result
+
+    scores = cv2.matchTemplate(screen_rgb, template_rgb, cv2.TM_CCOEFF_NORMED)
+    _, best, _, (x, y) = cv2.minMaxLoc(scores)
+    return int(x), int(y), int(w), int(h), float(best)
+
+
+def cv_find_template(screen, template, threshold=DEFAULT_THRESHOLD):
+    """和 cv_best_match 一样，只是得分低于 threshold 时返回 None。"""
+    match = cv_best_match(screen, template)
+    if match is None or match[4] < threshold:
+        return None
+    return match
+
+
+def is_blank_frame(frame, tolerance=BLANK_FRAME_STD):
+    """截图是不是坏的：None、空数组，或者每个通道几乎都只有一个值。
+
+    纯色和全黑一样算坏：截图后端失败时交回来的底色不一定是黑的。判据按通道算
+    标准差，所以 (17, 42, 99) 这样的纯色也会被拦下，而一小块暗淡的真实内容不会。
+    """
+    if frame is None:
+        return True
+    pixels = np.asarray(frame)
+    if pixels.size == 0:
+        return True
+    if pixels.ndim == 3:
+        spread = pixels.reshape(-1, pixels.shape[2]).std(axis=0).max()
+    else:
+        spread = pixels.std()
+    return bool(spread <= tolerance)

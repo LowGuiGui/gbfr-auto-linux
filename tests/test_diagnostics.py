@@ -55,6 +55,13 @@ class TestBlankFrameGuard:
         content[45:55, 45:55] = 200                   # 一小块真实内容
         assert not is_blank_frame(content), "有内容的画面不该被误杀"
 
+    def test_two_colours_of_equal_brightness_are_not_blank(self):
+        """按通道判，不是按亮度判：左红右蓝、亮度相同的画面是内容，不是死图。"""
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        frame[:, :50] = (90, 0, 0)
+        frame[:, 50:] = (0, 0, 90)
+        assert not is_blank_frame(frame)
+
     def test_the_default_tolerance_is_the_documented_constant(self):
         frame = np.zeros((20, 20, 3), dtype=np.uint8)
         assert is_blank_frame(frame) == is_blank_frame(frame, tolerance=BLANK_FRAME_STD)
