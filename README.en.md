@@ -43,7 +43,8 @@ Legend:
 | Capturing frames from the game under gamescope while its window is in the background | ✅ | Yes, with `gamescopectl screenshot` (2026-10-05, one run): real frames with the game focused, unfocused and covered, 1.1 to 1.3 seconds a frame. Screenshots come at the size of gamescope's output, which need not match the game's own resolution, so templates and click positions need scaling. Capturing the game window over X11 came back black every time (the game renders through Vulkan). PipeWire delivered no frame at all: the connection stayed in format negotiation, for reasons still being investigated. About a frame a second is enough for a loop that only acts on menus; reacting to a fight needs around 10 a second, and of these routes only PipeWire might give that |
 | Sending input only to the game under gamescope, without touching the desktop | ✅ | Yes (2026-10-05, one run): Escape sent through XTest to gamescope's nested X server reached the game window and the picture changed (by 89.6, against at most 1.7 at rest before the key), while the terminal on the host desktop received no Escape |
 | Whether the game pauses when its window loses focus | ✅ | No (2026-10-05, one run): with the window unfocused the picture moved 132% as much as when focused (ambient motion in town), the game window received no focus events, and the properties on gamescope's root window did not change. The game runs on gamescope's own X server and apparently never sees the host desktop's focus change. On Windows it did pause, and only a focus spoof inside the game process stopped it (two runs, 2026-08-26); going by this run, Linux does not need that spoof. Longer AFK runs still have to confirm it |
-| The app itself: battle loop, user interface, hotkeys | ⏳ | The Windows app layer is kept in this repository's history. With the probe's first results in, the Linux platform layer (capture, input) comes next, and then the app layer is ported |
+| Linux platform layer: finding the game (`gamescope.py`) and input through XTest (`xtest_input.py`) | 🧪 | 76 automated tests. Each of the input module's guards (gamescope's nested X server only, focus on the game window, configured keys only, no modifier keys, a dry run unless told otherwise) turns its test red when broken on purpose. Not yet run against the game, and not yet in a headless gamescope either. Frame capture for the loop comes next |
+| The app itself: battle loop, user interface, hotkeys | ⏳ | The Windows app layer is kept in this repository's history. The Linux platform layer is under way (row above); the battle loop and its stop and pause commands follow it |
 
 ## The plan
 
@@ -87,7 +88,8 @@ Requires Python 3.12 or newer; CI and the local setup use 3.13.
 | `supervisor.py` | the pure decision of when to switch input, pause or recover |
 | `config.py` | the TOML configuration |
 | `applog.py` | logging |
-| `gamescope.py` | finding the game's gamescope (its processes, nested X display and game window), and capturing frames with `gamescopectl`; the probe uses it, and so will the Linux platform layer |
+| `gamescope.py` | finding the game's gamescope (its processes, nested X display and game window), and capturing frames with `gamescopectl`; the probe and the platform layer use it |
+| `xtest_input.py` | keyboard and mouse input for the game through XTest on gamescope's nested X server: only to the game's window, only the configured keys, and a dry run unless told otherwise |
 | `template/` | the reference images matched against the screen |
 | `tools/linux_probe.py` | the Linux probe; see [tools/README.md](tools/README.md) |
 | `docs/provenance/` | how this repository's history was produced from the archive |
@@ -106,7 +108,7 @@ Issue numbers in the older commit messages read `gbfr_auto#NN`, and those in cod
   - Every non-merge commit carries a `Co-Authored-By: Claude` trailer, except upstream's 6 commits and the 3 initial setup commits of 2026-08-23 (ruff and pre-commit config, pinned requirements, restored LICENSE).
 - **Review**: **no human line-by-line review.** The owner sets the direction and runs the tests that need the real game.
 - **Verification**:
-  - 333 automated tests on Linux (180 for the core, 37 for `gamescope.py`, 116 for the probe), run in CI on every pull request.
+  - 367 automated tests on Linux (180 for the core, 76 for the Linux platform layer, 111 for the probe), run in CI on every pull request.
   - Only the probe has run against the game on Linux: on 2026-10-05, once per step; see [Status](#status). The bot itself has not. The tests do not cover capture, input, or anything else that needs the game itself.
 - **Risk**: the bot sends input to the game, and step 5 of the probe plan may load a library into the game process. The GPL provides no warranty (GPL-2.0 sections 11 and 12).
 - **Copyright**: whether AI-generated output is protected by copyright is legally unsettled. To the extent it is, the licence in [COPYRIGHT](COPYRIGHT) applies. AI output may also resemble its training data.

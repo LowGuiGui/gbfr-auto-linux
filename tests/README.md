@@ -10,7 +10,8 @@ dependencies, so `conftest.py` only puts the repo root on `sys.path` and provide
 the `log_file` fixture. The probe's tests use small doubles for the X display and for
 `subprocess.run`, written against python-xlib's and subprocess's documented signatures;
 `test_gamescope.py` defines the `/proc` and `subprocess.run` doubles, and the probe's tests
-import them from there.
+import them from there. `test_xtest_input.py` has its own double for the nested X server,
+written against python-xlib 0.33's source.
 
     pytest
 
@@ -32,6 +33,7 @@ and refer to the archive, [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbf
 | `test_applog.py` | log destination and fallback, idempotent setup, no propagation to root, tracebacks |
 | `test_config.py` | config load/merge/validate, and that `DEFAULT_TOML` and `DEFAULTS` haven't drifted |
 | `test_gamescope.py` | `gamescope.py`: finding the game's processes in `/proc` and grouping them by their gamescope (including Steam's runtime container), the process lineage, recognising a gamescope process, and the `gamescopectl` round trip |
+| `test_xtest_input.py` | `xtest_input.py`: refusing a display that is not gamescope's nested X server, keys outside the config and modifier keys, presses while the focus is off the game, the dry run, holds and releases (also when the focus has moved), coordinates translated to the root window, a lost connection, and `KmbBackend` driving it |
 | `test_linux_probe.py` | the Linux probe's instruments: reading X images, the PipeWire node and capture, the key allow-list, the verdicts and the incremental report |
 
 ## What is NOT covered, and why
