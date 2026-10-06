@@ -26,19 +26,31 @@ Linux 上的那一个。
        - 键盘映射和指针映射还是构造时的样子：运行中换了布局，缓存的键码可能已经是另一个
          字，甚至成了修饰键，那就不再发，并且不再算就绪；
        - 没有修饰键按着（人正按着 Shift，3 就成了 Shift+3）；Caps Lock、Num Lock 这类锁定
-         键常年亮着，不算；
+         键常年亮着，不算，可和锁定键同一组的别的键要是正按着，照样算；
        - 这个键（或中键）没有被别处按着：这边不替别人按下，更不在之后替别人松开。
      中键还要看点下去的那一点：按钮事件落到指针下面最里层的窗口，那得是游戏窗口或者它
      里面的；指针移过去以后再看一次，移过去可能刚好叫出一个弹窗。
      不满足的就不发，记一笔，连续跳过的次数记在 skipped 上，暂停与否由调用方决定。
   4. 按住不放的键，服务器会自动连发，连发不再经过上面这几道关。所以按着东西时，调用方每
-     一轮叫一次 check_holds()：焦点离开了游戏、有修饰键按下了、或者按着的已经被别处松开了，
-     就全部松开，交给下一轮重新按。连发漏到别处的时间最多是一轮。
+     一轮叫一次 check_holds()：焦点离开了游戏、有修饰键按下了、映射变了、或者按着的已经被
+     别处松开了，就全部松开，交给下一轮重新按。连发漏到别处的时间最多是一轮。
   5. 按着什么自己记着，release_all 把它们全部松开，可以重复调用。按下的请求发出去以后，不管
      sync 有没有回来，都当它按着；松开的请求发成功了才不再记着，release_everything 也一样。
      松开不看焦点和修饰键：按着的不管落到哪里都得松开。
 
-读状态出错（多半是连接断了）就不再算就绪：调用方看得到，循环会停下。
+读状态出错（多半是连接断了）就不再算就绪：调用方看得到，循环会停下。只有"查的那个窗口在
+半路没了"（BadWindow 这类协议错误）当成一次普通的跳过。
+
+没做的两件事，以及为什么：
+
+  - 检查和按下之间不是原子的。要原子就得在检查和按下期间抓住整个服务器（GrabServer），可那
+    会让游戏自己的 X 请求也停下来（它的画面经这个 Xwayland 出去）；而且在 gamescope 里，
+    XTest 的事件要先经 libei 出去、再从 gamescope 的输入那条路回来，抓着服务器也锁不住这一
+    段。检查和按下之间只隔几次本机往返；按着的键每一轮还会再查。
+  - 别的客户端抓着键盘或指针（grab）时，事件会送到抓的那个窗口。X 没有请求能查"谁抓着"，
+    想知道只能自己去抓一下，而每次抓都会给游戏发 NotifyGrab 的焦点事件：在 Wine 里这可能被
+    当成失焦，而失焦正是 Windows 上让游戏暂停的那件事。嵌套 X 里别的客户端只有游戏自己的
+    进程和 gamescope 的覆盖层；真跑起来要是看到抓取把输入带走了，先量，再决定。
 
 live 为假就是空跑：检查照做、日志照记，一个 XTest 事件都不发。空跑也照样记着"按着"
 什么，松开的那一路在空跑里也走得到。所有事件都从 _send 出去，空跑只拦这一处。
@@ -47,6 +59,7 @@ live 为假就是空跑：检查照做、日志照记，一个 XTest 事件都�
 import time
 
 from Xlib import X, XK
+from Xlib import error as xerror
 
 from applog import get_logger
 from gamescope import describe_focus, gamescope_root_properties, within_window
@@ -129,14 +142,12 @@ class XTestInput:
             self._keycodes[name] = keycode
             self._keysyms[name] = keysym
         pointer_map = display.get_pointer_mapping()
-        self._fallback_buttons = {}
         for button, logical in BUTTONS.items():
-            detail = _physical(logical, pointer_map)
-            if detail is None:
+            if _physical(logical, pointer_map) is None:
                 raise InputRefused(f"嵌套 X 的指针映射里没有哪个物理按钮对应逻辑上的 {button} 键")
-            self._fallback_buttons[button] = detail
-        # Num Lock 常年亮着；它在哪个 ModN 上，看每次读到的修饰键映射
-        self._numlock = display.keysym_to_keycode(XK.string_to_keysym("Num_Lock"))
+        # 锁定键常年亮着，它们所在那一组的位不算"按着修饰键"（除非组里别的键正按着）
+        self._lock_keys = {display.keysym_to_keycode(XK.string_to_keysym(name))
+                           for name in ("Caps_Lock", "Shift_Lock", "Num_Lock")} - {0}
         self._ready = True
         if not self._live:
             log.warning("空跑：一个 XTest 事件都不会发，只记日志")
@@ -171,7 +182,16 @@ class XTestInput:
             log.warning("读不到嵌套 X 的输入焦点，%s 不发", what, exc_info=True)
             self._ready = False
             return False
-        if within_window(focus, self._window.id):
+        try:
+            inside = within_window(focus, self._window.id, strict=True)
+        except xerror.XError:
+            # 焦点所在的窗口在两次查询之间没了：当成一次普通的焦点不对
+            inside = False
+        except Exception:
+            log.warning("查不出输入焦点所在的窗口，%s 不发", what, exc_info=True)
+            self._ready = False
+            return False
+        if inside:
             return True
         self._skip(what, "嵌套 X 的输入焦点不在游戏窗口上（焦点 %s，游戏 %s）",
                    describe_focus(focus), hex(self._window.id))
@@ -194,12 +214,23 @@ class XTestInput:
             return None
 
     def _modifier_held(self, state, what):
-        """有修饰键按着（锁定键不算）就记一笔、返回真：这时发出去的键会拼成组合键。"""
-        lock_bits = X.LockMask
+        """有修饰键按着就记一笔、返回真：这时发出去的键会拼成组合键。
+
+        锁定键（Caps Lock、Num Lock）亮着时它那一组的位也是亮的，那不算；但只在组里别的键
+        都没有按着时才不算：和 Num Lock 同组的另一个键（比如选档位的键）正按着，照样算。
+        修饰键映射的第 i 组对应状态里的 1 << i 那一位。
+        """
+        held = 0
         for index, codes in enumerate(state["modifier_map"]):
-            if self._numlock and self._numlock in codes:
-                lock_bits |= 1 << index
-        held = state["mask"] & 0xFF & ~lock_bits
+            bit = 1 << index
+            if not state["mask"] & bit:
+                continue
+            members = [code for code in codes if code]
+            others_down = any(_is_down(state["keys_down"], code) for code in members
+                              if code not in self._lock_keys)
+            if any(code in self._lock_keys for code in members) and not others_down:
+                continue
+            held |= bit
         if held:
             self._skip(what, "嵌套 X 里有修饰键按着（状态 %#x），发出去会变成组合键", held)
         return bool(held)
@@ -261,10 +292,16 @@ class XTestInput:
     def _point_is_on_game(self, root, point, what):
         try:
             target = self._window_at(root, point.x, point.y)
+            inside = within_window(target, self._window.id, strict=True)
+        except xerror.XError:
+            # 半路有个窗口没了（BadWindow 这类）：这一下不发，记一笔
+            self._skip(what, "查指针下面的窗口时，有个窗口在半路没了")
+            return False
         except Exception:
             log.warning("查不出指针下面的窗口，%s 不发", what, exc_info=True)
+            self._ready = False
             return False
-        if within_window(target, self._window.id):
+        if inside:
             return True
         self._skip(what, "根窗口 (%d, %d) 处最上面的不是游戏窗口（是 %s，游戏 %s）",
                    point.x, point.y, describe_focus(target), hex(self._window.id))
@@ -332,6 +369,7 @@ class XTestInput:
             point = root.translate_coords(self._window, x, y)
         except Exception:
             log.warning("换算不出指针位置，%s 不发", what, exc_info=True)
+            self._ready = False
             return
         if not self._point_is_on_game(root, point, what):
             return
@@ -365,7 +403,7 @@ class XTestInput:
         what = "继续按着 " + "、".join(self.held)
         intact = self._focus_on_game(what)
         state = self._read_state(what) if intact else None
-        if state is None or self._modifier_held(state, what):
+        if state is None or self._modifier_held(state, what) or not self._held_still_mapped(state):
             intact = False
         elif self._live:
             lost = [name for code, name in self._held_keys.items()
@@ -379,6 +417,26 @@ class XTestInput:
         if not intact:
             self.release_all()
         return intact
+
+    def _held_still_mapped(self, state):
+        """按着的键码还是配置里的那个字、没成修饰键，按着的物理按钮还是中键。映射变了，连发
+        出去的就成了另一个键：返回假，并且不再算就绪。"""
+        modifiers = _codes(state["modifier_map"])
+        try:
+            changed = [name for code, name in self._held_keys.items()
+                       if code in modifiers
+                       or (self._d.get_keyboard_mapping(code, 1)[0] or (None,))[0]
+                       != self._keysyms[name]]
+        except Exception:
+            log.warning("读不到按着的键现在的映射", exc_info=True)
+            self._ready = False
+            return False
+        changed += [button for button, detail in self._held_buttons.items()
+                    if _physical(BUTTONS[button], state["pointer_map"]) != detail]
+        if changed:
+            log.warning("按着的 %s 映射变了，全部松开，不再发键", "、".join(changed))
+            self._ready = False
+        return not changed
 
     def release_all(self):
         """把按着的全部松开。停下、暂停、出错、退出时都调用，可以重复调用。"""
@@ -405,8 +463,13 @@ class XTestInput:
         except Exception:
             pointer_map = None
         for button, logical in BUTTONS.items():
-            detail = (self._held_buttons.get(button)
-                      or (_physical(logical, pointer_map) if pointer_map is not None else None)
-                      or self._fallback_buttons[button])
+            # 记着的就用按下时的那个物理按钮号。没记着的，只用现在的映射确认过的号：映射里要是
+            # 没有中键了，按构造时的号松开，松开的会是另一个逻辑按钮，可能是别人正按着的
+            detail = self._held_buttons.get(button)
+            if detail is None and pointer_map is not None:
+                detail = _physical(logical, pointer_map)
+            if detail is None:
+                log.warning("现在的指针映射里没有 %s 键，这个键不松", button)
+                continue
             if self._send(X.ButtonRelease, detail, f"松开鼠标 {button}"):
                 self._held_buttons.pop(button, None)

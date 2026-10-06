@@ -24,7 +24,8 @@ from xtest_input import BUTTONS, InputRefused, XTestInput
 KEYS = {"move": "w", "again": "3", "confirm": "a"}
 # 美式键盘上常见的映射：键码（evdev + 8）-> 各档的符号，第一档不按修饰键，第二档按 Shift
 KEYMAP = {25: ["w", "W"], 12: ["3", "numbersign"], 38: ["a", "A"], 21: ["equal", "plus"],
-          9: ["Escape"], 133: ["Super_L"], 50: ["Shift_L"], 37: ["Control_L"], 77: ["Num_Lock"]}
+          9: ["Escape"], 133: ["Super_L"], 50: ["Shift_L"], 37: ["Control_L"], 77: ["Num_Lock"],
+          66: ["Caps_Lock"], 92: ["ISO_Level3_Shift"]}
 # shift, lock, control, mod1 .. mod5，每组两个位置，0 是空位
 MODIFIERS = [[50, 62], [66, 0], [37, 105], [64, 108], [77, 0], [0, 0], [133, 134], [92, 0]]
 GAMESCOPE_PROPS = {"GAMESCOPE_FOCUSED_WINDOW": [0x400000], "GAMESCOPE_INPUT_COUNTER": [3174]}
@@ -461,6 +462,55 @@ class TestServerState:
         assert d.events == [] and not xi.is_ready()
 
 
+class TestConnectionTrouble:
+    """连接断了不能被当成一次普通的跳过：调用方得看到"不再就绪"，循环才会停。"""
+
+    def test_a_dead_connection_during_the_focus_walk_marks_it_unready(self):
+        d, w = nested()
+        d.focus = w.child
+
+        def gone():
+            raise ConnectionResetError("connection to the X server lost")
+        w.child.query_tree = gone
+        xi = live_input(d, w)
+        xi.key_press("w")
+        assert not xi.is_ready() and xi.skipped == 0
+
+    def test_a_focus_window_that_vanished_is_only_a_skip(self):
+        from Xlib import error as xerror
+        d, w = nested()
+        d.focus = w.overlay
+
+        def vanished():
+            # python-xlib 的错误对象要靠 display 解析应答；这里不走构造，只要它的类型
+            raise xerror.BadWindow.__new__(xerror.BadWindow)
+        w.overlay.query_tree = vanished
+        xi = live_input(d, w)
+        xi.key_press("w")
+        assert xi.is_ready() and xi.skipped == 1
+
+    def test_a_dead_connection_while_finding_the_window_under_the_point_marks_it_unready(self):
+        d, w = nested()
+
+        def gone(src_window, src_x, src_y):
+            raise ConnectionResetError("connection to the X server lost")
+        w.game.translate_coords = gone
+        xi = live_input(d, w)
+        xi.mouse_press(5, 5, "middle")
+        assert not xi.is_ready() and d.events == []
+
+
+    def test_a_dead_connection_while_translating_the_point_marks_it_unready(self):
+        d, w = nested()
+
+        def gone(src_window, src_x, src_y):
+            raise ConnectionResetError("connection to the X server lost")
+        w.root.translate_coords = gone
+        xi = live_input(d, w)
+        xi.mouse_press(5, 5, "middle")
+        assert not xi.is_ready() and d.events == []
+
+
 class TestHolding:
     """按住的键会自动连发，连发不再过按下时的那几道关：每一轮由 check_holds 再看一眼。"""
 
@@ -497,12 +547,33 @@ class TestHolding:
         assert xi.held == []
         assert (X.ButtonRelease, 2) in d.events or change == "button let go elsewhere"
 
+    @pytest.mark.parametrize("change", ["symbol", "modifier", "pointer"])
+    def test_a_mapping_that_changed_under_a_hold_lets_go(self, change):
+        """连发出去的是键码：映射变了，按着的就成了另一个键。"""
+        d, w, xi = self.held_w_and_middle()
+        if change == "symbol":
+            d.keymap[25] = ["z", "Z"]
+        elif change == "modifier":
+            d.modifiers[2] = [37, 25]
+        else:
+            d.pointer_map = (1, 3, 2)
+        assert not xi.check_holds()
+        assert xi.held == [] and not xi.is_ready()
+
     def test_the_dry_run_does_not_expect_keys_to_be_down(self):
         """空跑什么都没按下去，服务器上自然没有按着的键：那不算"被别处松开了"。"""
         d, w = nested()
         xi = XTestInput(d, w.game, KEYS)
         xi.key_press("w")
         assert xi.check_holds() and xi.held == ["w"]
+
+    def test_release_everything_skips_a_middle_button_the_mapping_no_longer_has(self):
+        """按构造时的号去松，松开的会是现在映射到那个号上的另一个按钮。"""
+        d, w = nested()
+        xi = live_input(d, w)
+        d.pointer_map = (1, 0, 3)
+        xi.release_everything()
+        assert not [e for e in d.events if e[0] == X.ButtonRelease]
 
     def test_release_everything_keeps_what_it_could_not_release(self):
         """松开没发出去，就还记着：之后的 release_all 还能再试。"""
@@ -539,6 +610,16 @@ class TestModifiersHeldElsewhere:
         xi = live_input(d, w)
         xi.key_tap("3")
         assert d.events == [(X.KeyPress, 12), (X.KeyRelease, 12)]
+
+    def test_a_key_down_in_num_lock_s_group_still_counts(self):
+        """Num Lock 亮着、和它同组的另一个键（这里是 92）也正按着：那一位就不只是锁定的亮。"""
+        d, w = nested()
+        d.modifiers[4] = [77, 92]
+        d.keys_down.add(92)
+        w.root.state = X.Mod2Mask
+        xi = live_input(d, w)
+        xi.key_tap("3")
+        assert d.events == [] and xi.skipped == 1
 
     def test_releases_go_out_even_with_a_modifier_down(self):
         d, w = nested()
