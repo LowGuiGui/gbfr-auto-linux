@@ -494,6 +494,60 @@ class TestTheSocket:
         srv.close()
         assert "收不了连接" not in log_file()
 
+    def test_close_never_meets_a_worker_that_has_not_started(self, path, monkeypatch):
+        """close() 正好落在"连接线程放进表里"和"线程起来"之间：表里不能有没起来的线程，不然
+        join 它会出错，锁也就放不掉了。这里让 close() 不等服务线程，直接去拿表。"""
+        srv, _ = serve(path)
+        srv._thread.join = lambda timeout=None: None
+        real_start = threading.Thread.start
+        errors = []
+        closed = threading.Event()
+
+        def close_now():
+            try:
+                srv.close()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                closed.set()
+
+        def close_in_the_gap(self):
+            if self.name == "gbfr-control-conn" and not closed.is_set():
+                threading.Thread(target=close_now, daemon=True).start()
+                closed.wait(0.5)
+            real_start(self)
+        monkeypatch.setattr(control.threading.Thread, "start", close_in_the_gap)
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            client.connect(str(path))
+            assert closed.wait(5)
+        finally:
+            monkeypatch.undo()
+            client.close()
+        assert errors == []
+        again, _ = serve(path)
+        again.close()
+
+    def test_a_socket_file_that_cannot_be_removed_does_not_stop_the_rest(self, path, monkeypatch,
+                                                                           log_file):
+        """删不掉套接字文件（目录不让写了）：监听、线程和锁照样收，后来者才起得来；没删掉的那个
+        文件，下一次启动会当成上次留下的删掉。"""
+        srv, _ = serve(path)
+        real_unlink = Path.unlink
+
+        def read_only(p, missing_ok=False):
+            if p == path:
+                raise PermissionError(errno.EACCES, "Permission denied", str(p))
+            return real_unlink(p, missing_ok=missing_ok)
+        monkeypatch.setattr(Path, "unlink", read_only)
+        srv.close()
+        monkeypatch.undo()
+        assert "删不掉控制套接字文件" in log_file()
+        assert os.path.lexists(path)
+        again, _ = serve(path)
+        again.close()
+        assert not os.path.lexists(path)
+
     def test_close_removes_the_socket_and_nobody_answers_after(self, path):
         srv, _ = serve(path)
         srv.close()

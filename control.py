@@ -261,19 +261,23 @@ class ControlServer:
             failing = False
             worker = threading.Thread(target=self._handle_safely, args=(conn,),
                                       name="gbfr-control-conn", daemon=True)
+            failure = None
             with self._workers_lock:
                 if self._closing.is_set():
                     conn.close()
                     break
+                # 在锁里放进表、起线程：close() 拿表的时候，表里的都已经起来了，join 不会撞上一个
+                # 还没起的（那会出错，锁也就放不掉）。起线程不用这把锁，连接线程收尾时才要
                 self._workers[worker] = conn
-            try:
-                worker.start()
-            except RuntimeError:
-                # 先收拾再记日志：没起来的线程留在表里，close() 去 join 它会出错
-                with self._workers_lock:
+                try:
+                    worker.start()
+                except RuntimeError as exc:
+                    # 先收拾再记日志
                     self._workers.pop(worker, None)
-                conn.close()
-                log.warning("起不了处理连接的线程，这个连接作废", exc_info=True)
+                    conn.close()
+                    failure = exc
+            if failure is not None:
+                log.warning("起不了处理连接的线程，这个连接作废", exc_info=failure)
 
     def _handle_safely(self, conn):
         try:
@@ -327,9 +331,11 @@ class ControlServer:
             except OSError:
                 pass
             # 文件是不是自己建的那一个，趁监听还占着它的 inode 时认：关掉以后，别人删了重建的
-            # 新文件可能马上拿到同一个 inode 号
-            self._unlink_own()
+            # 新文件可能马上拿到同一个 inode 号。删不掉也接着收尾，最后再记下来
+            unlink_error = self._unlink_own()
             self._sock.close()
+        else:
+            unlink_error = None
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2)
         # 已经连上的也断开、等它们收完：close() 返回以后，不能再有命令拨动开关
@@ -348,15 +354,22 @@ class ControlServer:
         for worker, _ in workers:
             worker.join()
         self._drop_lock()
+        if unlink_error is not None:
+            log.warning("删不掉控制套接字文件 %s：%s。下一次启动会把它当成上次留下的，再删一次",
+                        self._path, unlink_error)
 
     def _unlink_own(self):
-        """只删自己建的那一个：期间要是被换掉了（另一个循环删了重建），留给它。"""
+        """只删自己建的那一个：期间要是被换掉了（另一个循环删了重建），留给它。删不掉（目录不让
+        写了、文件系统成了只读）就把那个错返回去，监听、线程和锁照样收。"""
         try:
             st = self._path.lstat()
             if self._identity is not None and (st.st_dev, st.st_ino) == self._identity:
                 self._path.unlink()
         except FileNotFoundError:
             pass
+        except OSError as exc:
+            return exc
+        return None
 
 
 def send(command, path, timeout=3):
