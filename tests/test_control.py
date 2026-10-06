@@ -1,0 +1,599 @@
+# -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+"""control.py：停下、暂停的开关，和那条本地套接字。
+
+套接字是真建的（在 tmp_path 里），客户端也是真连的，所以协议、文件权限、对端 uid 和
+"同一时间只跑一个"这几条，是对着内核测的，不是对着替身。
+"""
+
+import errno
+import fcntl
+import json
+import os
+import socket
+import stat
+import threading
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+import control
+
+
+@pytest.fixture
+def path(tmp_path):
+    return tmp_path / "c.sock"
+
+
+def serve(path, status=None):
+    controls = control.Controls()
+    return control.ControlServer(controls, path, status=status).start(), controls
+
+
+def _quietly(action, *args):
+    try:
+        action(*args)
+    except (OSError, ValueError):
+        pass
+
+
+def elapsed(action):
+    start = time.monotonic()
+    action()
+    return time.monotonic() - start
+
+
+class Listener:
+    """包着服务的监听套接字，别的都转给它。accept 可以先抛几个错（accept_errors，抛完最后一个时
+    errors_raised 亮起），close() 之后可以再做一件事（after_close）。socket.socket 有
+    __slots__，没法直接在实例上换掉方法。"""
+
+    def __init__(self, sock, after_close=None, accept_errors=()):
+        self._sock = sock
+        self._after_close = after_close
+        self._accept_errors = list(accept_errors)
+        self.errors_raised = threading.Event()
+
+    def __getattr__(self, name):
+        return getattr(self._sock, name)
+
+    def accept(self):
+        if self._accept_errors:
+            error = self._accept_errors.pop(0)
+            if not self._accept_errors:
+                self.errors_raised.set()
+            raise error
+        return self._sock.accept()
+
+    def close(self):
+        self._sock.close()
+        if self._after_close is not None:
+            self._after_close()
+
+
+class TestControls:
+    def test_a_stop_ends_a_wait_at_once(self):
+        c = control.Controls()
+        threading.Timer(0.05, c.request_stop, args=("test",)).start()
+        assert elapsed(lambda: c.wait(5)) < 1 and c.stop_requested
+
+    def test_a_stop_that_came_before_the_wait_is_not_slept_through(self):
+        """哪怕循环已经看到了停止还去等（看过以后版本就不算"变了"），也立刻返回。"""
+        c = control.Controls()
+        c.request_stop("test")
+        assert c.stop_requested
+        assert elapsed(lambda: c.wait(5)) < 0.5
+
+    def test_a_pause_wakes_a_wait_too(self):
+        c = control.Controls()
+        threading.Timer(0.05, c.pause, args=("test",)).start()
+        assert elapsed(lambda: c.wait(5)) < 1 and c.paused and c.pause_reason == "test"
+
+    def test_without_a_change_the_wait_takes_its_time(self):
+        c = control.Controls()
+        assert elapsed(lambda: c.wait(0.2)) >= 0.19
+
+    def test_a_pause_between_the_loop_s_look_and_its_wait_is_not_slept_through(self):
+        """循环看过 paused（还是 False）之后、开始等之前来了暂停：wait 不能再睡满一轮。"""
+        c = control.Controls()
+        assert not c.paused
+        c.pause("test")
+        assert elapsed(lambda: c.wait(5)) < 0.5
+
+    def test_a_status_read_does_not_hide_a_change_from_the_loop(self):
+        c = control.Controls()
+        assert not c.paused
+        c.pause("test")
+        assert c.state() == (True, "test")
+        assert elapsed(lambda: c.wait(5)) < 0.5
+
+    def test_reading_the_other_switch_does_not_count_as_seeing_a_pause(self):
+        """读过 paused（False），来了暂停，再读 stop_requested：暂停还是没看到，wait 得醒。"""
+        c = control.Controls()
+        assert not c.paused
+        c.pause("test")
+        assert not c.stop_requested
+        assert elapsed(lambda: c.wait(5)) < 0.5
+
+    def test_once_the_loop_has_seen_the_state_it_waits_again(self):
+        c = control.Controls()
+        c.pause("test")
+        assert c.paused
+        assert elapsed(lambda: c.wait(0.2)) >= 0.19
+
+    @pytest.mark.parametrize("switch", ["stop", "pause", "resume"])
+    def test_a_stuck_log_handler_does_not_delay_the_wake_up(self, switch, monkeypatch):
+        """写日志的 handler 卡住（或者出错）：等着的循环也得先被叫醒。"""
+        c = control.Controls()
+        if switch == "resume":
+            # 接着跑只有在循环看到过暂停以后才算变化
+            c.pause("setup")
+            assert c.paused
+        woke = threading.Event()
+
+        def waiter():
+            c.wait(5)
+            woke.set()
+        threading.Thread(target=waiter, daemon=True).start()
+        time.sleep(0.05)
+        release = threading.Event()
+
+        def stuck(*args, **kwargs):
+            release.wait(5)
+        monkeypatch.setattr(control.log, "info", stuck)
+        action = {"stop": lambda: c.request_stop("test"), "pause": lambda: c.pause("test"),
+                  "resume": c.resume}[switch]
+        threading.Thread(target=action, daemon=True).start()
+        try:
+            assert woke.wait(1), "the waiting loop was not woken while the log was stuck"
+        finally:
+            release.set()
+
+    def test_resume_clears_the_pause(self):
+        c = control.Controls()
+        c.pause("test")
+        c.resume()
+        assert not c.paused and c.pause_reason is None and not c.stop_requested
+
+
+class TestTheSocket:
+    def test_commands_reach_the_controls(self, path):
+        srv, c = serve(path)
+        try:
+            assert control.send("pause", path) == {"ok": True} and c.paused
+            assert control.send("resume", path) == {"ok": True} and not c.paused
+            assert control.send("stop", path) == {"ok": True} and c.stop_requested
+        finally:
+            srv.close()
+
+    def test_status_carries_the_loop_s_state(self, path):
+        srv, _ = serve(path, status=lambda: {"page": "battle", "battles": 2})
+        try:
+            reply = control.send("status", path)
+        finally:
+            srv.close()
+        assert reply == {"ok": True, "paused": False, "pause_reason": None, "page": "battle",
+                         "battles": 2}
+
+    def test_an_unknown_line_is_answered_with_a_refusal(self, path):
+        srv, c = serve(path)
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(3)
+                s.connect(str(path))
+                s.sendall(b"rm -rf\n")
+                data = s.recv(4096)
+        finally:
+            srv.close()
+        assert json.loads(data)["ok"] is False and not c.stop_requested
+
+    def test_the_client_refuses_unknown_commands_itself(self, path):
+        with pytest.raises(ValueError, match="unknown command"):
+            control.send("shutdown", path)
+
+    def test_the_socket_file_is_for_this_user_only(self, path):
+        srv, _ = serve(path)
+        try:
+            st = path.lstat()
+            assert stat.S_ISSOCK(st.st_mode) and stat.S_IMODE(st.st_mode) == 0o600
+        finally:
+            srv.close()
+
+    @pytest.mark.parametrize("mode", [0o755, 0o750, 0o711])
+    def test_a_directory_others_can_enter_is_refused(self, tmp_path, mode):
+        """bind 建出文件到 chmod 之间，挡住别人的是目录；目录挡不住，就不起来。"""
+        shared = tmp_path / "shared"
+        shared.mkdir()
+        shared.chmod(mode)
+        with pytest.raises(RuntimeError, match=f"{mode:o}"):
+            serve(shared / "c.sock")
+        assert not os.path.lexists(shared / "c.sock")
+
+    def test_the_umask_is_left_alone(self, path, monkeypatch):
+        """umask 是整个进程共用的，别的线程这时候建的文件也会被它管。"""
+        monkeypatch.setattr(control.os, "umask", lambda *a: pytest.fail("umask changed"))
+        srv, _ = serve(path)
+        srv.close()
+
+    def test_a_uid_above_two_to_the_31_is_read_as_itself(self):
+        """struct ucred 里 uid 是无符号的：按有符号读，大 uid 会变成负数。"""
+        import struct
+        big = 2 ** 31 + 5
+        conn = SimpleNamespace(getsockopt=lambda level, option, size: struct.pack("=iII", 4242,
+                                                                               big, big))
+        assert control._peer_uid(conn) == big
+
+    def test_another_user_gets_no_answer(self, path, monkeypatch):
+        """测试里换不了 uid，所以反过来：让服务端以为自己是另一个 uid。"""
+        srv, c = serve(path)
+        real = os.getuid()
+        monkeypatch.setattr(control.os, "getuid", lambda: real + 1)
+        try:
+            with pytest.raises(ConnectionError):
+                control.send("stop", path)
+        finally:
+            monkeypatch.undo()
+            srv.close()
+        assert not c.stop_requested
+
+    def test_a_second_loop_cannot_start(self, path):
+        srv, _ = serve(path)
+        try:
+            with pytest.raises(control.AlreadyRunning):
+                serve(path)
+        finally:
+            srv.close()
+
+    def test_a_loop_holding_the_lock_keeps_others_away_from_the_socket(self, path):
+        """两个同时启动、又都看到同一个旧套接字时，只有拿到锁的那个去动它。"""
+        leftover = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        leftover.bind(str(path))
+        leftover.close()
+        inode = path.lstat().st_ino
+        holder = os.open(path.with_suffix(".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        try:
+            with pytest.raises(control.AlreadyRunning, match="锁"):
+                serve(path)
+            assert path.lstat().st_ino == inode
+        finally:
+            os.close(holder)
+
+    def test_the_lock_is_let_go_on_close(self, path):
+        first, _ = serve(path)
+        first.close()
+        second, _ = serve(path)
+        second.close()
+
+    def test_a_symlinked_lock_file_is_refused(self, path, tmp_path):
+        target = tmp_path / "elsewhere"
+        target.write_text("keep me")
+        path.with_suffix(".lock").symlink_to(target)
+        with pytest.raises(OSError):
+            serve(path)
+        assert target.read_text() == "keep me" and not os.path.lexists(path)
+
+    def test_a_listener_without_the_lock_is_not_replaced(self, path):
+        """拿到了锁，可套接字上有人在听（不用这把锁的老版本，或者别的程序）：不顶掉它。"""
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(str(path))
+        listener.listen(1)
+        inode = path.lstat().st_ino
+        try:
+            with pytest.raises(control.AlreadyRunning, match="有人在听"):
+                serve(path)
+            assert path.lstat().st_ino == inode
+        finally:
+            listener.close()
+
+    def test_a_socket_left_over_from_a_crash_is_replaced(self, path):
+        leftover = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        leftover.bind(str(path))
+        leftover.close()
+        assert os.path.lexists(path)
+        srv, _ = serve(path)
+        try:
+            assert control.send("status", path)["ok"]
+        finally:
+            srv.close()
+
+    def test_a_file_in_its_place_is_left_alone(self, path):
+        path.write_text("keep me")
+        with pytest.raises(RuntimeError, match="别的东西"):
+            serve(path)
+        assert path.read_text() == "keep me"
+
+    def test_a_symlink_in_its_place_is_left_alone(self, path, tmp_path):
+        target = tmp_path / "target"
+        target.write_text("keep me")
+        path.symlink_to(target)
+        with pytest.raises(RuntimeError, match="别的东西"):
+            serve(path)
+        assert path.is_symlink() and target.read_text() == "keep me"
+
+    def test_a_silent_client_does_not_hold_up_a_stop(self, path):
+        """连上了却一个字不发（挂起了、崩了）：后面的 stop 照样一秒内送到。"""
+        srv, c = serve(path)
+        silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        silent.connect(str(path))
+        try:
+            time.sleep(0.05)
+            assert elapsed(lambda: control.send("stop", path)) < 0.5
+            assert c.stop_requested
+        finally:
+            silent.close()
+            srv.close()
+
+    def test_a_failing_status_does_not_take_the_server_down(self, path):
+        def broken():
+            raise RuntimeError("no state yet")
+        srv, c = serve(path, status=broken)
+        try:
+            reply = control.send("status", path)
+            assert reply["ok"] and "no state yet" in reply["status_error"]
+            assert control.send("stop", path) == {"ok": True} and c.stop_requested
+        finally:
+            srv.close()
+
+    def test_the_status_callback_cannot_overwrite_the_reply_s_own_fields(self, path):
+        srv, c = serve(path, status=lambda: {"ok": False, "paused": False,
+                                             "pause_reason": "made up", "page": "battle"})
+        c.pause("real")
+        try:
+            reply = control.send("status", path)
+        finally:
+            srv.close()
+        assert reply == {"ok": True, "paused": True, "pause_reason": "real", "page": "battle"}
+
+    def test_a_status_that_json_cannot_hold_is_still_answered(self, path):
+        srv, _ = serve(path, status=lambda: {"held": {"w"}})
+        try:
+            assert control.send("status", path)["held"] == "{'w'}"
+        finally:
+            srv.close()
+
+    def test_a_connection_open_at_close_cannot_send_a_command_after_it(self, path):
+        """close() 返回以后，已经连上的那个也不能再拨开关：应用这时候正在收尾。"""
+        srv, c = serve(path)
+        late = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        late.connect(str(path))
+        time.sleep(0.05)
+        srv.close()
+        assert not [t for t in threading.enumerate() if t.name == "gbfr-control-conn"]
+        try:
+            late.sendall(b"stop\n")
+        except OSError:
+            pass
+        finally:
+            late.close()
+        time.sleep(0.05)
+        assert not c.stop_requested
+
+    def test_close_waits_for_a_slow_status_callback_to_finish(self, path, monkeypatch):
+        """status 回调比连接超时还慢：close() 也得等它返回，之后不能再有应用的代码在跑。"""
+        monkeypatch.setattr(control, "CONNECTION_TIMEOUT", 0.1)
+        entered, finished = threading.Event(), threading.Event()
+
+        def slow_status():
+            entered.set()
+            time.sleep(1.5)
+            finished.set()
+            return {}
+        srv, _ = serve(path, status=slow_status)
+        client = threading.Thread(target=lambda: _quietly(control.send, "status", path))
+        client.start()
+        try:
+            assert entered.wait(2)
+        finally:
+            srv.close()
+        assert finished.is_set()
+        assert not [t for t in threading.enumerate() if t.name == "gbfr-control-conn"]
+        client.join(5)
+
+    def test_a_command_read_while_closing_is_not_carried_out(self, path, monkeypatch):
+        """连接线程刚读到命令，close() 就开始了：这条命令不再办。"""
+        srv, c = serve(path)
+        reading = threading.Event()
+
+        def read_as_close_begins(conn):
+            reading.set()
+            srv._closing.wait(2)
+            return "stop"
+        monkeypatch.setattr(control, "_read_line", read_as_close_begins)
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.connect(str(path))
+        try:
+            assert reading.wait(2)
+            srv.close()
+        finally:
+            client.close()
+        assert not c.stop_requested
+
+    def test_a_thread_that_cannot_start_leaves_nothing_behind(self, path, monkeypatch):
+        """起监听线程失败（线程数到了上限）：不能留下一个没人服务、却挡着后来者的空壳。"""
+        def no_threads(self):
+            raise RuntimeError("can't start new thread")
+        monkeypatch.setattr(control.threading.Thread, "start", no_threads)
+        with pytest.raises(RuntimeError, match="new thread"):
+            serve(path)
+        monkeypatch.undo()
+        assert not os.path.lexists(path)
+        srv, _ = serve(path)
+        srv.close()
+
+    def test_a_startup_log_that_fails_still_leaves_nothing_behind(self, path, monkeypatch):
+        """起好了才记"控制套接字在……"：这一句要是出错（比如装了一个会抛异常的日志过滤器），
+        监听、文件和锁也得收回，后来者才起得来。"""
+        real_info = control.log.info
+
+        def failing(msg, *args, **kwargs):
+            if msg.startswith("控制套接字在"):
+                raise RuntimeError("log filter failed")
+            real_info(msg, *args, **kwargs)
+        monkeypatch.setattr(control.log, "info", failing)
+        with pytest.raises(RuntimeError, match="log filter"):
+            serve(path)
+        monkeypatch.undo()
+        assert not os.path.lexists(path)
+        srv, _ = serve(path)
+        srv.close()
+
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+    def test_a_worker_that_cannot_start_leaves_the_server_closable(self, path, monkeypatch):
+        """起连接线程失败，记这件事的日志也出错，服务线程就此退出：线程表里不能留下那个没起来
+        的线程，不然 close() 去 join 它会出错，锁也就放不掉了。"""
+        srv, _ = serve(path)
+        real_start = threading.Thread.start
+        real_warning = control.log.warning
+
+        def no_worker(self):
+            if self.name == "gbfr-control-conn":
+                raise RuntimeError("can't start new thread")
+            real_start(self)
+
+        def failing(msg, *args, **kwargs):
+            if msg.startswith("起不了处理连接的线程"):
+                raise RuntimeError("log filter failed")
+            real_warning(msg, *args, **kwargs)
+        monkeypatch.setattr(control.threading.Thread, "start", no_worker)
+        monkeypatch.setattr(control.log, "warning", failing)
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            client.connect(str(path))
+            srv._thread.join(2)
+            assert not srv._thread.is_alive()
+            monkeypatch.undo()
+            srv.close()
+        finally:
+            client.close()
+        assert not os.path.lexists(path)
+        again, _ = serve(path)
+        again.close()
+
+    def test_a_passing_accept_error_does_not_end_the_service(self, path, log_file):
+        """accept 一时失败（这里是文件描述符用完了）：服务线程不能就此退出，不然套接字和锁都
+        还占着，却再也没人应答 stop。同一串错只记一次日志。"""
+        srv, controls = serve(path)
+        errors = [OSError(errno.EMFILE, "Too many open files") for _ in range(3)]
+        srv._sock = Listener(srv._sock, accept_errors=errors)
+        try:
+            assert srv._sock.errors_raised.wait(3)
+            assert control.send("stop", path, timeout=2)["ok"]
+            assert controls.stop_requested
+        finally:
+            srv.close()
+        assert log_file().count("收不了连接") == 1
+
+    def test_closing_is_not_mistaken_for_an_accept_error(self, path, log_file):
+        """close() 关掉监听时 accept 也会出错：那是收尾，不该记成出错、再等一会儿重试。"""
+        srv, _ = serve(path)
+        srv.close()
+        assert "收不了连接" not in log_file()
+
+    def test_close_never_meets_a_worker_that_has_not_started(self, path, monkeypatch):
+        """close() 正好落在"连接线程放进表里"和"线程起来"之间：表里不能有没起来的线程，不然
+        join 它会出错，锁也就放不掉了。这里让 close() 不等服务线程，直接去拿表。"""
+        srv, _ = serve(path)
+        srv._thread.join = lambda timeout=None: None
+        real_start = threading.Thread.start
+        errors = []
+        closed = threading.Event()
+
+        def close_now():
+            try:
+                srv.close()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                closed.set()
+
+        def close_in_the_gap(self):
+            if self.name == "gbfr-control-conn" and not closed.is_set():
+                threading.Thread(target=close_now, daemon=True).start()
+                closed.wait(0.5)
+            real_start(self)
+        monkeypatch.setattr(control.threading.Thread, "start", close_in_the_gap)
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            client.connect(str(path))
+            assert closed.wait(5)
+        finally:
+            monkeypatch.undo()
+            client.close()
+        assert errors == []
+        again, _ = serve(path)
+        again.close()
+
+    def test_a_socket_file_that_cannot_be_removed_does_not_stop_the_rest(self, path, monkeypatch,
+                                                                           log_file):
+        """删不掉套接字文件（目录不让写了）：监听、线程和锁照样收，后来者才起得来；没删掉的那个
+        文件，下一次启动会当成上次留下的删掉。"""
+        srv, _ = serve(path)
+        real_unlink = Path.unlink
+
+        def read_only(p, missing_ok=False):
+            if p == path:
+                raise PermissionError(errno.EACCES, "Permission denied", str(p))
+            return real_unlink(p, missing_ok=missing_ok)
+        monkeypatch.setattr(Path, "unlink", read_only)
+        srv.close()
+        monkeypatch.undo()
+        assert "删不掉控制套接字文件" in log_file()
+        assert os.path.lexists(path)
+        again, _ = serve(path)
+        again.close()
+        assert not os.path.lexists(path)
+
+    def test_close_removes_the_socket_and_nobody_answers_after(self, path):
+        srv, _ = serve(path)
+        srv.close()
+        assert not os.path.lexists(path)
+        with pytest.raises(FileNotFoundError):
+            control.send("status", path)
+
+    def test_close_leaves_a_replacement_alone(self, path):
+        """期间别的循环删了这个文件、建了自己的：收尾时不能把它的删掉。"""
+        srv, _ = serve(path)
+        path.unlink()
+        other = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        other.bind(str(path))
+        try:
+            srv.close()
+            assert os.path.lexists(path)
+        finally:
+            other.close()
+
+    def test_close_cannot_take_a_replacement_with_a_recycled_inode_for_its_own(self, path,
+                                                                                monkeypatch):
+        """别人在监听关掉之后才删了文件、建了自己的，而新文件拿到了刚空出来的 inode 号：文件
+        是不是自己的，得在监听还占着 inode 时认，不然会把别人的删掉。"""
+        srv, _ = serve(path)
+        mine = path.lstat()
+        others = []
+
+        def replaced_with_the_same_inode():
+            path.unlink(missing_ok=True)
+            other = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            other.bind(str(path))
+            others.append(other)
+            real_lstat = Path.lstat
+            monkeypatch.setattr(Path, "lstat",
+                                lambda p: mine if p == path else real_lstat(p))
+
+        srv._sock = Listener(srv._sock, after_close=replaced_with_the_same_inode)
+        try:
+            srv.close()
+            assert others and os.path.lexists(path)
+        finally:
+            for other in others:
+                other.close()
+
+    def test_the_path_lives_in_the_runtime_dir(self, monkeypatch):
+        assert control.socket_path("/run/user/1000") == Path("/run/user/1000/gbfr-auto-linux.sock")
+        monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+        with pytest.raises(RuntimeError, match="XDG_RUNTIME_DIR"):
+            control.socket_path()

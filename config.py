@@ -30,9 +30,15 @@ DEFAULTS = {
     "loop": {
         "poll_interval_ms": 3000,
         "max_blind_taps": 5,
+        # 同一页最多待多久（秒），超过就停下：宁可停下，也不对着卡住的画面一直按。战斗页
+        # 单独一个上限，因为一场仗本来就长。
+        "max_battle_s": 900,
+        "max_page_s": 120,
     },
     "detect": {
         "threshold": 0.8,
+        # 模板的缩放倍数。模板截图时的分辨率和现在游戏的不一样时调它；1.0 是原样。
+        "template_scale": 1.0,
         # 每帧把每个模板的最高分记进日志。调阈值和缩放范围时必开；这是把
         # "它不工作"变成一份数据的唯一办法。
         "log_scores": False,
@@ -85,9 +91,12 @@ DEFAULT_TOML = """\
 [loop]
 poll_interval_ms = 3000     # 每隔多久截一次图并判断页面
 max_blind_taps   = 5        # 连续认不出页面时，最多盲按几次就停手并告警
+max_battle_s     = 900      # 战斗页最多待多少秒，超过就停下
+max_page_s       = 120      # 别的页面最多待多少秒，超过就停下
 
 [detect]
-threshold           = 0.8   # 模板匹配得分阈值，0-1
+threshold           = 0.8   # 模板匹配得分阈值，大于 0、最多是 1
+template_scale      = 1.0   # 模板缩放倍数，写小数；模板和游戏分辨率不一致时调它
 log_scores          = false # 每帧记录每个模板的最高分（调参时打开）
 save_anomaly_frames = false # 认不出页面时把截图存下来，用于事后修模板
 anomaly_dir         = "anomalies"
