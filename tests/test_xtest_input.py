@@ -84,11 +84,13 @@ class NestedX:
         self.root = root
         self.focus = focus
         self.xtest = xtest
-        self.keymap = keymap
-        self.modifiers = modifiers
+        self.keymap = dict(keymap)
+        self.modifiers = [list(codes) for codes in modifiers]
         self.pointer_map = pointer_map
         self.events = []
         self.fail = False
+        self.keys_down = set()      # 像服务器那样记着哪些键按着：fake 的按下、松开会改它
+        self.on_motion = None       # 指针移过去以后要发生的事（比如叫出一个弹窗）
 
     def screen(self):
         return SimpleNamespace(root=self.root)
@@ -116,6 +118,18 @@ class NestedX:
         names = self.keymap.get(keycode, [])
         return XK.string_to_keysym(names[index]) if index < len(names) else X.NoSymbol
 
+    def get_keyboard_mapping(self, first_keycode, count):
+        """照 python-xlib：从 first_keycode 起 count 个键，每个键一组各档的符号。"""
+        return [tuple(XK.string_to_keysym(name) for name in self.keymap.get(code, []))
+                for code in range(first_keycode, first_keycode + count)]
+
+    def query_keymap(self):
+        """照 python-xlib：32 个整数，第 N 个是键码 8N 到 8N+7，低位在前。"""
+        bits = [0] * 32
+        for code in self.keys_down:
+            bits[code // 8] |= 1 << (code % 8)
+        return bits
+
     def get_input_focus(self):
         return SimpleNamespace(focus=self.focus, revert_to=X.RevertToParent)
 
@@ -124,6 +138,17 @@ class NestedX:
             raise ConnectionResetError("connection to the X server lost")
         self.events.append((event_type, detail) if event_type != X.MotionNotify
                            else (event_type, detail, x, y))
+        if event_type == X.KeyPress:
+            self.keys_down.add(detail)
+        elif event_type == X.KeyRelease:
+            self.keys_down.discard(detail)
+        elif event_type in (X.ButtonPress, X.ButtonRelease):
+            # 物理按钮经指针映射成逻辑按钮，状态里记的是逻辑的那一位
+            bit = X.Button1Mask << (self.pointer_map[detail - 1] - 1)
+            self.root.state = (self.root.state | bit if event_type == X.ButtonPress
+                               else self.root.state & ~bit)
+        elif event_type == X.MotionNotify and self.on_motion:
+            self.on_motion()
 
     def sync(self):
         pass
@@ -238,12 +263,15 @@ class TestSending:
         assert d.events == [(X.KeyPress, 12), (X.KeyRelease, 12)]
         assert waits == [0.05]
 
-    def test_tapping_a_held_key_does_not_let_go_of_it(self):
+    @pytest.mark.parametrize("live", [True, False])
+    def test_tapping_a_held_key_does_not_let_go_of_it(self, live):
+        """空跑时服务器上什么都没按下去，"别处按着"那一关拦不住；得靠"自己正按着"这一条。"""
         d, w = nested()
-        xi = live_input(d, w, keys={"move": "w", "again": "w", "confirm": "a"})
+        xi = XTestInput(d, w.game, {"move": "w", "again": "w", "confirm": "a"}, live=live,
+                        sleep=lambda s: None)
         xi.key_press("w")
         xi.key_tap("w")
-        assert d.events == [(X.KeyPress, 25)] and xi.held == ["w"]
+        assert d.events == ([(X.KeyPress, 25)] if live else []) and xi.held == ["w"]
 
     def test_the_middle_button_goes_to_the_window_s_point_on_the_root(self):
         """坐标相对游戏窗口；XTest 的指针移动要根窗口坐标，由 TranslateCoords 换算。"""
@@ -364,6 +392,131 @@ class TestFocus:
         assert xi.held == []
 
 
+class TestPointerTarget:
+    def test_a_window_that_pops_up_under_the_pointer_gets_no_click(self):
+        """指针移过去刚好叫出一个不抢焦点的弹窗：按钮事件会落到它上面，所以移完再看一次。"""
+        d, w = nested()
+
+        def popup():
+            w.overlay.rect = (0, 0, 50, 50)
+        d.on_motion = popup
+        xi = live_input(d, w)
+        xi.mouse_press(5, 5, "middle")
+        assert d.events == [(X.MotionNotify, 0, 5, 5)]
+        assert xi.held == [] and xi.skipped == 1
+
+
+class TestServerState:
+    def test_a_failed_state_read_marks_the_input_unready(self):
+        d, w = nested()
+
+        def gone():
+            raise ConnectionResetError("connection to the X server lost")
+        w.root.query_pointer = gone
+        xi = live_input(d, w)
+        xi.key_press("w")
+        assert not xi.is_ready() and d.events == []
+
+    def test_a_key_someone_else_holds_is_neither_pressed_nor_released(self):
+        """人正按着 W：这边按下是空操作，之后松开却会把人的那一下也松掉。"""
+        d, w = nested()
+        d.keys_down.add(25)
+        xi = live_input(d, w)
+        xi.key_press("w")
+        xi.key_tap("w")
+        xi.release_all()
+        assert d.events == [] and xi.skipped == 2
+
+    def test_a_middle_button_someone_else_holds_is_not_pressed(self):
+        d, w = nested()
+        w.root.state = X.Button2Mask
+        xi = live_input(d, w)
+        xi.mouse_press(5, 5, "middle")
+        assert d.events == [] and xi.skipped == 1
+
+    @pytest.mark.parametrize("change", ["other symbol", "now a modifier"])
+    def test_a_key_whose_mapping_changed_is_not_sent(self, change):
+        d, w = nested()
+        xi = live_input(d, w)
+        if change == "other symbol":
+            d.keymap[25] = ["z", "Z"]
+        else:
+            d.modifiers[2] = [37, 25]
+        xi.key_press("w")
+        assert d.events == [] and not xi.is_ready()
+
+    def test_the_middle_button_follows_a_new_pointer_mapping(self):
+        d, w = nested()
+        xi = live_input(d, w)
+        d.pointer_map = (1, 3, 2)
+        xi.mouse_press(5, 5, "middle")
+        xi.mouse_release(5, 5, "middle")
+        assert d.events[1:] == [(X.ButtonPress, 3), (X.ButtonRelease, 3)]
+
+    def test_a_pointer_mapping_that_lost_the_middle_button_stops_presses(self):
+        d, w = nested()
+        xi = live_input(d, w)
+        d.pointer_map = (1, 0, 3)
+        xi.mouse_press(5, 5, "middle")
+        assert d.events == [] and not xi.is_ready()
+
+
+class TestHolding:
+    """按住的键会自动连发，连发不再过按下时的那几道关：每一轮由 check_holds 再看一眼。"""
+
+    def held_w_and_middle(self):
+        d, w = nested()
+        xi = live_input(d, w)
+        xi.key_press("w")
+        xi.mouse_press(5, 5, "middle")
+        d.events.clear()
+        return d, w, xi
+
+    def test_nothing_held_needs_no_look(self):
+        d, w = nested()
+        assert live_input(d, w).check_holds()
+
+    def test_a_hold_whose_guards_still_stand_stays(self):
+        d, w, xi = self.held_w_and_middle()
+        assert xi.check_holds()
+        assert d.events == [] and xi.held == ["w", "middle"]
+
+    @pytest.mark.parametrize("change", ["focus moved", "modifier pressed",
+                                        "key let go elsewhere", "button let go elsewhere"])
+    def test_a_hold_whose_guards_fell_is_let_go(self, change):
+        d, w, xi = self.held_w_and_middle()
+        if change == "focus moved":
+            d.focus = w.overlay
+        elif change == "modifier pressed":
+            w.root.state |= X.ControlMask
+        elif change == "key let go elsewhere":
+            d.keys_down.discard(25)
+        else:
+            w.root.state &= ~X.Button2Mask
+        assert not xi.check_holds()
+        assert xi.held == []
+        assert (X.ButtonRelease, 2) in d.events or change == "button let go elsewhere"
+
+    def test_the_dry_run_does_not_expect_keys_to_be_down(self):
+        """空跑什么都没按下去，服务器上自然没有按着的键：那不算"被别处松开了"。"""
+        d, w = nested()
+        xi = XTestInput(d, w.game, KEYS)
+        xi.key_press("w")
+        assert xi.check_holds() and xi.held == ["w"]
+
+    def test_release_everything_keeps_what_it_could_not_release(self):
+        """松开没发出去，就还记着：之后的 release_all 还能再试。"""
+        d, w = nested()
+        xi = live_input(d, w)
+        xi.key_press("w")
+        d.fail = True
+        xi.release_everything()
+        assert xi.held == ["w"]
+        d.fail = False
+        xi.release_all()
+        assert (X.KeyRelease, 25) in d.events and xi.held == []
+
+
 class TestModifiersHeldElsewhere:
     @pytest.mark.parametrize("state", [X.ShiftMask, X.ControlMask, X.Mod1Mask, X.Mod4Mask,
                                        X.Mod5Mask, X.ShiftMask | X.LockMask])
@@ -454,8 +607,8 @@ class TestTheDoubleFollowsPythonXlib:
         params = list(inspect.signature(xtest.fake_input).parameters)
         assert params == ["self", "event_type", "detail", "time", "root", "x", "y"]
         for method in ("keysym_to_keycode", "keycode_to_keysym", "get_modifier_mapping",
-                       "get_pointer_mapping", "get_input_focus", "has_extension", "sync",
-                       "screen", "get_atom_name"):
+                       "get_pointer_mapping", "get_keyboard_mapping", "query_keymap",
+                       "get_input_focus", "has_extension", "sync", "screen", "get_atom_name"):
             assert hasattr(xdisplay.Display, method), method
 
     def test_query_pointer_replies_with_a_mask(self):
