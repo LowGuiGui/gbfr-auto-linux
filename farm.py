@@ -32,8 +32,9 @@ KmbBackend、命令行里拼出来的观测函数、control.py 的套接字。�
      连着 loop.max_blind_taps 次，之后只记不按。
   6. 宁可停下也不瞎猜。同一页待得太久（战斗页超过 loop.max_battle_s 秒，别的页超过
      loop.max_page_s 秒）就停下；暂停的时间不算，接着跑时重新计时。输入那一层连着三次没
-     按下去（焦点、指针或修饰键不对），就暂停，等人接回来；接着跑以后从头数。动作发出去之前
-     再看一眼停止和暂停：截图和匹配要花一两秒，这期间来的命令不该再放过一个按键。
+     按下去（焦点、指针或修饰键不对），就暂停，等人接回来；接着跑以后从头数。认出页面以后、
+     看时间限制和动作之前，再看一眼停止和暂停：截图和匹配要花一两秒，这期间来的命令不该再
+     放过一个按键，也不该被"这一页待得太久"抢先变成停下。
 
 不管从哪条路出去（停止命令、到数、限制、出错），都先把按着的全部松开。空跑由输入那一层
 管（XTestInput 的 live），这里照常做每一个决定、记每一行日志。
@@ -223,18 +224,19 @@ class Farm:
             if self._repeats is not None and self.battles >= self._repeats:
                 return f"完成了 {self.battles} 次，到数了"
 
-        limit = self._cfg.get("loop.max_battle_s" if page == PAGE_NAME.BATTLE
-                              else "loop.max_page_s")
-        stayed = now - self._page_since
-        if stayed > limit:
-            return f"在 {page} 页上待了 {stayed:.0f} 秒，超过了 {limit} 秒"
-
-        # 截图和匹配要花时间，这期间来了停止或暂停，就不再按这一下
+        # 截图和匹配要花时间，这期间来了停止或暂停，就先办它：不再按这一下，也不让"这一页待得
+        # 太久"把一个暂停变成停下。打完的那一场上面已经算过了，不会因为暂停漏掉
         if self._controls.stop_requested:
             return "收到停止命令"
         if self._controls.paused:
             self._enter_pause()
             return None
+
+        limit = self._cfg.get("loop.max_battle_s" if page == PAGE_NAME.BATTLE
+                              else "loop.max_page_s")
+        stayed = now - self._page_since
+        if stayed > limit:
+            return f"在 {page} 页上待了 {stayed:.0f} 秒，超过了 {limit} 秒"
         action = self._act(page, frame)
         log.info("页面 %s | %s | 截图 %s ms | 匹配 %d ms%s", page, action,
                  getattr(self._capture, "last_ms", None), match_ms, self._scores_text(scores))

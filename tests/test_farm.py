@@ -404,6 +404,28 @@ class TestLateCommands:
         assert f.tick() is None
         assert backend.calls == ["release_all"]
 
+    @pytest.mark.parametrize("command", ["pause", "stop"])
+    def test_a_command_during_matching_comes_before_a_page_that_lasted_too_long(self, command):
+        """匹配期间来了暂停，这一页又刚好待过了头：先办暂停，不然本该能接着跑的循环就停了。
+        停止也一样，停下的理由是那条命令。"""
+        f, backend, controls, clock = make(PAGE_NAME.SCORE)
+        assert f.tick() is None
+        clock.now += 1000
+        self._arrives_during(f, controls, "_recognise", command)
+        reason = f.tick()
+        if command == "pause":
+            assert reason is None and f._pause_noted
+        else:
+            assert "停止" in reason
+        assert backend.calls[-1] == ("release_all" if command == "pause" else "confirm")
+
+    def test_a_battle_that_ends_as_a_pause_arrives_is_still_counted(self):
+        f, _, controls, _ = make(PAGE_NAME.BATTLE, PAGE_NAME.SCORE)
+        f.tick()
+        self._arrives_during(f, controls, "_recognise", "pause")
+        assert f.tick() is None
+        assert f.battles == 1
+
     def test_a_pause_during_a_failed_capture_lets_go_at_once(self):
         f, backend, controls, _ = make(PAGE_NAME.BATTLE, None)
         f.tick()
