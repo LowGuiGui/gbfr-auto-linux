@@ -138,6 +138,7 @@ class ControlServer:
     """在后台线程里收命令。start() 开始听，close() 收掉，并删掉自己建的套接字文件。
 
     status 返回一个可以转成 JSON 的 dict，status 命令把它原样带回去（页面、完成次数……）。
+    它不该阻塞：close() 会一直等到正在调它的连接线程结束。
     """
 
     def __init__(self, controls, path, status=None):
@@ -307,8 +308,11 @@ class ControlServer:
                 conn.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
+        # 不设上限地等：连接已经断开，读写都会立刻出错，命令也不再办，还能让一个工作线程活着的
+        # 只有它正在调的 status 回调。close() 返回以后不能再有应用的代码在这些线程里跑，
+        # 所以要等回调返回；回调不该阻塞，这是调用方的事
         for worker, _ in workers:
-            worker.join(timeout=CONNECTION_TIMEOUT + 1)
+            worker.join()
         # 只删自己建的那一个：期间要是被换掉了（另一个循环删了重建），留给它
         try:
             if self._inode is not None and self._path.lstat().st_ino == self._inode:

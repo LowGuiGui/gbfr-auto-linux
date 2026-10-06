@@ -32,6 +32,13 @@ def serve(path, status=None):
     return control.ControlServer(controls, path, status=status).start(), controls
 
 
+def _quietly(action, *args):
+    try:
+        action(*args)
+    except (OSError, ValueError):
+        pass
+
+
 def elapsed(action):
     start = time.monotonic()
     action()
@@ -299,6 +306,27 @@ class TestTheSocket:
             late.close()
         time.sleep(0.05)
         assert not c.stop_requested
+
+    def test_close_waits_for_a_slow_status_callback_to_finish(self, path, monkeypatch):
+        """status 回调比连接超时还慢：close() 也得等它返回，之后不能再有应用的代码在跑。"""
+        monkeypatch.setattr(control, "CONNECTION_TIMEOUT", 0.1)
+        entered, finished = threading.Event(), threading.Event()
+
+        def slow_status():
+            entered.set()
+            time.sleep(1.5)
+            finished.set()
+            return {}
+        srv, _ = serve(path, status=slow_status)
+        client = threading.Thread(target=lambda: _quietly(control.send, "status", path))
+        client.start()
+        try:
+            assert entered.wait(2)
+        finally:
+            srv.close()
+        assert finished.is_set()
+        assert not [t for t in threading.enumerate() if t.name == "gbfr-control-conn"]
+        client.join(5)
 
     def test_a_command_read_while_closing_is_not_carried_out(self, path, monkeypatch):
         """连接线程刚读到命令，close() 就开始了：这条命令不再办。"""
