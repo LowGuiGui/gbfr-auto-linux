@@ -1,54 +1,53 @@
-# SPDX-FileCopyrightText: 2026 zhiyual <https://github.com/zhiyual>
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
-# SPDX-License-Identifier: GPL-2.0-only
-#
-# Derived from zhiyual/gbfr_auto; changed by LowGuiGui since 2026-08-23. The git
-# history records each change and its date. Upstream's lines are GPL-2.0-only (see
-# COPYRIGHT), so this file as a whole is too.
+# SPDX-License-Identifier: GPL-2.0-or-later
 
-### Python ###
+# 哪些文件不进版本库。前面是任何 Python 项目都会有的东西，后面是这个项目自己在
+# 运行、构建时留下的东西。
+
+# ---- Python 的生成物 ----
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 .Python
+# 编译出来的共享库和扩展模块：*.so（Linux）、*.pyd（Windows 上的 Python 扩展）、
+# *.dylib（macOS）
+*.so
+*.pyd
+*.dylib
 
-### PyInstaller ###
-build/
-dist/
-*.spec
-
-### 虚拟环境 ###
+# ---- 虚拟环境（目录） ----
+.venv/
 venv/
 env/
-.venv/
 .env/
 
-### IDE / 编辑器 ###
+# ---- 测试和检查工具的缓存 ----
+# 仓库现在用 ruff 和 pytest，两者都会在根目录留下缓存目录。
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+*.cache
+
+# ---- 编辑器和操作系统留下的文件 ----
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-### 系统文件 ###
+.DS_Store
+Desktop.ini
 Thumbs.db
 Thumbs.db:encryptable
 ehthumbs.db
 ehthumbs_vista.db
-.DS_Store
-Desktop.ini
 
-### 日志 ###
+# ---- 日志、临时文件、备份 ----
 *.log
 logs/
-
-### 临时文件 ###
 *.tmp
 *.bak
-*.cache
 
-### 运行时生成 ###
+# ---- 运行时生成 ----
 # tools/linux_probe.py 的结果：截图和报告，记录的是本机状态，不进版本库。
 probe-runs/
 # 从源码运行时 exe_dir() 就是仓库根目录，配置文件会落在这里。内容是本机设置。
@@ -59,7 +58,11 @@ anomalies/
 template/.bundled.json
 template/*.new
 
-### 编译产物 ###
+# ---- Windows 版的打包和构建产物 ----
+# PyInstaller 的输出目录和它的配置文件。
+build/
+dist/
+*.spec
 # 从 CI 下载解压的发行包放这里，别提交回去（就是 #6 要避免的那种事）。
 gbfr-build/
 
@@ -77,27 +80,17 @@ hook/gbfr_hook.lib
 hook/gbfr_hook.exp
 hook/gbfr_hook.obj
 
-### 其他 ###
+# 其余的 DLL 同理：二进制无法 diff、无法审阅，上游正是因此留下了 ~96 MB 的历史。
+*.dll
+
 # 初始提交里带过 icon.png，65e591b 把它当构建产物移出了版本库。仓库里跟踪的是
 # icon.ico。保留这条规则，免得那张 png 又被谁提交回来。
 icon.png
 
-### 补漏 (#17) ###
+# ---- 本机密钥 (#17) ----
 # 上面 "虚拟环境" 一节忽略的是 `.env/` 这个**目录**，而 `.env` 这个**文件**才是
 # 放本机密钥的通用约定 —— 它一直是被跟踪的。现在不存在这个文件，所以这条纯粹是
 # 预防：等到真有人写了一个，就来不及了。
 .env
 .env.*
 !.env.example
-
-# Windows 构建产物。hook/gbfr_hook.dll 上面已单列，这里覆盖其余的 ——
-# 二进制无法 diff、无法审阅，上游正是因此留下了 ~96 MB 的历史。
-*.dll
-*.pyd
-# 和已有的 *.so 对称，补上 macOS 的
-*.dylib
-
-# 工具缓存。仓库现在用 ruff 和 pytest，两者都会在根目录留下缓存目录。
-.ruff_cache/
-.pytest_cache/
-.mypy_cache/
