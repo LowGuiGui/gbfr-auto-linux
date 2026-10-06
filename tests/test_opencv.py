@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import pytest
 
-from opencv import _brief, _cv_read_image, cv_find_template
+from opencv import _brief, _cv_read_image, cv_best_match, cv_find_template
 
 
 # 夹具一律用「有纹理」的图案，绝不用纯色块。TM_CCOEFF_NORMED 的分母是两边的
@@ -131,6 +131,40 @@ class TestUniformRegionsAreDegenerate:
 def test_brief_keeps_paths_and_collapses_objects():
     assert _brief("template/flag_battle.png") == "template/flag_battle.png"
     assert _brief(np.zeros((2, 2, 3), dtype=np.uint8)) == "ndarray"
+
+
+class TestInputShapes:
+    """截图和模板进 matchTemplate 之前统一成 RGB 三通道。
+
+    用不了的输入记一笔、返回 None，不让 OpenCV 的异常一路冒到调用方。
+    """
+
+    def test_pil_screen_is_accepted(self, tmp_path, screen):
+        from PIL import Image
+        tpl = _write_template(tmp_path / "t.png")
+        screen[50:70, 60:80] = tpl
+        result = cv_find_template(Image.fromarray(screen), str(tmp_path / "t.png"))
+        assert result is not None and result[:2] == (60, 50)
+
+    def test_alpha_channel_is_dropped(self, tmp_path, screen):
+        tpl = _write_template(tmp_path / "t.png")
+        screen[50:70, 60:80] = tpl
+        rgba = np.dstack([screen, np.full(screen.shape[:2], 255, dtype=np.uint8)])
+        result = cv_find_template(rgba, str(tmp_path / "t.png"))
+        assert result is not None and result[:2] == (60, 50)
+
+    def test_template_larger_than_screen_is_refused(self, tmp_path, log_file):
+        _write_template(tmp_path / "t.png", size=40)
+        small = _texture(size=30, seed=4)
+        assert cv_best_match(small, str(tmp_path / "t.png")) is None
+        assert "比截图" in log_file()
+
+    def test_grayscale_screen_is_refused(self, tmp_path, log_file):
+        _write_template(tmp_path / "t.png")
+        gray = np.random.default_rng(8).integers(0, 255, (100, 100), dtype=np.uint8)
+        assert cv_best_match(gray, str(tmp_path / "t.png")) is None
+        assert "图像格式不支持" in log_file()
+        assert "模板匹配输入无效" in log_file()
 
 
 # --- #9：我们真正依赖的 cv2 表面 -------------------------------------------

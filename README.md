@@ -116,4 +116,4 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 ## 许可证
 
-GPL-2.0。本仓库自己的代码按 GPL-2.0-or-later 授权；仍含上游代码的 `opencv.py`、`pagetree.py` 和 `.gitignore` 按 GPL-2.0-only 授权，所以整个程序目前只能按 GPL-2.0 使用。许可证全文在 [LICENSES/](LICENSES/)。`template/` 里的图片是游戏的美术素材，不在 GPL 之下。谁拥有什么、为什么这样划分，见 [COPYRIGHT](COPYRIGHT)。
+GPL-2.0-or-later：GPL 第 2 版，或者（由你选择）任何更新的版本。`opencv.py`、`pagetree.py` 和 `.gitignore` 原先含有上游按 GPL-2.0-only 授权的代码，2026-10-05 已经重写，上游的代码现在只留在 git 历史里。许可证全文在 [LICENSES/](LICENSES/)。`template/` 里的图片是游戏的美术素材，不在 GPL 之下。谁拥有什么、为什么这样划分，见 [COPYRIGHT](COPYRIGHT)。

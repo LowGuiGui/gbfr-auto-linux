@@ -5,12 +5,12 @@ Copyright and licensing
 =======================
 
 gbfr-auto-linux is the Linux successor of LowGuiGui/gbfr_auto, which was a fork
-of zhiyual/gbfr_auto. It is free software under the GNU General Public License,
-version 2. Most of it may also be used under any later version, but the files
-that still contain upstream's code may not; see "Why upstream's code is
-GPL-2.0-only" below. The licence text is in LICENSES/, once for each SPDX
-identifier it is used under. LICENSE at the top level is the same verbatim
-text, kept so that tools which only look there still find it.
+of zhiyual/gbfr_auto. It is free software: you can redistribute it and/or
+modify it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 2 of the License, or (at your
+option) any later version. The licence text is in LICENSES/, once for each
+SPDX identifier it is used under. LICENSE at the top level is the same
+verbatim text, kept so that tools which only look there still find it.
 
 
 Who holds what, under which licence
@@ -20,50 +20,75 @@ Every file states its copyright holders and licence, either in a header comment
 or, for files that cannot carry one, in REUSE.toml. `reuse lint` checks this in
 CI. In summary:
 
-  - Upstream's original work is by zhiyual
-    (https://github.com/zhiyual/gbfr_auto), under GPL-2.0-only. opencv.py,
-    pagetree.py and .gitignore still contain it. Their headers name both
-    holders, and each of those three files is GPL-2.0-only as a whole.
-
-  - The changes made in the fork from 2026-08-23 on, and everything written
-    for this repository, are
+  - The code and documentation in this repository are
 
         Copyright (C) 2026 LowGuiGui
 
-    and licensed under GPL-2.0-or-later.
+    and licensed under GPL-2.0-or-later. That covers the fork's changes from
+    2026-08-23 on and everything written for this repository.
 
   - The images in template/ are cropped screenshots of the game's own screens.
     Their artwork is (C) Cygames, Inc. It is not covered by the GPL, and this
     project grants no licence to it; see
     LICENSES/LicenseRef-Cygames-Game-Assets.txt.
 
-While upstream's lines remain, the program as a whole can be distributed under
-GPL-2.0 only.
+  - Upstream's original work, by zhiyual (https://github.com/zhiyual/gbfr_auto),
+    is no longer part of any current file. It remains in the git history under
+    GPL-2.0-only; see the next section.
 
 
-Why upstream's code is GPL-2.0-only
------------------------------------
+Upstream's code, and why it was rewritten
+-----------------------------------------
 
 Upstream's repository carries the GPL-2.0 text, added in a commit titled
 "添加 GPL 2.0 许可证" (add the GPL 2.0 licence), and says nothing about later
 versions. Section 9 of GPL-2.0 allows any version only when the program "does
 not specify a version number". Whether shipping the version 2 text under that
 title specifies one is open to argument. Only the narrower reading cannot turn
-out to be wrong, so upstream's code is treated as GPL-2.0-only.
+out to be wrong, so upstream's code was treated as GPL-2.0-only.
 
-LowGuiGui's own work is offered under GPL-2.0-or-later. That keeps a GPLv3
-route open for when upstream's lines are gone, or upstream agrees to "or
-later". The route matters because OpenCV is licensed under Apache-2.0, which
-the FSF considers compatible with GPLv3 but not with GPLv2.
+Three files carried over upstream's lines: opencv.py, pagetree.py and
+.gitignore. Each of them was GPL-2.0-only as a whole, and so was the program.
+That closed two routes. OpenCV is licensed under Apache-2.0, which the FSF
+considers compatible with GPLv3 but not with GPLv2, and libraries under
+LGPL-3.0 cannot be combined with GPL-2.0-only code either. The fork's own work
+was always offered under GPL-2.0-or-later to keep those routes open.
+
+On 2026-10-05 the three files were rewritten, so that the whole tree is
+GPL-2.0-or-later:
+
+  - opencv.py was written anew from a behaviour specification, which was
+    itself derived from the tests and the callers, without opening the previous
+    implementation. Only after the new module passed the tests was it compared
+    with the old one: to check that no structure had carried over beyond what
+    the shared interface forces, and to keep one functional constant, the
+    blank-frame cut-off, where it was.
+  - pagetree.py: upstream's two tables, the list of template files and the
+    page enumeration, were replaced. The file list is now collected from the
+    rule tree, and the page values are generated from the member names. The
+    rule tree, the action table and the result-page set were the fork's own
+    work and stayed.
+  - .gitignore was rebuilt from standard ignore patterns and the fork's own
+    rules and comments. It ignores exactly the same paths as before.
+
+This is not a clean-room reimplementation in the strict sense. The rewrite was
+made by the same AI assistant that wrote the fork's earlier changes, and it may
+have seen upstream's code before. The steps above are what was done to keep
+the new code independent of it.
+
+Upstream's code is still in the history before that date, under GPL-2.0-only,
+together with the licence text it was distributed with (LICENSE). That includes
+the Windows app layer parked there (main.py, option.py, hook/gbfr_hook.c and
+icon.ico): restoring those files as they are, as docs/provenance/README.md
+explains, would bring GPL-2.0-only code back into the tree.
 
 
 Modified files
 --------------
 
 GPL-2.0 section 2(a) asks that modified files carry prominent notices saying
-that they were changed, and when. The headers of opencv.py, pagetree.py and
-.gitignore say that they derive from upstream and since when LowGuiGui has
-changed them. The git history records each change and its date, and
+that they were changed, and when. No current file is a modified version of an
+upstream file any more. The git history records every change and its date, and
 docs/provenance/ maps the commits made before this repository existed back to
 the archive.
 

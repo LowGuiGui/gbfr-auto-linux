@@ -116,4 +116,4 @@ Issue numbers in the older commit messages read `gbfr_auto#NN`, and those in cod
 
 ## Licence
 
-GPL-2.0. This repository's own code is GPL-2.0-or-later. `opencv.py`, `pagetree.py` and `.gitignore` still contain upstream's code and are GPL-2.0-only, so the program as a whole can currently be used under GPL-2.0 only. The licence texts are in [LICENSES/](LICENSES/). The images in `template/` are the game's artwork and are not under the GPL. [COPYRIGHT](COPYRIGHT) says who holds what, and why.
+GPL-2.0-or-later: version 2 of the GPL or, at your option, any later version. `opencv.py`, `pagetree.py` and `.gitignore` used to contain upstream's GPL-2.0-only code; they were rewritten on 2026-10-05, and upstream's code now exists only in the git history. The licence texts are in [LICENSES/](LICENSES/). The images in `template/` are the game's artwork and are not under the GPL. [COPYRIGHT](COPYRIGHT) says who holds what, and why.
