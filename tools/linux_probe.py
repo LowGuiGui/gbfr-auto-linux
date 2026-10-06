@@ -183,12 +183,56 @@ def find_game_processes(appid=APPID, proc="/proc"):
     return sorted(found, key=lambda p: p["pid"])
 
 
-def group_instances(processes):
-    """按 (DISPLAY, GAMESCOPE_WAYLAND_DISPLAY) 分组。正常只有一组。"""
+def nearest_gamescope(pid, proc="/proc"):
+    """离 pid 最近的 gamescope 祖先的进程号；链上没有 gamescope 就是 None。"""
+    return next((a for a in process_lineage(pid, proc) if is_gamescope_process(a, proc)), None)
+
+
+def group_instances(processes, proc="/proc"):
+    """按所在的 gamescope 分组：离进程最近的 gamescope 祖先是谁，就归谁。正常只有一组。
+
+    不能按环境变量分：Steam Linux Runtime 的容器（pressure-vessel）把容器里进程的
+    GAMESCOPE_WAYLAND_DISPLAY 改成 /run/pressure-vessel/gamescope-socket，XAUTHORITY 改成
+    /run/pressure-vessel/Xauthority，同一个 gamescope 里的进程就被分成了两组（2026-10-05 在
+    这台机器上对着游戏实测）。链上找不到 gamescope 的进程，跟着同一个 DISPLAY 的那个
+    gamescope 走；也对不上，就按 DISPLAY 自成一组。
+    """
+    owners = {p["pid"]: nearest_gamescope(p["pid"], proc) for p in processes}
+    by_display = {}
+    for p in processes:
+        if owners[p["pid"]] is not None:
+            by_display.setdefault(p["DISPLAY"], set()).add(owners[p["pid"]])
     groups = {}
     for p in processes:
-        groups.setdefault((p["DISPLAY"], p["GAMESCOPE_WAYLAND_DISPLAY"]), []).append(p)
+        owner = owners[p["pid"]]
+        if owner is None and len(by_display.get(p["DISPLAY"], ())) == 1:
+            owner = next(iter(by_display[p["DISPLAY"]]))
+        key = f"gamescope {owner}" if owner is not None else f"DISPLAY {p['DISPLAY']}"
+        groups.setdefault(key, []).append(p)
     return groups
+
+
+def instance_values(members):
+    """一个 gamescope 里的进程报的 DISPLAY、GAMESCOPE_WAYLAND_DISPLAY、XAUTHORITY、
+    XDG_RUNTIME_DIR 不一定一样：容器里的进程报的是容器里的路径，宿主上不存在。每样先取
+    宿主上用得了的那个，都用不了再取第一个非空的。"""
+    def pick(key, usable):
+        values = [p[key] for p in members if p.get(key)]
+        return next((v for v in values if usable(v)), values[0] if values else None)
+
+    def x_socket(display):
+        number = display_number(display)
+        return number is not None and (X11_SOCKET_DIR / f"X{number}").exists()
+
+    runtime = pick("XDG_RUNTIME_DIR", lambda v: Path(v).is_dir())
+    return {
+        "display": pick("DISPLAY", x_socket),
+        "wayland": pick("GAMESCOPE_WAYLAND_DISPLAY",
+                        lambda v: Path(v if v.startswith("/")
+                                       else os.path.join(runtime or "", v)).exists()),
+        "xauth": pick("XAUTHORITY", lambda v: Path(v).is_file()),
+        "runtime": runtime,
+    }
 
 
 def display_number(display):
@@ -1053,10 +1097,12 @@ def step_l1(args, report, state):
                       "More than one gamescope instance runs this game. Close the others "
                       "and run again, so the probe cannot measure the wrong one.")
         return
-    (display, wayland), members = next(iter(groups.items()))
-    xauth = next((p["XAUTHORITY"] for p in members if p["XAUTHORITY"]), None)
-    runtime = next((p["XDG_RUNTIME_DIR"] for p in members if p["XDG_RUNTIME_DIR"]), None)
+    instance, members = next(iter(groups.items()))
+    values = instance_values(members)
+    display, wayland = values["display"], values["wayland"]
+    xauth, runtime = values["xauth"], values["runtime"]
     state.update(display=display, wayland=wayland, runtime=runtime)
+    report.result("L1", "gamescope instance", instance)
     report.result("L1", "nested DISPLAY", display)
     report.result("L1", "GAMESCOPE_WAYLAND_DISPLAY", wayland)
     report.result("L1", "XAUTHORITY", xauth or "(none)")
