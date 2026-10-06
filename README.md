@@ -87,6 +87,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 | `supervisor.py` | 何时切换输入方式、暂停或恢复的纯函数判定 |
 | `config.py` | TOML 配置 |
 | `applog.py` | 日志 |
+| `gamescope.py` | 找到游戏所在的 gamescope（进程、嵌套 X 显示、游戏窗口），并用 `gamescopectl` 截图；探测工具在用，之后的 Linux 平台层也会用 |
 | `template/` | 拿来和画面比对的参考图 |
 | `tools/linux_probe.py` | Linux 探测工具，见 [tools/README.md](tools/README.md) |
 | `docs/provenance/` | 本仓库的历史是怎样从归档仓库生成的 |
@@ -105,7 +106,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
   - 除上游的 6 个提交和 2026-08-23 的 3 个初始配置提交（ruff 与 pre-commit 配置、依赖版本、恢复 LICENSE）外，每个非合并提交都带有 `Co-Authored-By: Claude` 标注。
 - **审查**：**没有人工逐行审查。** 所有者负责方向，以及需要真实游戏的测试。
 - **验证**：
-  - Linux 上有 333 个自动化测试（核心 180 个，探测工具 153 个），每个 pull request 都会在 CI 里运行。
+  - Linux 上有 333 个自动化测试（核心 180 个，`gamescope.py` 37 个，探测工具 116 个），每个 pull request 都会在 CI 里运行。
   - 在 Linux 上对游戏运行过的只有探测工具：2026-10-05，每一步各一次，结果见[进度](#进度)。脚本本身还没有。测试覆盖不到截图、输入，以及任何需要游戏本身的行为。
 - **风险**：脚本会向游戏发送输入；探测计划的第 5 步还可能把一个库加载进游戏进程。GPL 不提供任何担保（GPL-2.0 第 11、12 条）。
 - **版权**：AI 生成的内容能否受版权保护，目前在法律上尚无定论；在受保护的范围内，适用 [COPYRIGHT](COPYRIGHT) 中的许可。AI 的输出也可能与其训练数据相似。
