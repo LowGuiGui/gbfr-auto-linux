@@ -364,8 +364,20 @@ class TestStopping:
         with pytest.raises(RuntimeError, match="poll_interval_ms"):
             make(PAGE_NAME.SCORE, settings=cfg(loop__poll_interval_ms=interval))
 
+    @pytest.mark.parametrize("key, value", [
+        ("loop__max_battle_s", 0), ("loop__max_battle_s", -1),
+        ("loop__max_page_s", 0), ("loop__max_page_s", -1),
+        ("loop__max_blind_taps", -1), ("detect__max_anomaly_frames", -1),
+    ])
+    def test_a_limit_or_count_outside_its_range_is_refused(self, key, value):
+        """限制不大于 0，循环在第一帧就停下，一个键都不按；次数小于 0，该做的悄悄不做了。"""
+        with pytest.raises(RuntimeError, match=key.replace("__", r"\.")):
+            make(PAGE_NAME.SCORE, settings=cfg(**{key: value}))
+
     def test_the_edges_of_the_ranges_are_accepted(self):
-        make(PAGE_NAME.SCORE, settings=cfg(detect__threshold=1.0, loop__poll_interval_ms=1))
+        make(PAGE_NAME.SCORE, settings=cfg(detect__threshold=1.0, loop__poll_interval_ms=1,
+                                           loop__max_battle_s=1, loop__max_page_s=1,
+                                           loop__max_blind_taps=0, detect__max_anomaly_frames=0))
 
     def test_an_unknown_backend_preference_is_refused(self):
         """拼错的偏好，supervisor 照样会选出 kmb，循环却永远对不上它，第一轮就停下。"""

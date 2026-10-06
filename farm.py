@@ -64,6 +64,18 @@ SKIPS_TO_PAUSE = 3
 # 方差，归一化相关系数对它给满分，第一条规则就会把每一帧都认成战斗页。
 MIN_TEMPLATE_SIDE = 8
 
+# 循环读的每一个数，构造时一次查完。配置那一层只查类型，出了界的值有的会让循环照着错的页面按键
+# （阈值不大于 0，什么画面都"像"第一条规则）、一刻不停地截图按确认（间隔不大于 0），有的会让它
+# 在第一帧就停下（限制不大于 0），或者悄悄不做该做的事（次数小于 0）
+SETTING_RULES = (
+    ("detect.threshold", lambda v: 0 < v <= 1, "大于 0、最多是 1"),
+    ("loop.poll_interval_ms", lambda v: v > 0, "大于 0"),
+    ("loop.max_battle_s", lambda v: v > 0, "大于 0"),
+    ("loop.max_page_s", lambda v: v > 0, "大于 0"),
+    ("loop.max_blind_taps", lambda v: v >= 0, "不小于 0"),
+    ("detect.max_anomaly_frames", lambda v: v >= 0, "不小于 0"),
+)
+
 
 def load_templates(directory, scale=1.0, files=TEMPLATE_FILES):
     """读 pagetree 要用的模板，按 scale 缩放，返回 {模板名: RGB 数组}。
@@ -123,14 +135,10 @@ class Farm:
             raise ValueError(f"repeats must be at least 1, or None for no limit: {repeats!r}")
         if prefer not in ("kmb", "pad"):
             raise ValueError(f"prefer must be 'kmb' or 'pad': {prefer!r}")
-        # 配置只查类型。这两个值出了界不会自己停下：阈值不大于 0，什么画面都"像"第一条规则，
-        # 循环就照着错的页面按键；间隔不大于 0，就是一刻不停地截图、按确认
-        threshold = cfg.get("detect.threshold")
-        if not 0 < threshold <= 1:
-            raise RuntimeError(f"detect.threshold 得大于 0、最多是 1，现在是 {threshold!r}")
-        interval = cfg.get("loop.poll_interval_ms")
-        if not interval > 0:
-            raise RuntimeError(f"loop.poll_interval_ms 得大于 0，现在是 {interval!r}")
+        for key, allowed, rule in SETTING_RULES:
+            value = cfg.get(key)
+            if not allowed(value):
+                raise RuntimeError(f"{key} 得{rule}，现在是 {value!r}")
         self._capture = capture
         self._backend = backend
         self._observe = observe
