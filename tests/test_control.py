@@ -46,6 +46,22 @@ def elapsed(action):
     return time.monotonic() - start
 
 
+class Listener:
+    """包着服务的监听套接字，别的都转给它，只在 close() 之后多做一件事。socket.socket 有
+    __slots__，没法直接在实例上换掉 close。"""
+
+    def __init__(self, sock, after_close):
+        self._sock = sock
+        self._after_close = after_close
+
+    def __getattr__(self, name):
+        return getattr(self._sock, name)
+
+    def close(self):
+        self._sock.close()
+        self._after_close()
+
+
 class TestControls:
     def test_a_stop_ends_a_wait_at_once(self):
         c = control.Controls()
@@ -414,6 +430,31 @@ class TestTheSocket:
             assert os.path.lexists(path)
         finally:
             other.close()
+
+    def test_close_cannot_take_a_replacement_with_a_recycled_inode_for_its_own(self, path,
+                                                                                monkeypatch):
+        """别人在监听关掉之后才删了文件、建了自己的，而新文件拿到了刚空出来的 inode 号：文件
+        是不是自己的，得在监听还占着 inode 时认，不然会把别人的删掉。"""
+        srv, _ = serve(path)
+        mine = path.lstat()
+        others = []
+
+        def replaced_with_the_same_inode():
+            path.unlink(missing_ok=True)
+            other = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            other.bind(str(path))
+            others.append(other)
+            real_lstat = Path.lstat
+            monkeypatch.setattr(Path, "lstat",
+                                lambda p: mine if p == path else real_lstat(p))
+
+        srv._sock = Listener(srv._sock, after_close=replaced_with_the_same_inode)
+        try:
+            srv.close()
+            assert others and os.path.lexists(path)
+        finally:
+            for other in others:
+                other.close()
 
     def test_the_path_lives_in_the_runtime_dir(self, monkeypatch):
         assert control.socket_path("/run/user/1000") == Path("/run/user/1000/gbfr-auto-linux.sock")

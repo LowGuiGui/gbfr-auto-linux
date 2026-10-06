@@ -156,7 +156,7 @@ class ControlServer:
         self._status = status or (lambda: {})
         self._sock = None
         self._thread = None
-        self._inode = None
+        self._identity = None      # bind 建出的那个文件：(st_dev, st_ino)
         self._lock = None
         self._closing = threading.Event()
         self._workers = {}          # 线程 -> 它的连接
@@ -209,7 +209,8 @@ class ControlServer:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._sock = sock
         sock.bind(str(self._path))
-        self._inode = self._path.lstat().st_ino
+        st = self._path.lstat()
+        self._identity = (st.st_dev, st.st_ino)
         os.chmod(self._path, 0o600)
         sock.listen(8)
         sock.settimeout(0.5)
@@ -306,6 +307,9 @@ class ControlServer:
                 self._sock.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
+            # 文件是不是自己建的那一个，趁监听还占着它的 inode 时认：关掉以后，别人删了重建的
+            # 新文件可能马上拿到同一个 inode 号
+            self._unlink_own()
             self._sock.close()
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2)
@@ -317,18 +321,23 @@ class ControlServer:
                 conn.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
-        # 不设上限地等：连接已经断开，读写都会立刻出错，命令也不再办，还能让一个工作线程活着的
-        # 只有它正在调的 status 回调。close() 返回以后不能再有应用的代码在这些线程里跑，
-        # 所以要等回调返回；回调不该阻塞，这是调用方的事
+        # 不设上限地等：连接已经断开，读写都会立刻出错，命令也不再办。还能让一个工作线程活着的，
+        # 是它正在调的 status 回调，或者卡住的日志处理器。close() 返回以后不能再有应用的代码在
+        # 这些线程里跑，所以要等回调返回；回调不该阻塞，这是调用方的事。日志卡住时等也没用：
+        # 处理器靠一把锁排队，循环每一轮都要记日志，退出时 logging 还要刷同一批处理器，整个
+        # 进程本来就动不了
         for worker, _ in workers:
             worker.join()
-        # 只删自己建的那一个：期间要是被换掉了（另一个循环删了重建），留给它
+        self._drop_lock()
+
+    def _unlink_own(self):
+        """只删自己建的那一个：期间要是被换掉了（另一个循环删了重建），留给它。"""
         try:
-            if self._inode is not None and self._path.lstat().st_ino == self._inode:
+            st = self._path.lstat()
+            if self._identity is not None and (st.st_dev, st.st_ino) == self._identity:
                 self._path.unlink()
         except FileNotFoundError:
             pass
-        self._drop_lock()
 
 
 def send(command, path, timeout=3):
