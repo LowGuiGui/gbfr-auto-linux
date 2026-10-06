@@ -55,6 +55,9 @@ MAX_LINE = 64
 # 一个连接最多等这么久把那一行发完。每个连接各有各的线程，慢的只耽误它自己。
 CONNECTION_TIMEOUT = 1.0
 
+# accept 一时失败以后（文件描述符用完了、连接在建立时被放弃了），隔多久再试
+ACCEPT_RETRY_S = 0.2
+
 
 class AlreadyRunning(RuntimeError):
     """另一个循环已经开着控制套接字。"""
@@ -239,13 +242,23 @@ class ControlServer:
         raise AlreadyRunning(f"{self._path} 有人在听：另一个循环正在跑")
 
     def _serve(self):
+        failing = False
         while not self._closing.is_set():
             try:
                 conn, _ = self._sock.accept()
             except socket.timeout:
                 continue
             except OSError:
-                break
+                # close() 关掉监听时 accept 也会出错，那就到此为止。别的多半是一时的：这个线程一退，
+                # 套接字和锁都还占着，却再没人应答 stop，所以隔一会儿再试，同一串错只记一次
+                if not self._closing.is_set():
+                    if not failing:
+                        log.warning("控制套接字收不了连接，%.1f 秒后再试", ACCEPT_RETRY_S,
+                                    exc_info=True)
+                    failing = True
+                    self._closing.wait(ACCEPT_RETRY_S)
+                continue
+            failing = False
             worker = threading.Thread(target=self._handle_safely, args=(conn,),
                                       name="gbfr-control-conn", daemon=True)
             with self._workers_lock:

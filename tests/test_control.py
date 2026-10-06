@@ -8,6 +8,7 @@
 "同一时间只跑一个"这几条，是对着内核测的，不是对着替身。
 """
 
+import errno
 import fcntl
 import json
 import os
@@ -47,19 +48,31 @@ def elapsed(action):
 
 
 class Listener:
-    """包着服务的监听套接字，别的都转给它，只在 close() 之后多做一件事。socket.socket 有
-    __slots__，没法直接在实例上换掉 close。"""
+    """包着服务的监听套接字，别的都转给它。accept 可以先抛几个错（accept_errors，抛完最后一个时
+    errors_raised 亮起），close() 之后可以再做一件事（after_close）。socket.socket 有
+    __slots__，没法直接在实例上换掉方法。"""
 
-    def __init__(self, sock, after_close):
+    def __init__(self, sock, after_close=None, accept_errors=()):
         self._sock = sock
         self._after_close = after_close
+        self._accept_errors = list(accept_errors)
+        self.errors_raised = threading.Event()
 
     def __getattr__(self, name):
         return getattr(self._sock, name)
 
+    def accept(self):
+        if self._accept_errors:
+            error = self._accept_errors.pop(0)
+            if not self._accept_errors:
+                self.errors_raised.set()
+            raise error
+        return self._sock.accept()
+
     def close(self):
         self._sock.close()
-        self._after_close()
+        if self._after_close is not None:
+            self._after_close()
 
 
 class TestControls:
@@ -460,6 +473,26 @@ class TestTheSocket:
         assert not os.path.lexists(path)
         again, _ = serve(path)
         again.close()
+
+    def test_a_passing_accept_error_does_not_end_the_service(self, path, log_file):
+        """accept 一时失败（这里是文件描述符用完了）：服务线程不能就此退出，不然套接字和锁都
+        还占着，却再也没人应答 stop。同一串错只记一次日志。"""
+        srv, controls = serve(path)
+        errors = [OSError(errno.EMFILE, "Too many open files") for _ in range(3)]
+        srv._sock = Listener(srv._sock, accept_errors=errors)
+        try:
+            assert srv._sock.errors_raised.wait(3)
+            assert control.send("stop", path, timeout=2)["ok"]
+            assert controls.stop_requested
+        finally:
+            srv.close()
+        assert log_file().count("收不了连接") == 1
+
+    def test_closing_is_not_mistaken_for_an_accept_error(self, path, log_file):
+        """close() 关掉监听时 accept 也会出错：那是收尾，不该记成出错、再等一会儿重试。"""
+        srv, _ = serve(path)
+        srv.close()
+        assert "收不了连接" not in log_file()
 
     def test_close_removes_the_socket_and_nobody_answers_after(self, path):
         srv, _ = serve(path)
