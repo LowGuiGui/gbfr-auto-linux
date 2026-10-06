@@ -9,8 +9,9 @@
     capture()   一帧 RGB 数组，已经是游戏自己的分辨率；截不到就是 None
     backend     backend.KmbBackend 这样的输入后端：hold_move、battle_press、again……；
                 prefer 说它是哪一种（默认 "kmb"），观测里它不可用就停下
-    window_input  能说出"现在按着什么"的那一层（held、skipped、release_all），比如
-                xtest_input.XTestInput。必须有：开打按下去没有，只有它看得到
+    window_input  能说出"现在按着什么"的那一层（held、skipped、release_all，有的话还有
+                check_holds），比如 xtest_input.XTestInput。必须有：开打按下去没有、按着的
+                还好不好，只有它看得到
     observe()   一个 supervisor.Observation：游戏窗口还在不在、输入还能不能用
     controls    停止和暂停：stop_requested、paused 两个属性，pause(理由)，以及一个能被
                 打断的 wait(秒)
@@ -27,8 +28,9 @@ KmbBackend、命令行里拼出来的观测函数、control.py 的套接字。�
   3. 认页面。pages.resolve 按 pagetree.PAGE_RULES 的顺序试模板，得分到 detect.threshold
      才算命中。
   4. 计数。打过一场以后进到结算页，算完成一次；给了 repeats 就到数停下。
-  5. 动作。战斗页开打（按住前进、按下开打），已经在打就什么都不按；别的页面先把战斗
-     的那两个键松开，再做 pagetree.PAGE_ACTIONS 里写的动作。认不出的页面点一下确认，最多
+  5. 动作。战斗页开打（按住前进、按下开打）；已经在打，就只问输入那一层按着的还好不好
+     （check_holds：焦点跑了、按了修饰键、映射变了，它会全部松开），松开了就重新开打。别的
+     页面先把战斗的那两个键松开，再做 pagetree.PAGE_ACTIONS 里写的动作。认不出的页面点一下确认，最多
      连着 loop.max_blind_taps 次，之后只记不按。
   6. 宁可停下也不瞎猜。同一页待得太久（战斗页超过 loop.max_battle_s 秒，别的页超过
      loop.max_page_s 秒）就停下；暂停的时间不算，接着跑时重新计时。输入那一层连着三次没
@@ -324,7 +326,11 @@ class Farm:
         if page == PAGE_NAME.BATTLE:
             self._unknown_streak = 0
             if self._battling:
-                return "在打"
+                if self._holds_still_good():
+                    return "在打"
+                # 按着的已经松开了（输入那一层查出焦点、修饰键或映射不对，全部松开了）：这一轮
+                # 重新开打，和一次新的开打一样数
+                log.info("开打时按着的已经松开了，重新开打")
             self._backend.hold_move()
             self._backend.battle_press()
             # 输入那一层可能没按下去（焦点、指针、修饰键），也可能只按下去一半；那就下一轮再按
@@ -365,6 +371,15 @@ class Farm:
     def _battle_started(self):
         held = set(self._input.held)
         return self._battle_inputs <= held if self._battle_inputs else bool(held)
+
+    def _holds_still_good(self):
+        """开打以后每一轮问一次输入那一层。按着的键会自动连发，连发不经过按下时的那几道关，
+        所以它得每一轮再查一次（XTestInput.check_holds），查下来不对，它已经全部松开了。没有
+        这个方法的输入，只看开打要的那几样还按着没有。"""
+        check = getattr(self._input, "check_holds", None)
+        if check is not None and not check():
+            return False
+        return self._battle_started()
 
     def _end_battle(self):
         # 只按下去一半的开打（W 按住了、中键没有）也算按着，换页时一样要松开
