@@ -86,12 +86,13 @@ def load_templates(directory, scale=1.0, files=TEMPLATE_FILES):
                 pixels = np.asarray(image.convert("RGB"))
         except OSError as exc:
             raise RuntimeError(f"读不到模板 {path}: {exc}") from exc
+        # 不缩放（scale 是 1）的也要看：模板目录里本来就可能放着一张太小的
+        height, width = pixels.shape[:2]
+        size = (round(width * scale), round(height * scale))
+        if min(size) < MIN_TEMPLATE_SIDE:
+            raise RuntimeError(f"模板 {filename} 按 detect.template_scale = {scale} 缩放以后是 "
+                               f"{size[0]}x{size[1]}，太小了，认不出东西")
         if scale != 1.0:
-            height, width = pixels.shape[:2]
-            size = (round(width * scale), round(height * scale))
-            if min(size) < MIN_TEMPLATE_SIDE:
-                raise RuntimeError(f"detect.template_scale = {scale} 把模板 {filename} 缩成了 "
-                                   f"{size[0]}x{size[1]}，太小了，认不出东西")
             interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
             pixels = cv2.resize(pixels, size, interpolation=interpolation)
         if is_blank_frame(pixels):

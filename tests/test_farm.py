@@ -611,6 +611,19 @@ class TestTemplates:
         with pytest.raises(RuntimeError, match="太小"):
             farm.load_templates(self.TEMPLATE_DIR, scale=0.01)
 
+    @pytest.mark.parametrize("side, refused", [(farm.MIN_TEMPLATE_SIDE - 1, True),
+                                               (farm.MIN_TEMPLATE_SIDE, False)])
+    def test_a_template_too_small_at_its_own_size_is_refused(self, tmp_path, side, refused):
+        """不缩放也照样看大小：模板目录里本来就放着一张太小的，也不能拿去匹配。"""
+        from PIL import Image
+        noise = np.random.default_rng(7).integers(0, 256, (side, side, 3), dtype=np.uint8)
+        Image.fromarray(noise).save(tmp_path / "tiny.png")
+        if refused:
+            with pytest.raises(RuntimeError, match="太小"):
+                farm.load_templates(tmp_path, files=["tiny.png"])
+        else:
+            assert farm.load_templates(tmp_path, files=["tiny.png"])["tiny"].shape == (side, side, 3)
+
     def test_a_flat_template_is_refused(self, tmp_path):
         from PIL import Image
         Image.new("RGB", (40, 24), (90, 90, 90)).save(tmp_path / "flat.png")
