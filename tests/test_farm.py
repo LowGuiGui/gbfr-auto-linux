@@ -250,6 +250,47 @@ class TestHalfLandedStarts:
         assert backend.calls == ["hold_move", "battle_press", "hold_move", "battle_press"]
         assert window_input.held == ["middle", "w"]
 
+    def test_a_battle_whose_holds_were_let_go_is_started_again(self):
+        """输入那一层每一轮查一次按着的（check_holds）；查下来不对它就全部松开，循环这一轮
+        重新开打。"""
+        window_input = Input()
+        f, backend, *_ = make(PAGE_NAME.BATTLE, window_input=window_input,
+                              battle_inputs={"w", "middle"})
+        f.tick()
+        window_input.check_holds = lambda: window_input.held.clear() or False
+        f.tick()
+        assert backend.calls == ["hold_move", "battle_press", "hold_move", "battle_press"]
+        assert window_input.held == ["middle", "w"]
+        window_input.check_holds = lambda: True
+        f.tick()
+        assert backend.calls[4:] == []
+
+    def test_a_battle_whose_inputs_are_gone_is_started_again_even_if_the_check_passes(self):
+        """check_holds 只管按着的那几样；什么都不按着时它说"好"，开打要的却已经不在了。"""
+        window_input = Input()
+        f, backend, *_ = make(PAGE_NAME.BATTLE, window_input=window_input,
+                              battle_inputs={"w", "middle"})
+        f.tick()
+        window_input.held = []
+        window_input.check_holds = lambda: True
+        f.tick()
+        assert backend.calls == ["hold_move", "battle_press", "hold_move", "battle_press"]
+
+    def test_a_start_that_lands_starts_the_failed_count_over(self):
+        """两次没全按下去，第三次按下去了：之后按着的被松开、再没全按下去，从头数。"""
+        window_input = Input(press_lands=False)
+        f, _, controls, _ = make(PAGE_NAME.BATTLE, window_input=window_input,
+                                 battle_inputs={"w", "middle"})
+        f.tick()
+        f.tick()
+        window_input.press_lands = True
+        f.tick()
+        window_input.press_lands = False
+        window_input.check_holds = lambda: window_input.held.clear() or False
+        f.tick()
+        f.tick()
+        assert not controls.paused
+
     def test_starts_that_keep_landing_only_halfway_pause_it(self):
         """取不到窗口中心时 KmbBackend 根本不发中键，输入那一层的 skipped 不会动：循环自己数。"""
         window_input = Input(press_lands=False)
