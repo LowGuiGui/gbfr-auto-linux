@@ -10,17 +10,24 @@ stop、pause、resume、status 连过去发一个词；所有者再把 stop 和 
 快捷键上（设置、键盘、自定义快捷键），在哪个窗口里都按得到。终端里的 Ctrl+C 也是停下。
 
 Controls 是循环看的那一面（farm.Farm 的 controls）：stop_requested、paused 两个属性，
-pause(理由)，以及 wait(秒)。停止命令一到，wait 立刻返回，停下不用等完一整轮。
+pause(理由)，以及 wait(秒)。停止命令一到，wait 立刻返回，停下不用等完一整轮。暂停和接着跑
+也会叫醒 wait，而且从循环上一次看这两个属性的那一刻算起：在"看过了"和"开始等"之间来的
+命令，不会被睡过去。
 
 协议：连上以后发一行，一个词；回一行 JSON。几道关：
 
   - 对端的 uid 要和自己一样（SO_PEERCRED 是内核给的，对端改不了），否则不理。
   - 套接字文件是 0600，放在 $XDG_RUNTIME_DIR 里（本用户的 0700 目录）。
-  - 同一时间只跑一个循环：套接字文件已经在、而且连得上，说明另一个正在跑，新的不起来；
-    连不上的是上次没清掉的，删掉重来；那个位置上要是别的东西（普通文件、链接、别人的
-    套接字），不碰它，也不起来。
+  - 同一时间只跑一个循环。先拿旁边锁文件的排他 flock，拿不到就是另一个正在跑，新的不起来；
+    进程死了内核会替它放掉锁。拿到锁以后才去看套接字文件：连得上就是另一个循环（没用这把
+    锁的老版本），不起来；连不上的是上次没清掉的，删掉重来；那个位置上要是别的东西
+    （普通文件、链接、别人的套接字），不碰它，也不起来。两个同时启动的也不会都删掉同一个
+    旧文件、各自起一个：先后由锁定。
+  - 每个连接一个线程：一个连上了却不说话的客户端，挡不住后面的 stop。请求处理里出的错
+    （比如 status 那个回调抛了异常）只落在那一个连接上，服务一直在。
 """
 
+import fcntl
 import json
 import os
 import socket
@@ -37,6 +44,8 @@ SOCKET_NAME = "gbfr-auto-linux.sock"
 COMMANDS = ("stop", "pause", "resume", "status")
 # 一条命令最多这么长。一个词加换行用不了这么多，多出来的不是这边的客户端。
 MAX_LINE = 64
+# 一个连接最多等这么久把那一行发完。每个连接各有各的线程，慢的只耽误它自己。
+CONNECTION_TIMEOUT = 1.0
 
 
 class AlreadyRunning(RuntimeError):
@@ -56,6 +65,7 @@ class Controls:
     def __init__(self):
         self._cond = threading.Condition()
         self._version = 0
+        self._seen = 0      # 循环上一次看 stop_requested 或 paused 时的版本
         self._stop = False
         self._paused = False
         self.stop_reason = None
@@ -63,11 +73,17 @@ class Controls:
 
     @property
     def stop_requested(self):
+        self._seen = self._version
         return self._stop
 
     @property
     def paused(self):
+        self._seen = self._version
         return self._paused
+
+    def state(self):
+        """(paused, pause_reason)，给 status 用。不算"循环看过了"，所以不碰 _seen。"""
+        return self._paused, self.pause_reason
 
     def _changed(self):
         with self._cond:
@@ -91,9 +107,10 @@ class Controls:
         self._changed()
 
     def wait(self, seconds):
-        """最多等 seconds 秒。要求停下了，或者暂停、接着跑，就提前返回。"""
+        """最多等 seconds 秒。要求停下了，或者自循环上一次看过开关以来暂停、接着跑过，就
+        提前返回。"""
         with self._cond:
-            start = self._version
+            start = self._seen
             self._cond.wait_for(lambda: self._stop or self._version != start, timeout=seconds)
 
 
@@ -125,10 +142,41 @@ class ControlServer:
         self._sock = None
         self._thread = None
         self._inode = None
+        self._lock = None
         self._closing = threading.Event()
 
     def start(self):
-        self._claim()
+        self._take_lock()
+        try:
+            self._claim()
+            self._listen()
+        except BaseException:
+            self._drop_lock()
+            raise
+        self._thread = threading.Thread(target=self._serve, name="gbfr-control", daemon=True)
+        self._thread.start()
+        log.info("控制套接字在 %s", self._path)
+        return self
+
+    def _take_lock(self):
+        """锁文件和套接字放在一起，O_NOFOLLOW：那个位置上是链接的话，宁可起不来。"""
+        lock_path = self._path.with_suffix(".lock")
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            raise AlreadyRunning(f"{lock_path} 被别的进程锁着：另一个循环正在跑") from None
+        self._lock = fd
+
+    def _drop_lock(self):
+        # 锁文件留在那里不删：删掉再建，两个进程就可能各锁一个文件
+        if self._lock is not None:
+            fcntl.flock(self._lock, fcntl.LOCK_UN)
+            os.close(self._lock)
+            self._lock = None
+
+    def _listen(self):
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         # bind 按 umask 建文件；先收紧再 bind，免得有一小段时间别人也能连
         old_umask = os.umask(0o177)
@@ -138,13 +186,9 @@ class ControlServer:
             os.umask(old_umask)
         os.chmod(self._path, 0o600)
         self._inode = self._path.lstat().st_ino
-        sock.listen(4)
+        sock.listen(8)
         sock.settimeout(0.5)
         self._sock = sock
-        self._thread = threading.Thread(target=self._serve, name="gbfr-control", daemon=True)
-        self._thread.start()
-        log.info("控制套接字在 %s", self._path)
-        return self
 
     def _claim(self):
         if not os.path.lexists(self._path):
@@ -172,14 +216,18 @@ class ControlServer:
                 continue
             except OSError:
                 break
-            with conn:
-                try:
-                    self._handle(conn)
-                except OSError:
-                    log.debug("控制连接出错", exc_info=True)
+            threading.Thread(target=self._handle_safely, args=(conn,), name="gbfr-control-conn",
+                             daemon=True).start()
+
+    def _handle_safely(self, conn):
+        with conn:
+            try:
+                self._handle(conn)
+            except Exception:
+                log.warning("控制连接出错，这一个连接作废，服务照常", exc_info=True)
 
     def _handle(self, conn):
-        conn.settimeout(2)
+        conn.settimeout(CONNECTION_TIMEOUT)
         uid = _peer_uid(conn)
         if uid != os.getuid():
             log.warning("别的用户（uid %d）连了控制套接字，不理", uid)
@@ -195,11 +243,16 @@ class ControlServer:
             self._controls.resume()
             reply = {"ok": True}
         elif command == "status":
-            reply = {"ok": True, "paused": self._controls.paused,
-                     "pause_reason": self._controls.pause_reason, **self._status()}
+            paused, reason = self._controls.state()
+            try:
+                extra = dict(self._status())
+            except Exception as exc:
+                log.warning("取状态失败", exc_info=True)
+                extra = {"status_error": f"{type(exc).__name__}: {exc}"}
+            reply = {"ok": True, "paused": paused, "pause_reason": reason, **extra}
         else:
             reply = {"ok": False, "error": f"unknown command {command!r}"}
-        conn.sendall((json.dumps(reply, ensure_ascii=False) + "\n").encode("utf-8"))
+        conn.sendall((json.dumps(reply, ensure_ascii=False, default=str) + "\n").encode("utf-8"))
 
     def close(self):
         self._closing.set()
@@ -218,6 +271,7 @@ class ControlServer:
                 self._path.unlink()
         except FileNotFoundError:
             pass
+        self._drop_lock()
 
 
 def send(command, path, timeout=3):

@@ -8,6 +8,7 @@
 "同一时间只跑一个"这几条，是对着内核测的，不是对着替身。
 """
 
+import fcntl
 import json
 import os
 import socket
@@ -44,8 +45,10 @@ class TestControls:
         assert elapsed(lambda: c.wait(5)) < 1 and c.stop_requested
 
     def test_a_stop_that_came_before_the_wait_is_not_slept_through(self):
+        """哪怕循环已经看到了停止还去等（看过以后版本就不算"变了"），也立刻返回。"""
         c = control.Controls()
         c.request_stop("test")
+        assert c.stop_requested
         assert elapsed(lambda: c.wait(5)) < 0.5
 
     def test_a_pause_wakes_a_wait_too(self):
@@ -55,6 +58,26 @@ class TestControls:
 
     def test_without_a_change_the_wait_takes_its_time(self):
         c = control.Controls()
+        assert elapsed(lambda: c.wait(0.2)) >= 0.19
+
+    def test_a_pause_between_the_loop_s_look_and_its_wait_is_not_slept_through(self):
+        """循环看过 paused（还是 False）之后、开始等之前来了暂停：wait 不能再睡满一轮。"""
+        c = control.Controls()
+        assert not c.paused
+        c.pause("test")
+        assert elapsed(lambda: c.wait(5)) < 0.5
+
+    def test_a_status_read_does_not_hide_a_change_from_the_loop(self):
+        c = control.Controls()
+        assert not c.paused
+        c.pause("test")
+        assert c.state() == (True, "test")
+        assert elapsed(lambda: c.wait(5)) < 0.5
+
+    def test_once_the_loop_has_seen_the_state_it_waits_again(self):
+        c = control.Controls()
+        c.pause("test")
+        assert c.paused
         assert elapsed(lambda: c.wait(0.2)) >= 0.19
 
     def test_resume_clears_the_pause(self):
@@ -138,6 +161,48 @@ class TestTheSocket:
         finally:
             srv.close()
 
+    def test_a_loop_holding_the_lock_keeps_others_away_from_the_socket(self, path):
+        """两个同时启动、又都看到同一个旧套接字时，只有拿到锁的那个去动它。"""
+        leftover = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        leftover.bind(str(path))
+        leftover.close()
+        inode = path.lstat().st_ino
+        holder = os.open(path.with_suffix(".lock"), os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        try:
+            with pytest.raises(control.AlreadyRunning, match="锁"):
+                serve(path)
+            assert path.lstat().st_ino == inode
+        finally:
+            os.close(holder)
+
+    def test_the_lock_is_let_go_on_close(self, path):
+        first, _ = serve(path)
+        first.close()
+        second, _ = serve(path)
+        second.close()
+
+    def test_a_symlinked_lock_file_is_refused(self, path, tmp_path):
+        target = tmp_path / "elsewhere"
+        target.write_text("keep me")
+        path.with_suffix(".lock").symlink_to(target)
+        with pytest.raises(OSError):
+            serve(path)
+        assert target.read_text() == "keep me" and not os.path.lexists(path)
+
+    def test_a_listener_without_the_lock_is_not_replaced(self, path):
+        """拿到了锁，可套接字上有人在听（不用这把锁的老版本，或者别的程序）：不顶掉它。"""
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(str(path))
+        listener.listen(1)
+        inode = path.lstat().st_ino
+        try:
+            with pytest.raises(control.AlreadyRunning, match="有人在听"):
+                serve(path)
+            assert path.lstat().st_ino == inode
+        finally:
+            listener.close()
+
     def test_a_socket_left_over_from_a_crash_is_replaced(self, path):
         leftover = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         leftover.bind(str(path))
@@ -162,6 +227,37 @@ class TestTheSocket:
         with pytest.raises(RuntimeError, match="别的东西"):
             serve(path)
         assert path.is_symlink() and target.read_text() == "keep me"
+
+    def test_a_silent_client_does_not_hold_up_a_stop(self, path):
+        """连上了却一个字不发（挂起了、崩了）：后面的 stop 照样一秒内送到。"""
+        srv, c = serve(path)
+        silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        silent.connect(str(path))
+        try:
+            time.sleep(0.05)
+            assert elapsed(lambda: control.send("stop", path)) < 0.5
+            assert c.stop_requested
+        finally:
+            silent.close()
+            srv.close()
+
+    def test_a_failing_status_does_not_take_the_server_down(self, path):
+        def broken():
+            raise RuntimeError("no state yet")
+        srv, c = serve(path, status=broken)
+        try:
+            reply = control.send("status", path)
+            assert reply["ok"] and "no state yet" in reply["status_error"]
+            assert control.send("stop", path) == {"ok": True} and c.stop_requested
+        finally:
+            srv.close()
+
+    def test_a_status_that_json_cannot_hold_is_still_answered(self, path):
+        srv, _ = serve(path, status=lambda: {"held": {"w"}})
+        try:
+            assert control.send("status", path)["held"] == "{'w'}"
+        finally:
+            srv.close()
 
     def test_close_removes_the_socket_and_nobody_answers_after(self, path):
         srv, _ = serve(path)
