@@ -10,15 +10,15 @@ SPDX-License-Identifier: GPL-2.0-or-later
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 > [!IMPORTANT]
-> **筹备中，目前还不能对游戏运行。**
+> **筹备中，自动战斗还不能对游戏运行。**
 >
 > - 这是 Windows 版 [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbfr_auto) 的 Linux 后继项目。Windows 版已暂停并归档。
-> - 仓库里目前只有从 Windows 版继承来的、与平台无关的核心。Linux 平台层（截图、输入、热键）还没有写：要先用探测工具量清楚游戏在 gamescope 下的表现。
+> - 仓库里目前有从 Windows 版继承来的、与平台无关的核心，以及一个探测工具。Linux 平台层（截图、输入、热键）还没有写；探测工具已经对游戏跑过第一轮，结果见下面的进度表。
 
 > [!WARNING]
 > **AI 编写声明。** 本仓库由 AI 编程助手（Anthropic 的 Claude Code）在仓库所有者的指示下编写，**没有经过人工逐行审查**。
 >
-> - 这里的代码还没有在 Linux 上对游戏运行过；核心部分只有自动化测试。
+> - 在 Linux 上对游戏运行过的只有探测工具（2026-10-05，每一步各一次）；核心部分只有自动化测试。
 > - 运行前请自行审阅，风险自负。
 >
 > 详见[关于 AI 编写](#关于-ai-编写)。
@@ -38,12 +38,12 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 | 部分 | 状态 | 依据 |
 |---|---|---|
-| 与平台无关的核心：模板匹配、页面判定树、配置、日志、输入动作词汇、恢复规则 | 🧪 | 173 个自动化测试，在 CI 的 Linux 上运行 |
-| Linux 探测工具：找到游戏所在的 gamescope 显示、截图、发送输入、判断失焦暂停 | 🧪 | 已写好（[tools/linux_probe.py](tools/README.md)）。除了单元测试，还在 headless 模式的 gamescope 里对一个替身窗口干跑过；还没有对游戏运行过 |
-| 游戏窗口在后台时，能否从 gamescope 里截到画面 | ❓ | Linux 上尚未测量 |
-| 能否只把输入送进 gamescope 里的游戏，而不碰桌面 | ❓ | Linux 上尚未测量 |
-| 窗口失去焦点时游戏会不会暂停 | ❓ | Windows 上会暂停；在游戏进程内伪装焦点可以阻止它（2026-08-26 两次实测）。在 gamescope 下，游戏跑在 gamescope 自己的 X 服务器里，可能根本察觉不到宿主桌面的焦点变化。Linux 上尚未测量 |
-| 应用本体：战斗循环、界面、热键 | ⏳ | Windows 版的应用层保存在本仓库的历史里，等探测结果确定做法后再移植 |
+| 与平台无关的核心：模板匹配、页面判定树、配置、日志、输入动作词汇、恢复规则 | 🧪 | 180 个自动化测试，在 CI 的 Linux 上运行 |
+| Linux 探测工具：找到游戏所在的 gamescope 显示、截图、发送输入、判断失焦暂停 | ✅ | [tools/linux_probe.py](tools/README.md)。2026-10-05 在所有者的机器上对游戏完整跑过一次（L1 到 L4）。在那之前有单元测试，以及在 headless 模式的 gamescope 里对一个替身窗口的干跑 |
+| 游戏窗口在后台时，能否从 gamescope 里截到画面 | ✅ | 能，用 `gamescopectl screenshot`（2026-10-05，一次实测）：游戏有焦点、失焦、被遮住时都截到了真实画面，每帧 1.1 到 1.3 秒。截图是 gamescope 输出画面的尺寸，和游戏自己的分辨率不一定一样，所以模板和点击坐标要按比例换算。用 X11 截游戏窗口，每次都是全黑（游戏用 Vulkan 渲染）。PipeWire 一帧也没拿到：连接一直停在格式协商阶段，原因还在查。只在菜单之间操作的话，每秒一帧左右就够；要对战斗做出反应，得每秒 10 帧上下，这几种办法里只有 PipeWire 有可能做到 |
+| 能否只把输入送进 gamescope 里的游戏，而不碰桌面 | ✅ | 能（2026-10-05，一次实测）：用 XTest 发给 gamescope 嵌套 X 服务器的 Escape 送到了游戏窗口，画面随之变化（变化量 89.6，按键前静置时最多 1.7），宿主桌面上的终端没有收到 Escape |
+| 窗口失去焦点时游戏会不会暂停 | ✅ | 不会（2026-10-05，一次实测）：失焦时画面的变化量是有焦点时的 132%（城镇里的环境动画），游戏窗口没有收到焦点事件，gamescope 根窗口上的属性也没有变。看来游戏跑在 gamescope 自己的 X 服务器里，察觉不到宿主桌面的焦点变化。Windows 上会暂停，要在游戏进程内伪装焦点才能阻止（2026-08-26 两次实测）；照这次的结果，Linux 上用不着这个伪装。还要靠更长时间的挂机来确认 |
+| 应用本体：战斗循环、界面、热键 | ⏳ | Windows 版的应用层保存在本仓库的历史里。探测的第一轮结果已经出来，下一步是 Linux 平台层（截图、输入），然后移植应用层 |
 
 ## 计划
 
@@ -54,6 +54,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
 3. 检查发给 gamescope 的 X 服务器的输入，能否只驱动游戏而不碰桌面。
 4. 检查 gamescope 窗口失去焦点时游戏会不会暂停。
 5. 仅当第 4 步发现会暂停时：检查旧的焦点伪装做成 `.asi`、由 Reloaded-II 的 ASI 加载器加载后，在 Proton 下是否仍然有效。
+
+第一轮测量（2026-10-05，每一步各一次）支持这个推断：失焦不暂停，XTest 输入只进游戏，gamescopectl 在后台也截得到图，所以第 5 步眼下用不上。结论还要靠更长时间的挂机来确认。
 
 热键打算改用 GNOME 自定义快捷键：快捷键调用一个小命令行工具，由它通过 Unix 套接字通知脚本。原因是在 GNOME 的 Wayland 会话里，全局键盘监听只能收到 XWayland 窗口里的按键。
 
@@ -103,8 +105,8 @@ SPDX-License-Identifier: GPL-2.0-or-later
   - 除上游的 6 个提交和 2026-08-23 的 3 个初始配置提交（ruff 与 pre-commit 配置、依赖版本、恢复 LICENSE）外，每个非合并提交都带有 `Co-Authored-By: Claude` 标注。
 - **审查**：**没有人工逐行审查。** 所有者负责方向，以及需要真实游戏的测试。
 - **验证**：
-  - Linux 上有 239 个自动化测试（核心 173 个，探测工具 66 个），每个 pull request 都会在 CI 里运行。
-  - 还没有任何代码在 Linux 上对游戏运行过。测试覆盖不到截图、输入，以及任何需要游戏本身的行为。
+  - Linux 上有 333 个自动化测试（核心 180 个，探测工具 153 个），每个 pull request 都会在 CI 里运行。
+  - 在 Linux 上对游戏运行过的只有探测工具：2026-10-05，每一步各一次，结果见[进度](#进度)。脚本本身还没有。测试覆盖不到截图、输入，以及任何需要游戏本身的行为。
 - **风险**：脚本会向游戏发送输入；探测计划的第 5 步还可能把一个库加载进游戏进程。GPL 不提供任何担保（GPL-2.0 第 11、12 条）。
 - **版权**：AI 生成的内容能否受版权保护，目前在法律上尚无定论；在受保护的范围内，适用 [COPYRIGHT](COPYRIGHT) 中的许可。AI 的输出也可能与其训练数据相似。
 - **请勿**把这些代码提交给禁止 AI 生成内容的项目（例如 Gentoo、NetBSD、QEMU）。
