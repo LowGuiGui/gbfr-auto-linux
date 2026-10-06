@@ -20,6 +20,21 @@ from PIL import Image
 import gamescope as gs
 
 
+@pytest.fixture(autouse=True)
+def no_real_subprocess(monkeypatch):
+    """这里的测试一个都不该跑真的进程：机器上装着 gamescopectl，所有者的游戏也可能正开着，
+    忘了传替身的测试会去截真的画面。subprocess.run 也经过 Popen，一起拦住。截图那边把异常
+    都接住了，所以收尾时再看一次有没有人试过，不靠异常传出来。"""
+    attempts = []
+
+    def refuse(*args, **kwargs):
+        attempts.append(args[:1])
+        raise AssertionError(f"a test reached a real subprocess: {args[:1]!r}")
+    monkeypatch.setattr(gs.subprocess, "Popen", refuse)
+    yield
+    assert not attempts, f"a test reached a real subprocess: {attempts!r}"
+
+
 def fake_proc(tmp_path, processes):
     """processes: {pid: {"environ": dict | None, "comm": str, "cmdline": str, "ppid": int}}
 
@@ -180,6 +195,44 @@ class FakeRun:
                                            stderr=self.stderr)
 
 
+class FakePopen:
+    """subprocess.Popen 的替身，签名照 subprocess 的文档。write 照 gamescope 那样把图写到命令的
+    最后一个参数上；hang 为真时命令一直不回（communicate 每次都超时），直到被 kill。"""
+
+    def __init__(self, write=None, hang=False, stdout="", stderr=""):
+        self.write = write
+        self.hang = hang
+        self.stdout = stdout
+        self.stderr = stderr
+        self.calls = []
+        self.killed = False
+        self.timeouts = []
+
+    def __call__(self, cmd, env=None, stdout=None, stderr=None, text=False):
+        self.calls.append((cmd, env))
+        self.cmd = cmd
+        if self.write and not self.hang:
+            self.write(Path(cmd[-1]))
+        return self
+
+    def communicate(self, timeout=None):
+        import subprocess
+        self.timeouts.append(timeout)
+        if self.hang and not self.killed:
+            raise subprocess.TimeoutExpired(self.cmd, timeout)
+        return self.stdout, self.stderr
+
+    def poll(self):
+        return None if self.hang and not self.killed else self.returncode
+
+    def kill(self):
+        self.killed = True
+
+    @property
+    def returncode(self):
+        return -9 if self.killed else 0
+
+
 class TestGamescopectl:
     def test_it_targets_the_right_instance(self, tmp_path):
         run = FakeRun()
@@ -188,6 +241,22 @@ class TestGamescopectl:
         assert cmd == ["gamescopectl", "help"]
         assert env["GAMESCOPE_WAYLAND_DISPLAY"] == "gamescope-1"
         assert env["XDG_RUNTIME_DIR"] == "/run/user/1000"
+
+    def test_with_a_stop_the_command_runs_in_the_background_and_answers_as_before(self):
+        popen = FakePopen(stdout="ok")
+        result = gs.run_gamescopectl(["help"], "gamescope-1", "/run/user/1000",
+                                     stop=lambda: False, popen=popen)
+        cmd, env = popen.calls[0]
+        assert cmd == ["gamescopectl", "help"] and env["GAMESCOPE_WAYLAND_DISPLAY"] == "gamescope-1"
+        assert result.returncode == 0 and result.stdout == "ok" and not popen.killed
+
+    def test_a_command_that_hangs_past_its_timeout_is_killed(self):
+        import subprocess
+        popen = FakePopen(hang=True)
+        with pytest.raises(subprocess.TimeoutExpired):
+            gs.run_gamescopectl(["screenshot", "/x.png"], "gamescope-1", timeout=0.3,
+                                interval=0.1, stop=lambda: False, popen=popen)
+        assert popen.killed and popen.timeouts == [0.1, 0.1, 0.1, None]
 
     def test_screenshot_is_read_back(self, tmp_path):
         def gamescope_saves(path):
@@ -468,9 +537,26 @@ class TestScreenshotCapture:
         frame = capture()
         assert frame.shape == (360, 640, 3) and frame.min() == 200
         assert run.calls[0][0][:2] == ["gamescopectl", "screenshot"]
-        assert Path(run.calls[0][0][-1]) == tmp_path / "frame.png"
-        assert not (tmp_path / "frame.png").exists()
+        shot = Path(run.calls[0][0][-1])
+        assert shot.parent == tmp_path and shot.name.startswith("frame-")
+        assert not list(tmp_path.glob("frame-*.png"))
         assert capture.last_ms is not None
+
+    def test_each_request_has_its_own_file_and_late_ones_are_cleared(self, tmp_path):
+        """一次截图超时以后，gamescope 可能过一会儿才把那张图写出来：下一次要是还用同一个名字，
+        等到的就是旧画面。所以每次换一个名字，开始截图之前把以前剩下的删掉。"""
+        def gamescope_saves(path):
+            Image.new("RGB", (640, 360), (0, 200, 0)).save(path)
+        run = FakeRun(write=gamescope_saves)
+        capture = gs.ScreenshotCapture("gamescope-1", None, (640, 360), tmp_path, run=run,
+                                       sleep=lambda s: None)
+        capture()
+        late = tmp_path / "frame-123-7.png"
+        Image.new("RGB", (640, 360), (200, 0, 0)).save(late)
+        frame = capture()
+        assert run.calls[0][0][-1] != run.calls[1][0][-1]
+        assert frame[0, 0].tolist() == [0, 200, 0]
+        assert not late.exists() and not list(tmp_path.glob("frame-*.png"))
 
     def test_a_failure_is_none_with_the_reason_in_the_log(self, tmp_path, log_file):
         capture = gs.ScreenshotCapture("gamescope-1", None, (640, 360), tmp_path, timeout=0.3,
@@ -487,8 +573,33 @@ class TestScreenshotCapture:
             polls.append(1)
             return len(polls) > 1
         capture = gs.ScreenshotCapture("gamescope-1", None, (640, 360), tmp_path, timeout=2,
-                                       stop=stop, run=FakeRun(), sleep=lambda s: None)
+                                       stop=stop, popen=FakePopen(), sleep=lambda s: None)
         assert capture() is None
         text = log_file()
         assert "收到停止" in text and "截图失败" not in text
+
+    def test_a_stop_ends_a_gamescopectl_that_hangs(self, tmp_path, log_file):
+        """gamescope 卡住，gamescopectl 迟迟不回：停止不用等满 timeout，命令被结束掉。"""
+        polls = []
+
+        def stop():
+            polls.append(1)
+            return len(polls) > 1
+        popen = FakePopen(hang=True)
+        capture = gs.ScreenshotCapture("gamescope-1", None, (640, 360), tmp_path, timeout=5,
+                                       stop=stop, popen=popen, sleep=lambda s: None)
+        assert capture() is None
+        assert popen.killed and len(popen.timeouts) == 3
+        text = log_file()
+        assert "收到停止" in text and "截图失败" not in text
+
+    def test_a_frame_still_comes_back_through_the_stoppable_command(self, tmp_path):
+        def gamescope_saves(path):
+            Image.new("RGB", (640, 360), (0, 0, 200)).save(path)
+        popen = FakePopen(write=gamescope_saves)
+        capture = gs.ScreenshotCapture("gamescope-1", None, (640, 360), tmp_path, timeout=2,
+                                       stop=lambda: False, popen=popen, sleep=lambda s: None)
+        frame = capture()
+        assert frame is not None and frame[0, 0].tolist() == [0, 0, 200]
+        assert popen.calls[0][0][:2] == ["gamescopectl", "screenshot"] and not popen.killed
 

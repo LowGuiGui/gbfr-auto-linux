@@ -296,13 +296,38 @@ def describe_focus(focus):
 
 # --- gamescopectl ------------------------------------------------------------
 
-def run_gamescopectl(args, wayland_display, runtime_dir=None, timeout=10, run=subprocess.run):
+def run_gamescopectl(args, wayland_display, runtime_dir=None, timeout=10, run=subprocess.run,
+                     stop=None, popen=None, interval=0.1):
     """在指定的 gamescope 实例上跑 gamescopectl。不设 GAMESCOPE_WAYLAND_DISPLAY 的话，
-    它会去连 gamescope-0，那可能是另一个游戏的实例。"""
+    它会去连 gamescope-0，那可能是另一个游戏的实例。
+
+    给了 stop（返回真就不再等的函数），命令就在后台跑，每隔 interval 秒看一次 stop：gamescope
+    卡住、命令迟迟不回时，停止命令不用等满 timeout。停下和超时都会把命令结束掉。popen 默认是
+    调用时的 subprocess.Popen。
+    """
     env = dict(os.environ, GAMESCOPE_WAYLAND_DISPLAY=wayland_display)
     if runtime_dir:
         env["XDG_RUNTIME_DIR"] = runtime_dir
-    return run(["gamescopectl", *args], env=env, capture_output=True, text=True, timeout=timeout)
+    cmd = ["gamescopectl", *args]
+    if stop is None:
+        return run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
+    proc = (popen or subprocess.Popen)(cmd, env=env, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, text=True)
+    try:
+        for _ in range(max(1, round(timeout / interval))):
+            try:
+                stdout, stderr = proc.communicate(timeout=interval)
+            except subprocess.TimeoutExpired:
+                # 照 subprocess 的文档，接住这个异常再 communicate 不会丢输出
+                if stop():
+                    raise RuntimeError("stopped while gamescopectl was running") from None
+                continue
+            return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
 
 
 def wait_for_file(path, timeout, sleep=time.sleep, clock=time.monotonic, interval=0.2, stop=None):
@@ -325,7 +350,7 @@ def wait_for_file(path, timeout, sleep=time.sleep, clock=time.monotonic, interva
 
 
 def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
-                         run=subprocess.run, sleep=time.sleep, stop=None):
+                         run=subprocess.run, sleep=time.sleep, stop=None, popen=None):
     from PIL import Image
 
     # 截图由 gamescope 自己的进程去写。它的工作目录是启动器的会话目录，不是这个终端的，
@@ -338,7 +363,7 @@ def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
     if path.is_symlink() or path.exists():
         path.unlink()
     result = run_gamescopectl(["screenshot", str(path)], wayland_display, runtime_dir,
-                              timeout=timeout, run=run)
+                              timeout=timeout, run=run, stop=stop, popen=popen)
     if not wait_for_file(path, timeout, sleep=sleep, stop=stop):
         raise RuntimeError(f"no screenshot file appeared (exit {result.returncode}, "
                            f"stdout {result.stdout.strip()[:120]!r}, "
@@ -406,15 +431,21 @@ class ScreenshotCapture:
 
     调用一次返回一帧 (高, 宽, 3) 的 RGB 数组，截不到就返回 None，原因记进日志；连续几次
     截不到该怎么办由循环决定。directory 应该是 private_dir() 给的目录。stop 返回真时不再
-    等这一帧。
+    等这一帧，gamescopectl 还没回也一样。
+
+    gamescope 在后台存图：一次截图超时了，那张图可能过一会儿才写出来。所以每一次都用一个新的
+    文件名，等的只是这一次的那张；开始截图之前，把目录里以前剩下的都删掉。
     """
 
     def __init__(self, wayland_display, runtime_dir, size, directory, timeout=5.0, stop=None,
-                 run=subprocess.run, sleep=time.sleep, clock=time.monotonic):
+                 run=subprocess.run, sleep=time.sleep, clock=time.monotonic, popen=None):
         self._wayland = wayland_display
         self._runtime = runtime_dir
         self._size = size
-        self._path = Path(directory, "frame.png")
+        self._directory = Path(directory)
+        self._prefix = f"frame-{os.getpid()}-"
+        self._count = 0
+        self._popen = popen
         self._timeout = timeout
         self._stop = stop
         self._run = run
@@ -424,10 +455,17 @@ class ScreenshotCapture:
 
     def __call__(self):
         start = self._clock()
+        for leftover in self._directory.glob("frame-*.png"):
+            try:
+                leftover.unlink()
+            except FileNotFoundError:
+                pass
+        self._count += 1
+        path = self._directory / f"{self._prefix}{self._count}.png"
         try:
-            frame = capture_gamescopectl(self._path, self._wayland, self._runtime,
+            frame = capture_gamescopectl(path, self._wayland, self._runtime,
                                          timeout=self._timeout, run=self._run, sleep=self._sleep,
-                                         stop=self._stop)
+                                         stop=self._stop, popen=self._popen)
         except Exception as exc:
             if self._stop is not None and self._stop():
                 log.info("收到停止，这一帧不等了")
@@ -437,7 +475,7 @@ class ScreenshotCapture:
         finally:
             # 画面读进内存就删：截图里是游戏画面，不该在目录里留着
             try:
-                self._path.unlink()
+                path.unlink()
             except FileNotFoundError:
                 pass
         self.last_ms = round((self._clock() - start) * 1000)
