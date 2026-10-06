@@ -26,7 +26,8 @@ KEYS = {"move": "w", "again": "3", "confirm": "a"}
 # 美式键盘上常见的映射：键码（evdev + 8）-> 各档的符号，第一档不按修饰键，第二档按 Shift
 KEYMAP = {25: ["w", "W"], 12: ["3", "numbersign"], 38: ["a", "A"], 21: ["equal", "plus"],
           9: ["Escape"], 133: ["Super_L"], 50: ["Shift_L"], 37: ["Control_L"], 77: ["Num_Lock"],
-          66: ["Caps_Lock"], 92: ["ISO_Level3_Shift"]}
+          66: ["Caps_Lock"], 92: ["ISO_Level3_Shift"], 87: ["KP_End", "KP_1"],
+          86: ["KP_Add", "KP_Add"]}
 # shift, lock, control, mod1 .. mod5，每组两个位置，0 是空位
 MODIFIERS = [[50, 62], [66, 0], [37, 105], [64, 108], [77, 0], [0, 0], [133, 134], [92, 0]]
 GAMESCOPE_PROPS = {"GAMESCOPE_FOCUSED_WINDOW": [0x400000], "GAMESCOPE_INPUT_COUNTER": [3174]}
@@ -214,6 +215,16 @@ class TestOnlyConfiguredKeys:
         d, w = nested()
         with pytest.raises(InputRefused, match="修饰键才打得出来"):
             live_input(d, w, keys=dict(KEYS, again=name))
+
+    def test_a_keypad_key_num_lock_would_change_is_refused(self):
+        """照 X 协议，Num Lock 亮着时小键盘上的键用第二档：配置写 KP_End，打出来的是 KP_1。"""
+        d, w = nested()
+        with pytest.raises(InputRefused, match="小键盘"):
+            live_input(d, w, keys=dict(KEYS, confirm="KP_End"))
+
+    def test_a_keypad_key_num_lock_leaves_alone_is_accepted(self):
+        d, w = nested()
+        assert live_input(d, w, keys=dict(KEYS, confirm="KP_Add")).is_ready()
 
     @pytest.mark.parametrize("name", ["no_such_key", "F13"])
     def test_a_key_the_keymap_lacks_is_refused(self, name):
@@ -665,6 +676,32 @@ class TestModifiersHeldElsewhere:
         d.modifiers[1] = [0, 0]
         d.modifiers[7] = [92, 66]
         w.root.state = X.Mod5Mask
+        xi.key_tap("3")
+        assert d.events == [] and xi.skipped == 1
+
+    def test_caps_lock_held_as_an_extra_ctrl_counts(self):
+        """GNOME 里"Caps Lock 也当 Ctrl 用"：键上的符号还是 Caps_Lock，按着时亮的却是 Control。
+        锁定键自己正按着，那一组也算按着修饰键。"""
+        d, w = nested()
+        d.modifiers[1] = [0, 0]
+        d.modifiers[2] = [37, 105, 66]
+        d.keys_down.add(66)
+        w.root.state = X.ControlMask
+        xi = live_input(d, w)
+        xi.key_tap("3")
+        assert d.events == [] and xi.skipped == 1
+
+    @pytest.mark.parametrize("index, state", [(1, X.LockMask), (0, X.ShiftMask)],
+                             ids=["on Lock", "on Shift"])
+    def test_shift_lock_counts(self, index, state):
+        """Shift Lock 让每个键都用 Shift 档，3 就成了 #。X 协议里它挂在 Lock 上，XKB 的
+        caps:shiftlock 把它挂在 Shift 上。"""
+        modifiers = [list(codes) for codes in MODIFIERS]
+        modifiers[1] = [0, 0]
+        modifiers[index] = modifiers[index] + [66]
+        d, w = nested(keymap={**KEYMAP, 66: ["Shift_Lock"]}, modifiers=modifiers)
+        w.root.state = state
+        xi = live_input(d, w)
         xi.key_tap("3")
         assert d.events == [] and xi.skipped == 1
 

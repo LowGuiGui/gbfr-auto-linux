@@ -19,15 +19,15 @@ Linux 上的那一个。
      构造时就拒绝。宿主那边的 X（GNOME 的 Xwayland）没有这些属性，连错了就停在这里。
   2. 只发配置 [keys] 里写的那几个键，而且不能是修饰键（Super 组合是 gamescope 自己的快捷
      键，Ctrl、Alt、Shift 会改掉别的键的意思），也不能是要配合修饰键才打得出的键（大写
-     字母、Shift 档上的符号：XTest 只发键码，不带 Shift 发出去的是另一个字）。鼠标只有
-     中键，物理按钮号按服务器的指针映射查。
+     字母、Shift 档上的符号：XTest 只发键码，不带 Shift 发出去的是另一个字），也不能是
+     Num Lock 会改掉的小键盘键。鼠标只有中键，物理按钮号按服务器的指针映射查。
   3. 每次按下之前，一次读齐服务器此刻的状态再决定：
        - 输入焦点得是游戏窗口或者它里面的窗口（焦点在 Wine 的对话框、覆盖层上就不发）；
        - 键盘映射和指针映射还是构造时的样子：运行中改了映射（比如重新设了一套布局），缓存
          的键码可能已经是另一个字，甚至成了修饰键，那就不再发，并且不再算就绪；
-       - 没有修饰键按着（人正按着 Shift，3 就成了 Shift+3）；Caps Lock、Num Lock 这类锁定
-         键常年亮着，不算，可和锁定键同一组的别的键要是正按着，照样算。哪个键是锁定键按此刻
-         的映射认；
+       - 没有修饰键按着（人正按着 Shift，3 就成了 Shift+3）；Caps Lock、Num Lock 常年亮着，
+         不算，可它们那一组里要是有键正按着，照样算。哪个键是锁定键按此刻的映射认。Shift
+         Lock 不在其内：它让每个键都用 Shift 档，3 就成了 #；
        - 键盘在第一套布局上（XKB 的组）：在几套布局之间切换不改映射，也不按修饰键，只改
          服务器状态里的组，同一个键码打出来的却是另一套布局里的字。鼠标不管这一条；
        - 这个键（或中键）没有被别处按着：这边不替别人按下，更不在之后替别人松开。
@@ -77,8 +77,9 @@ BUTTONS = {"middle": 2}
 # key_tap 按下到松开之间等多久，和探测器 L3 用的一样。
 TAP_HOLD_S = 0.05
 
-# 亮着也不算"按着修饰键"的锁定键（除非它们那一组里别的键正按着）。
-LOCK_KEYSYMS = {XK.XK_Caps_Lock, XK.XK_Shift_Lock, XK.XK_Num_Lock}
+# 亮着也不算"按着修饰键"的锁定键。照 X 协议：Caps Lock 只把小写字母换成大写，Num Lock 只
+# 改小键盘上的键；Shift Lock 让每个键都用 Shift 档，所以不在这里。
+LOCK_KEYSYMS = {XK.XK_Caps_Lock, XK.XK_Num_Lock}
 
 
 class InputRefused(RuntimeError):
@@ -104,6 +105,11 @@ def _physical(logical, pointer_map):
 def _button_mask(logical):
     """状态里表示这个逻辑按钮按着的那一位：Button1Mask 是 1 << 8，往上依次是 2、3……"""
     return X.Button1Mask << (logical - 1)
+
+
+def _is_keypad(keysym):
+    """X 协议说的小键盘符号：0xFF80 到 0xFFBD，以及厂商的 0x11000000 到 0x1100FFFF。"""
+    return 0xFF80 <= keysym <= 0xFFBD or 0x11000000 <= keysym <= 0x1100FFFF
 
 
 def _group(mask):
@@ -152,6 +158,12 @@ class XTestInput:
             if display.keycode_to_keysym(keycode, 0) != keysym:
                 raise InputRefused(f"{name!r} 在嵌套 X 里要配合修饰键才打得出来，不发：只发"
                                    "不按 Shift 等键就能打出的那个字")
+            # 照 X 协议，Num Lock 亮着时，第二档是小键盘符号的键用第二档：KP_End 成了 KP_1。
+            # Num Lock 亮着不算按着修饰键，所以这种键干脆不发
+            second = display.keycode_to_keysym(keycode, 1)
+            if _is_keypad(second) and second != keysym:
+                raise InputRefused(f"{name!r} 是小键盘上的键，Num Lock 一亮打出来的就是另一个字，"
+                                   "不发")
             self._keycodes[name] = keycode
             self._keysyms[name] = keysym
         pointer_map = display.get_pointer_mapping()
@@ -235,9 +247,9 @@ class XTestInput:
     def _modifier_held(self, state, what):
         """有修饰键按着就记一笔、返回真：这时发出去的键会拼成组合键。
 
-        锁定键（Caps Lock、Num Lock）亮着时它那一组的位也是亮的，那不算；但只在组里别的键
-        都没有按着时才不算：和 Num Lock 同组的另一个键（比如选档位的键）正按着，照样算。锁定键
-        是此刻映射里第一个符号是锁定键符号的键码：映射变过，就按变了以后的认。
+        锁定键（Caps Lock、Num Lock）亮着时它那一组的位也是亮的，那不算；但只在组里一个键都
+        没有按着时才不算：和 Num Lock 同组的另一个键（比如选档位的键）正按着，照样算。锁定键
+        是此刻映射里第一个符号是 Caps_Lock 或 Num_Lock 的键码：映射变过，就按变了以后的认。
         修饰键映射的第 i 组对应状态里的 1 << i 那一位。
         """
         locks = {code for code, keysyms in state["keymap"].items()
@@ -248,9 +260,8 @@ class XTestInput:
             if not state["mask"] & bit:
                 continue
             members = [code for code in codes if code]
-            others_down = any(_is_down(state["keys_down"], code) for code in members
-                              if code not in locks)
-            if any(code in locks for code in members) and not others_down:
+            if (any(code in locks for code in members)
+                    and not any(_is_down(state["keys_down"], code) for code in members)):
                 continue
             held |= bit
         if held:
