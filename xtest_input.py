@@ -41,7 +41,8 @@ from gamescope import describe_focus, gamescope_root_properties, within_window
 
 log = get_logger(__name__)
 
-# 鼠标只用中键（KmbBackend.battle_press）。X 的按钮号：1 左键、2 中键、3 右键。
+# 鼠标只用中键（KmbBackend.battle_press）。这是逻辑按钮号：1 左键、2 中键、3 右键。XTest 发的
+# 是物理按钮号，要经过服务器的指针映射才变成逻辑号，所以构造时按映射倒查一次。
 BUTTONS = {"middle": 2}
 
 # key_tap 按下到松开之间等多久，和探测器 L3 用的一样。
@@ -92,6 +93,13 @@ class XTestInput:
                 raise InputRefused(f"{name!r} 在嵌套 X 里要配合修饰键才打得出来，不发：只发"
                                    "不按 Shift 等键就能打出的那个字")
             self._keycodes[name] = keycode
+        # get_pointer_mapping() 的第 N 项是物理按钮 N+1 对应的逻辑按钮
+        mapping = list(display.get_pointer_mapping())
+        self._buttons = {}
+        for button, logical in BUTTONS.items():
+            if logical not in mapping:
+                raise InputRefused(f"嵌套 X 的指针映射里没有哪个物理按钮对应逻辑上的 {button} 键")
+            self._buttons[button] = mapping.index(logical) + 1
         self._ready = True
         if not self._live:
             log.warning("空跑：一个 XTest 事件都不会发，只记日志")
@@ -111,9 +119,9 @@ class XTestInput:
         return self._keycodes[name]
 
     def _button(self, button):
-        if button not in BUTTONS:
-            raise ValueError(f"refusing to press {button!r}: only {sorted(BUTTONS)}")
-        return BUTTONS[button]
+        if button not in self._buttons:
+            raise ValueError(f"refusing to press {button!r}: only {sorted(self._buttons)}")
+        return self._buttons[button]
 
     def _focus_on_game(self, what):
         """焦点在游戏窗口或它里面才返回真。不在就记一笔，skipped 加一。"""
@@ -244,7 +252,7 @@ class XTestInput:
         """
         for name, keycode in self._keycodes.items():
             self._send(X.KeyRelease, keycode, f"松开 {name}")
-        for button, detail in BUTTONS.items():
+        for button, detail in self._buttons.items():
             self._send(X.ButtonRelease, detail, f"松开鼠标 {button}")
         self._held_keys.clear()
         self._held_buttons.clear()

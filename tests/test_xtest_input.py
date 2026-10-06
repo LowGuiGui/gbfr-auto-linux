@@ -73,12 +73,14 @@ class PropertyRoot(GeoWindow):
 class NestedX:
     """python-xlib Display 的替身：XTestInput 用到的方法，签名照源码。"""
 
-    def __init__(self, root, focus, xtest=True, keymap=KEYMAP, modifiers=MODIFIERS):
+    def __init__(self, root, focus, xtest=True, keymap=KEYMAP, modifiers=MODIFIERS,
+                 pointer_map=(1, 2, 3, 4, 5, 6, 7)):
         self.root = root
         self.focus = focus
         self.xtest = xtest
         self.keymap = keymap
         self.modifiers = modifiers
+        self.pointer_map = pointer_map
         self.events = []
         self.fail = False
 
@@ -93,6 +95,10 @@ class NestedX:
 
     def get_modifier_mapping(self):
         return self.modifiers
+
+    def get_pointer_mapping(self):
+        """第 N 项是物理按钮 N+1 对应的逻辑按钮，照 python-xlib 的文档。"""
+        return list(self.pointer_map)
 
     def keysym_to_keycode(self, keysym):
         """照 python-xlib：有好几个键都带这个符号时，取档位最低、其次键码最小的那个。"""
@@ -181,6 +187,22 @@ class TestOnlyConfiguredKeys:
         with pytest.raises(ValueError, match="refusing"):
             call(xi)
         assert d.events == []
+
+    def test_the_middle_button_is_found_through_the_pointer_mapping(self):
+        """物理 3 号映射成逻辑 2 号（中键）时，XTest 得发 3 号，发 2 号出来的是别的键。"""
+        d, w = nested(pointer_map=(1, 3, 2))
+        xi = live_input(d, w)
+        xi.mouse_press(5, 5, "middle")
+        xi.mouse_release(5, 5, "middle")
+        assert d.events[1:] == [(X.ButtonPress, 3), (X.ButtonRelease, 3)]
+        d.events.clear()
+        xi.release_everything()
+        assert (X.ButtonRelease, 3) in d.events
+
+    def test_a_mapping_without_a_middle_button_is_refused(self):
+        d, w = nested(pointer_map=(1, 0, 3))
+        with pytest.raises(InputRefused, match="指针映射"):
+            live_input(d, w)
 
     @pytest.mark.parametrize("button", ["left", "right", 1, 2])
     def test_only_the_middle_button(self, button):
@@ -382,6 +404,7 @@ class TestTheDoubleFollowsPythonXlib:
         params = list(inspect.signature(xtest.fake_input).parameters)
         assert params == ["self", "event_type", "detail", "time", "root", "x", "y"]
         for method in ("keysym_to_keycode", "keycode_to_keysym", "get_modifier_mapping",
-                       "get_input_focus", "has_extension", "sync", "screen", "get_atom_name"):
+                       "get_pointer_mapping", "get_input_focus", "has_extension", "sync",
+                       "screen", "get_atom_name"):
             assert hasattr(xdisplay.Display, method), method
 
