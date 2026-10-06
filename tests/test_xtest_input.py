@@ -611,6 +611,41 @@ class TestHolding:
         xi.release_everything()
         assert not [e for e in d.events if e[0] == X.ButtonRelease]
 
+    @pytest.mark.parametrize("change", ["other symbol", "now a modifier", "now Ctrl"])
+    def test_release_everything_leaves_alone_a_key_whose_keycode_changed(self, change):
+        """没记着的键按构造时的键码松：映射变了，松开的就是另一个键，可能是别人正按着的 Ctrl。"""
+        d, w = nested()
+        xi = live_input(d, w)
+        if change in ("other symbol", "now Ctrl"):
+            d.keymap[25] = ["z", "Z"] if change == "other symbol" else ["Control_L"]
+        if change in ("now a modifier", "now Ctrl"):
+            d.modifiers[2] = [37, 105, 25]
+        xi.release_everything()
+        assert (X.KeyRelease, 25) not in d.events
+        assert {(X.KeyRelease, 12), (X.KeyRelease, 38), (X.ButtonRelease, 2)} <= set(d.events)
+
+    def test_release_everything_still_lets_go_of_a_key_it_holds_after_a_mapping_change(self):
+        """自己按下的，不管映射变成什么，都得松开。"""
+        d, w = nested()
+        xi = live_input(d, w)
+        xi.key_press("w")
+        d.keymap[25] = ["Control_L"]
+        d.modifiers[2] = [37, 105, 25]
+        xi.release_everything()
+        assert (X.KeyRelease, 25) in d.events and xi.held == []
+
+    def test_release_everything_without_a_keymap_lets_go_only_of_what_it_holds(self):
+        d, w = nested()
+        xi = live_input(d, w)
+        xi.key_press("w")
+
+        def gone(first_keycode, count):
+            raise ConnectionResetError("connection to the X server lost")
+        d.get_keyboard_mapping = gone
+        d.events.clear()
+        xi.release_everything()
+        assert [e for e in d.events if e[0] == X.KeyRelease] == [(X.KeyRelease, 25)]
+
     def test_release_everything_keeps_what_it_could_not_release(self):
         """松开没发出去，就还记着：之后的 release_all 还能再试。"""
         d, w = nested()

@@ -45,7 +45,7 @@ Linux 上的那一个。
 读状态出错（多半是连接断了）就不再算就绪：调用方看得到，循环会停下。只有"查的那个窗口在
 半路没了"（BadWindow 这类协议错误）当成一次普通的跳过。
 
-没做的两件事，以及为什么：
+没做的三件事，以及为什么：
 
   - 检查和按下之间不是原子的。要原子就得在检查和按下期间抓住整个服务器（GrabServer），可那
     会让游戏自己的 X 请求也停下来（它的画面经这个 Xwayland 出去）；而且在 gamescope 里，
@@ -55,6 +55,11 @@ Linux 上的那一个。
     想知道只能自己去抓一下，而每次抓都会给游戏发 NotifyGrab 的焦点事件：在 Wine 里这可能被
     当成失焦，而失焦正是 Windows 上让游戏暂停的那件事。嵌套 X 里别的客户端只有游戏自己的
     进程和 gamescope 的覆盖层；真跑起来要是看到抓取把输入带走了，先量，再决定。
+  - 指针移过去以后，查的是要点的那一点，而不是读出来的指针位置。在 gamescope 里，XTest 的
+    移动也要经 libei 绕一圈才生效，sync 回来时指针可能还在原处；按钮事件跟在移动后面走同
+    一条路，落在移过去的那一点上，除非有别的客户端约束或者挪动了指针（点的是游戏窗口的
+    中心，游戏要挪指针，多半也是挪到那里）。读真实位置再查，在这里会把该发的点击当成没到。
+    第一次带鼠标实跑时，量一下移动要多久生效、落点准不准，再定。
 
 live 为假就是空跑：检查照做、日志照记，一个 XTest 事件都不发。空跑也照样记着"按着"
 什么，松开的那一路在空跑里也走得到。所有事件都从 _send 出去，空跑只拦这一处。
@@ -499,8 +504,26 @@ class XTestInput:
         断开的连接留着按下的键，没量过，所以这是尽力而为；最稳的还是在游戏窗口里自己把
         W 和中键点一下。记着的按键，松开发成功了才不再记着：发不出去的，release_all 还能
         再试。
+
+        记着的键用按下时的键码。没记着的，只在此刻的映射确认过时才松：那个键码的第一个符号
+        还是配置里的字，而且不是修饰键。映射变了，按构造时的键码松开的就是另一个键，可能是
+        别人正按着的修饰键。
         """
+        try:
+            modifiers = _codes(self._d.get_modifier_mapping())
+            rows = self._d.get_keyboard_mapping(self._first_keycode, self._keycode_count)
+            keymap = dict(enumerate(rows, start=self._first_keycode))
+        except Exception:
+            log.warning("读不到现在的键盘映射：没记着的键不松", exc_info=True)
+            modifiers, keymap = set(), {}
         for name, keycode in self._keycodes.items():
+            keysyms = keymap.get(keycode)
+            confirmed = (bool(keysyms) and keysyms[0] == self._keysyms[name]
+                         and keycode not in modifiers)
+            if keycode not in self._held_keys and not confirmed:
+                log.warning("现在的键盘映射里，键码 %d 已经不是 %r（或者成了修饰键），这个键不松",
+                            keycode, name)
+                continue
             if self._send(X.KeyRelease, keycode, f"松开 {name}"):
                 self._held_keys.pop(keycode, None)
         try:
