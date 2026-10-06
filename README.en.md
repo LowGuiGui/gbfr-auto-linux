@@ -43,8 +43,8 @@ Legend:
 | Capturing frames from the game under gamescope while its window is in the background | ✅ | Yes, with `gamescopectl screenshot` (2026-10-05, one run): real frames with the game focused, unfocused and covered, 1.1 to 1.3 seconds a frame. Screenshots come at the size of gamescope's output, which need not match the game's own resolution, so templates and click positions need scaling. Capturing the game window over X11 came back black every time (the game renders through Vulkan). PipeWire delivered no frame at all: the connection stayed in format negotiation, for reasons still being investigated. About a frame a second is enough for a loop that only acts on menus; reacting to a fight needs around 10 a second, and of these routes only PipeWire might give that |
 | Sending input only to the game under gamescope, without touching the desktop | ✅ | Yes (2026-10-05, one run): Escape sent through XTest to gamescope's nested X server reached the game window and the picture changed (by 89.6, against at most 1.7 at rest before the key), while the terminal on the host desktop received no Escape |
 | Whether the game pauses when its window loses focus | ✅ | No (2026-10-05, one run): with the window unfocused the picture moved 132% as much as when focused (ambient motion in town), the game window received no focus events, and the properties on gamescope's root window did not change. The game runs on gamescope's own X server and apparently never sees the host desktop's focus change. On Windows it did pause, and only a focus spoof inside the game process stopped it (two runs, 2026-08-26); going by this run, Linux does not need that spoof. Longer AFK runs still have to confirm it |
-| Linux platform layer: finding the game (`gamescope.py`) and input through XTest (`xtest_input.py`) | 🧪 | 174 automated tests. Each of the input module's guards (gamescope's nested X server only; the focus and the clicked point on the game window, the point checked again after the pointer moves; configured keys only, none that need Shift or change with Num Lock, none pressed while a modifier or the key itself is held elsewhere or while the keyboard is on another layout; the key and pointer mappings read again before every press; held keys checked again every round; a dry run unless told otherwise) and of the loop's capture (a screenshot directory only this user can enter, a new file name for every request, the black bars cut off, a stop that waits neither for the frame nor for a stuck gamescopectl) turns its test red when broken on purpose. Not yet run against the game, and not yet in a headless gamescope either. The command line that wires them together comes next |
-| The app itself: battle loop, user interface, hotkeys | ⏳ | The Windows app layer is kept in this repository's history. The Linux platform layer is under way (row above); the battle loop and its stop and pause commands follow it |
+| Linux platform layer: finding the game (`gamescope.py`) and input through XTest (`xtest_input.py`) | 🧪 | 174 automated tests. Each of the input module's guards (gamescope's nested X server only; the focus and the clicked point on the game window, the point checked again after the pointer moves; configured keys only, none that need Shift or change with Num Lock, none pressed while a modifier or the key itself is held elsewhere or while the keyboard is on another layout; the key and pointer mappings read again before every press; held keys checked again every round; a dry run unless told otherwise) and of the loop's capture (a screenshot directory only this user can enter, a new file name for every request, the black bars cut off, a stop that waits neither for the frame nor for a stuck gamescopectl) turns its test red when broken on purpose. Not yet run against the game, and not yet in a headless gamescope either. The command line that wires them together is in the next row |
+| The app itself: the battle loop (`farm.py`), stop and pause (`control.py`), the command line (`gbfr_auto.py`) | 🧪 | 162 automated tests. The loop stops rather than guess (the game window gone, three captures in a row failing, one screen lasting too long) and pauses after three presses in a row that could not be delivered; once a battle is started, it has the input check the held keys every round and starts the battle again when they were let go; and it lets go of everything on every way out. Stop and pause answer only this user, and one loop runs at a time. Each of these turns its test red when broken on purpose. Not yet run against the game: a dry run comes next (see [Using it](#using-it)). There is no graphical interface; the Windows app's interface and hotkeys are kept in this repository's history |
 
 ## The plan
 
@@ -58,7 +58,25 @@ The game runs under Proton inside a nested gamescope session. That may make thre
 
 The first measurements (2026-10-05, once per step) support the inference: no pause when unfocused, XTest input reaches only the game, and gamescopectl captures in the background, so step 5 is not needed for now. Longer AFK runs still have to confirm this.
 
-Hotkeys are planned as GNOME custom shortcuts that call a small command-line tool, which tells the bot over a Unix socket. The reason is that on GNOME's Wayland session, a global key listener only receives keys typed into XWayland windows.
+Stop and pause are GNOME custom shortcuts that run `gbfr_auto.py stop` or `pause`, which tell the running loop over a Unix socket (see [Using it](#using-it)). The reason is that on GNOME's Wayland session, a global key listener only receives keys typed into XWayland windows.
+
+## Using it
+
+Nothing here has run against the game yet (see [Status](#status)), so start with a dry run. The game has to be running under gamescope, started through Steam; the bot never starts or closes it. Set up the environment as described under [Development](#development), then, from the repository directory:
+
+    .venv/bin/python gbfr_auto.py run                          # dry run: recognises screens and logs, sends nothing
+    .venv/bin/python gbfr_auto.py run --live                   # sends input to the game
+    .venv/bin/python gbfr_auto.py run --live --repeats 10      # stops after ten battles
+    .venv/bin/python gbfr_auto.py status                       # what the running loop is doing
+    .venv/bin/python gbfr_auto.py pause                        # pause / resume / stop it
+    .venv/bin/python gbfr_auto.py release                      # let go of W and the middle button
+
+- **Finding the game.** It looks for the game inside gamescope and refuses to start when there is none, or more than one.
+- **Stopping.** Ctrl+C in its terminal, or `gbfr_auto.py stop` from anywhere. On GNOME, bind stop and pause to keys: Settings, Keyboard, View and Customise Shortcuts, Custom Shortcuts, then add one with the command `<repository>/.venv/bin/python <repository>/gbfr_auto.py stop`, and another with `pause`. Only one loop runs at a time.
+- **Stopping on its own.** It stops rather than guess: when the game window goes away, when three captures in a row fail, and when one screen lasts longer than its limit (`loop.max_battle_s`, `loop.max_page_s`). It pauses when three presses in a row could not be delivered, for example because a dialog had the focus; `resume` carries on. The exit code is 0 after `--repeats` or a stop, and 1 when it stopped for any other reason.
+- **After a crash.** If the bot was killed while holding keys, `release` lets go of every configured key and the middle button. Pressing W and the middle button in the game window yourself always works.
+- **Files.** `gbfr_auto.toml` (written on the first run: keys, thresholds, limits; the loop refuses to start on a value out of range), `logs/`, and `anomalies/` (frames of unrecognised screens, only with `detect.save_anomaly_frames = true`). Git ignores all three.
+- **When screens are not recognised.** The templates were cut at a resolution nobody recorded. Run the dry run with `detect.log_scores = true` and `detect.save_anomaly_frames = true`; the scores in the log show how close each template comes, and `detect.template_scale` resizes the templates.
 
 ## Development
 
@@ -90,6 +108,9 @@ Requires Python 3.12 or newer; CI and the local setup use 3.13.
 | `applog.py` | logging |
 | `gamescope.py` | finding the game's gamescope (its processes, nested X display and game window), and capturing frames with `gamescopectl`; for the loop, also cutting gamescope's black bars and scaling frames back to the game's own resolution. The probe and the platform layer use it |
 | `xtest_input.py` | keyboard and mouse input for the game through XTest on gamescope's nested X server: only to the game's window, only the configured keys, and a dry run unless told otherwise |
+| `farm.py` | the battle loop: capture, recognise, act, and stop rather than guess; no platform code |
+| `control.py` | stop, pause and resume: the switches the loop reads, and the private local socket that sets them |
+| `gbfr_auto.py` | the command line: `run` (a dry run unless `--live`), `stop`, `pause`, `resume`, `status`, `release` |
 | `template/` | the reference images matched against the screen |
 | `tools/linux_probe.py` | the Linux probe; see [tools/README.md](tools/README.md) |
 | `docs/provenance/` | how this repository's history was produced from the archive |
@@ -108,7 +129,7 @@ Issue numbers in the older commit messages read `gbfr_auto#NN`, and those in cod
   - Every non-merge commit carries a `Co-Authored-By: Claude` trailer, except upstream's 6 commits and the 3 initial setup commits of 2026-08-23 (ruff and pre-commit config, pinned requirements, restored LICENSE).
 - **Review**: **no human line-by-line review.** The owner sets the direction and runs the tests that need the real game.
 - **Verification**:
-  - 600 automated tests on Linux (180 for the core, 174 for the Linux platform layer, 135 for the battle loop and its control socket, 111 for the probe), run in CI on every pull request.
+  - 627 automated tests on Linux (180 for the core, 174 for the Linux platform layer, 162 for the app itself, 111 for the probe), run in CI on every pull request.
   - Only the probe has run against the game on Linux: on 2026-10-05, once per step; see [Status](#status). The bot itself has not. The tests do not cover capture, input, or anything else that needs the game itself.
 - **Risk**: the bot sends input to the game, and step 5 of the probe plan may load a library into the game process. The GPL provides no warranty (GPL-2.0 sections 11 and 12).
 - **Copyright**: whether AI-generated output is protected by copyright is legally unsettled. To the extent it is, the licence in [COPYRIGHT](COPYRIGHT) applies. AI output may also resemble its training data.
