@@ -24,7 +24,7 @@ from xtest_input import BUTTONS, InputRefused, XTestInput
 KEYS = {"move": "w", "again": "3", "confirm": "a"}
 # 美式键盘上常见的映射：键码（evdev + 8）-> 各档的符号，第一档不按修饰键，第二档按 Shift
 KEYMAP = {25: ["w", "W"], 12: ["3", "numbersign"], 38: ["a", "A"], 21: ["equal", "plus"],
-          9: ["Escape"], 133: ["Super_L"], 50: ["Shift_L"], 37: ["Control_L"]}
+          9: ["Escape"], 133: ["Super_L"], 50: ["Shift_L"], 37: ["Control_L"], 77: ["Num_Lock"]}
 # shift, lock, control, mod1 .. mod5，每组两个位置，0 是空位
 MODIFIERS = [[50, 62], [66, 0], [37, 105], [64, 108], [77, 0], [0, 0], [133, 134], [92, 0]]
 GAMESCOPE_PROPS = {"GAMESCOPE_FOCUSED_WINDOW": [0x400000], "GAMESCOPE_INPUT_COUNTER": [3174]}
@@ -56,12 +56,18 @@ class GeoWindow(FakeWindow):
 
 
 class PropertyRoot(GeoWindow):
-    """根窗口：除了几何和 query_tree，还有属性。"""
+    """根窗口：除了几何和 query_tree，还有属性，以及 query_pointer。state 是应答里的 mask：
+    修饰键和鼠标键此刻按着哪些。"""
 
     def __init__(self, wid, props):
         super().__init__(wid)
         self.atoms = {i + 1: name for i, name in enumerate(props)}
         self.props = props
+        self.state = 0
+
+    def query_pointer(self):
+        return SimpleNamespace(same_screen=1, root=self, child=X.NONE, root_x=0, root_y=0,
+                               win_x=0, win_y=0, mask=self.state)
 
     def list_properties(self):
         return list(self.atoms)
@@ -271,10 +277,22 @@ class TestSending:
         xi = live_input(d, w)
         d.fail = True
         xi.key_press("w")
-        assert not xi.is_ready() and xi.held == []
+        assert not xi.is_ready()
         d.fail = False
         xi.key_tap("a")
         assert d.events == []
+
+    def test_a_press_whose_send_failed_is_still_let_go(self):
+        """请求可能已经到了服务器，只是 sync 没回来：当它按着，之后照样松开。"""
+        d, w = nested()
+        xi = live_input(d, w)
+        d.fail = True
+        xi.key_press("w")
+        xi.mouse_press(5, 5, "middle")
+        assert xi.held == ["w"]
+        d.fail = False
+        xi.release_all()
+        assert (X.KeyRelease, 25) in d.events and xi.held == []
 
 
 class TestFocus:
@@ -346,6 +364,38 @@ class TestFocus:
         assert xi.held == []
 
 
+class TestModifiersHeldElsewhere:
+    @pytest.mark.parametrize("state", [X.ShiftMask, X.ControlMask, X.Mod1Mask, X.Mod4Mask,
+                                       X.Mod5Mask, X.ShiftMask | X.LockMask])
+    def test_nothing_is_pressed_while_a_modifier_is_down(self, state):
+        """人正按着 Shift（或者别的客户端按着 Ctrl）：发出去的 3 会变成 Shift+3。"""
+        d, w = nested()
+        w.root.state = state
+        xi = live_input(d, w)
+        xi.key_press("w")
+        xi.key_tap("3")
+        xi.mouse_press(5, 5, "middle")
+        assert d.events == [] and xi.skipped == 3
+
+    @pytest.mark.parametrize("state", [X.LockMask, X.Mod2Mask, X.LockMask | X.Mod2Mask,
+                                       X.Button1Mask])
+    def test_caps_lock_num_lock_and_mouse_buttons_do_not_count(self, state):
+        """Num Lock 在这张映射里是 Mod2（键码 77）。鼠标键不是修饰键。"""
+        d, w = nested()
+        w.root.state = state
+        xi = live_input(d, w)
+        xi.key_tap("3")
+        assert d.events == [(X.KeyPress, 12), (X.KeyRelease, 12)]
+
+    def test_releases_go_out_even_with_a_modifier_down(self):
+        d, w = nested()
+        xi = live_input(d, w)
+        xi.key_press("w")
+        w.root.state = X.ShiftMask
+        xi.release_all()
+        assert d.events == [(X.KeyPress, 25), (X.KeyRelease, 25)]
+
+
 class TestDryRun:
     def test_nothing_is_sent_but_everything_is_logged(self, log_file):
         d, w = nested()
@@ -407,4 +457,9 @@ class TestTheDoubleFollowsPythonXlib:
                        "get_pointer_mapping", "get_input_focus", "has_extension", "sync",
                        "screen", "get_atom_name"):
             assert hasattr(xdisplay.Display, method), method
+
+    def test_query_pointer_replies_with_a_mask(self):
+        from Xlib.protocol import request
+        names = [f.name for f in request.QueryPointer._reply.fields if f.name]
+        assert "mask" in names
 

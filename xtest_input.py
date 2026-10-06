@@ -25,8 +25,12 @@ Linux 上的那一个。
   3. 只发配置 [keys] 里写的那几个键，而且不能是修饰键：Super 组合是 gamescope 自己的
      快捷键，Ctrl、Alt、Shift 会改掉别的键的意思。修饰键按嵌套 X 自己的修饰键映射认。
      也不能是要配合修饰键才打得出的键（大写字母、Shift 档上的符号）：XTest 只发键码，
-     不带 Shift 发出去的是另一个字。鼠标只有中键。
-  4. 按着什么自己记着，release_all 把它们全部松开，可以重复调用。
+     不带 Shift 发出去的是另一个字。鼠标只有中键。按下之前还要看服务器上此刻有没有修饰键
+     按着（人正按着 Shift，或者别的客户端按着 Ctrl）：XTest 的键会和它们拼成组合键，3 就成
+     了 Shift+3。有就不发，和焦点不对一样记一笔。Caps Lock、Num Lock 这类锁定键常年亮着，
+     不算。
+  4. 按着什么自己记着，release_all 把它们全部松开，可以重复调用。按下的请求发出去以后，
+     不管 sync 有没有回来，都当它按着：连接断在中途时，服务器可能已经收到了那一下。
 
 live 为假就是空跑：检查照做、日志照记，一个 XTest 事件都不发。空跑也照样记着"按着"
 什么，松开的那一路在空跑里也走得到。所有事件都从 _send 出去，空跑只拦这一处。
@@ -100,6 +104,13 @@ class XTestInput:
             if logical not in mapping:
                 raise InputRefused(f"嵌套 X 的指针映射里没有哪个物理按钮对应逻辑上的 {button} 键")
             self._buttons[button] = mapping.index(logical) + 1
+        # 锁定类的修饰键常年亮着，不算"按着修饰键"：Lock 位（Caps Lock），以及 Num_Lock 所在
+        # 的那个 ModN 位。修饰键映射的第 i 组对应状态里的 1 << i 那一位。
+        numlock = display.keysym_to_keycode(XK.string_to_keysym("Num_Lock"))
+        self._lock_bits = X.LockMask
+        for index, codes in enumerate(display.get_modifier_mapping()):
+            if numlock and numlock in codes:
+                self._lock_bits |= 1 << index
         self._ready = True
         if not self._live:
             log.warning("空跑：一个 XTest 事件都不会发，只记日志")
@@ -138,6 +149,24 @@ class XTestInput:
                     describe_focus(focus), hex(self._window.id), what, self.skipped)
         return False
 
+    def _no_modifier_held(self, what):
+        """服务器上此刻没有修饰键按着（锁定键不算）才返回真。按着就记一笔，skipped 加一。"""
+        try:
+            state = self._d.screen().root.query_pointer().mask
+        except Exception:
+            log.warning("读不到嵌套 X 的修饰键状态，%s 不发", what, exc_info=True)
+            return False
+        held = state & 0xFF & ~self._lock_bits
+        if not held:
+            return True
+        self.skipped += 1
+        log.warning("嵌套 X 里有修饰键按着（状态 %#x），%s 不发：发出去会变成组合键（连续第 %d 次）",
+                    held, what, self.skipped)
+        return False
+
+    def _clear_to_press(self, what):
+        return self._ready and self._focus_on_game(what) and self._no_modifier_held(what)
+
     def _window_at(self, root, rx, ry, max_depth=32):
         """根窗口坐标 (rx, ry) 处最里层的窗口，也就是按钮事件会落到的那个。
 
@@ -172,10 +201,11 @@ class XTestInput:
         if keycode in self._held_keys:
             return
         what = f"按下 {name}"
-        if not self._ready or not self._focus_on_game(what):
+        if not self._clear_to_press(what):
             return
+        # 先记成按着：请求发出去以后连接才断，服务器也可能已经按下了
+        self._held_keys[keycode] = name
         if self._send(X.KeyPress, keycode, what):
-            self._held_keys[keycode] = name
             self.skipped = 0
 
     def key_release(self, name):
@@ -190,11 +220,11 @@ class XTestInput:
             log.warning("%s 正按着，这次不点", name)
             return
         what = f"点 {name}"
-        if not self._ready or not self._focus_on_game(what):
-            return
-        if not self._send(X.KeyPress, keycode, f"按下 {name}"):
+        if not self._clear_to_press(what):
             return
         self._held_keys[keycode] = name
+        if not self._send(X.KeyPress, keycode, f"按下 {name}"):
+            return
         self.skipped = 0
         self._sleep(self._hold)
         if self._send(X.KeyRelease, keycode, f"松开 {name}"):
@@ -205,7 +235,7 @@ class XTestInput:
         if detail in self._held_buttons:
             return
         what = f"在窗口内 ({x}, {y}) 按下鼠标 {button}"
-        if not self._ready or not self._focus_on_game(what):
+        if not self._clear_to_press(what):
             return
         root = self._d.screen().root
         try:
@@ -221,10 +251,11 @@ class XTestInput:
                         "（连续第 %d 次）", point.x, point.y, describe_focus(target),
                         hex(self._window.id), what, self.skipped)
             return
-        if (self._send(X.MotionNotify, 0, f"指针移到根窗口 ({point.x}, {point.y})",
-                       x=point.x, y=point.y)
-                and self._send(X.ButtonPress, detail, what)):
-            self._held_buttons[detail] = button
+        if not self._send(X.MotionNotify, 0, f"指针移到根窗口 ({point.x}, {point.y})",
+                          x=point.x, y=point.y):
+            return
+        self._held_buttons[detail] = button
+        if self._send(X.ButtonPress, detail, what):
             self.skipped = 0
 
     def mouse_release(self, x, y, button):
