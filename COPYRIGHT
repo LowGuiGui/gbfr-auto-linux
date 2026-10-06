@@ -77,7 +77,10 @@ have seen upstream's code before. The steps above are what was done to keep
 the new code independent of it.
 
 Upstream's code is still in the history before that date, under GPL-2.0-only,
-together with the licence text it was distributed with (LICENSE).
+together with the licence text it was distributed with (LICENSE). That includes
+the Windows app layer parked there (main.py, option.py, hook/gbfr_hook.c and
+icon.ico): restoring those files as they are, as docs/provenance/README.md
+explains, would bring GPL-2.0-only code back into the tree.
 
 
 Modified files

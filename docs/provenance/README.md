@@ -54,6 +54,14 @@ the result is reproducible.
   `hook/gbfr_hook.c` is not in the working tree either. It stays in history for the probe's
   L5 step, which may build its focus spoof as an `.asi`, and comes back the same way:
   `git restore --source=1db218a -- hook/gbfr_hook.c`.
+
+  Restoring them brings upstream's code back. `main.py`, `option.py` and `hook/gbfr_hook.c`
+  were created upstream and still contain its lines (`git blame -C -C` at `1db218a`
+  attributes about 350 of `main.py`'s 868 lines, 51 of `option.py`'s 350 and 192 of
+  `hook/gbfr_hook.c`'s 520 to upstream), and `icon.ico` is upstream's image. Upstream's code
+  is GPL-2.0-only, so restored as they are, these files would make the program GPL-2.0-only
+  again, and they predate the SPDX headers. Rewrite their upstream parts before they return,
+  as COPYRIGHT describes for the files rewritten on 2026-10-05. `vigem.py` is the fork's own.
 - **Data and licence:** `template/*.png`, `LICENSE`, `COPYRIGHT`.
 - **Tooling:** `.gitignore`, `.pre-commit-config.yaml`, `requirements.txt`,
   `requirements-dev.txt`, `ruff.toml`, `tests/conftest.py`, `tests/README.md`.
