@@ -254,6 +254,40 @@ def gamescope_root_properties(d):
     return out
 
 
+def within_window(window, ancestor_id, max_depth=64, strict=False):
+    """window 是 ancestor 本身，或者是它的子孙。沿 query_tree().parent 往上走，到根为止。
+
+    XTest 的按键发给嵌套 X 的焦点窗口。焦点要是在别的窗口上（覆盖层、启动器、Wine 的
+    对话框），Escape 就发到了游戏以外的地方，那边收到按键也不能算游戏收到。焦点也可能
+    不是窗口，而是 None 或 PointerRoot 这样的常量，那同样不算。
+
+    QueryTree 出错时默认当成"不在里面"。strict 为真就把异常抛出去，让调用方分清"窗口在
+    半路没了"和"连接断了"：后者不该被当成一次普通的焦点不对。
+    """
+    current = window
+    for _ in range(max_depth):
+        if not hasattr(current, "id") or not current.id:
+            return False
+        if current.id == ancestor_id:
+            return True
+        try:
+            tree = current.query_tree()
+        except Exception:
+            if strict:
+                raise
+            return False
+        if current.id == tree.root.id:
+            return False
+        current = tree.parent
+    return False
+
+
+def describe_focus(focus):
+    if hasattr(focus, "id"):
+        return hex(focus.id)
+    return {0: "None", 1: "PointerRoot"}.get(focus, repr(focus))
+
+
 # --- gamescopectl ------------------------------------------------------------
 
 def run_gamescopectl(args, wayland_display, runtime_dir=None, timeout=10, run=subprocess.run):

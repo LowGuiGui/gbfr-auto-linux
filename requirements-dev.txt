@@ -29,7 +29,3 @@ pytest==9.1.1
 # licence (REUSE 3.3); COPYRIGHT and REUSE.toml explain the layout. CI runs
 # `reuse lint`.
 reuse==6.2.0
-
-# X11 client for the Linux probe (tools/linux_probe.py): finding the game's
-# window, capturing it, and sending keys through XTest. Pure Python.
-python-xlib==0.33

@@ -10,6 +10,7 @@ subprocess.run 的替身（fake_proc、FakeRun）和 GAME_ENV 留在这里，探
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -312,3 +313,45 @@ class TestRecognisingGamescope:
 
     def test_this_test_process_is_not_a_gamescope(self):
         assert gs.is_gamescope_process(os.getpid()) is False
+
+
+class FakeWindow:
+    """python-xlib Window 的替身：id，query_tree() 的应答带 root、parent、children（根的
+    parent 是 id 为 0 的窗口），以及 change_attributes(**keys)。"""
+
+    def __init__(self, wid, parent=None):
+        self.id = wid
+        self.parent = parent
+        self.masks = []
+
+    def query_tree(self):
+        root = self
+        while root.parent is not None:
+            root = root.parent
+        parent = self.parent if self.parent is not None else SimpleNamespace(id=0)
+        return SimpleNamespace(root=root, parent=parent, children=[])
+
+    def change_attributes(self, onerror=None, **keys):
+        self.masks.append(keys)
+
+
+def window_tree():
+    root = FakeWindow(0x35B)
+    game = FakeWindow(0x400000, root)
+    child = FakeWindow(0x400010, game)
+    overlay = FakeWindow(0x500000, root)
+    return root, game, child, overlay
+
+
+class TestAimingAtTheGame:
+    def test_the_game_and_its_children_count(self):
+        root, game, child, overlay = window_tree()
+        assert gs.within_window(game, game.id)
+        assert gs.within_window(child, game.id)
+
+    @pytest.mark.parametrize("focus", ["overlay", "root", 0, 1])
+    def test_anything_else_does_not(self, focus):
+        """覆盖层、根窗口，以及 None / PointerRoot 这两个常量，都不是游戏。"""
+        root, game, child, overlay = window_tree()
+        target = {"overlay": overlay, "root": root}.get(focus, focus)
+        assert not gs.within_window(target, game.id)

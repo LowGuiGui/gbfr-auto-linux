@@ -10,7 +10,9 @@ dependencies, so `conftest.py` only puts the repo root on `sys.path` and provide
 the `log_file` fixture. The probe's tests use small doubles for the X display and for
 `subprocess.run`, written against python-xlib's and subprocess's documented signatures;
 `test_gamescope.py` defines the `/proc` and `subprocess.run` doubles, and the probe's tests
-import them from there.
+import them from there. `test_xtest_input.py` has its own double for the nested X server,
+written against python-xlib 0.33's source, including its key lookups answering from the
+mapping cached when the connection opened.
 
     pytest
 
@@ -32,6 +34,7 @@ and refer to the archive, [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbf
 | `test_applog.py` | log destination and fallback, idempotent setup, no propagation to root, tracebacks |
 | `test_config.py` | config load/merge/validate, and that `DEFAULT_TOML` and `DEFAULTS` haven't drifted |
 | `test_gamescope.py` | `gamescope.py`: finding the game's processes in `/proc` and grouping them by their gamescope (including Steam's runtime container), the process lineage, recognising a gamescope process, and the `gamescopectl` round trip |
+| `test_xtest_input.py` | `xtest_input.py`: refusing a display that is not gamescope's nested X server, keys outside the config, modifier keys, keys that need Shift and keypad keys Num Lock would change, presses while the focus is off the game, a button press where another window covers the point, the middle button found through the pointer mapping, presses held back while a modifier or the key itself is down elsewhere, presses whose send failed still released, key and pointer mappings that change at runtime (a keypad key remapped so that Num Lock changes it included), the point checked again after the pointer moves, the per-round check of held keys (focus, modifiers, the layout, mappings, keys let go elsewhere), a dead connection marking it unready while a vanished window is only a skip, a key held or latched in Num Lock's modifier group, lock keys recognised from the current keymap (Num Lock moved to another key, a former lock key turned level shift, Caps Lock held as an extra Ctrl, Shift Lock never exempt), no key sent while the keyboard is on another layout, a tap whose release failed let go by the next check, the dry run, holds and releases (also when the focus has moved), an emergency release that leaves alone a key whose keycode now means something else, coordinates translated to the root window, a lost connection, and `KmbBackend` driving it |
 | `test_linux_probe.py` | the Linux probe's instruments: reading X images, the PipeWire node and capture, the key allow-list, the verdicts and the incremental report |
 
 ## What is NOT covered, and why
