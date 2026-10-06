@@ -16,6 +16,7 @@ import stat
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -95,6 +96,34 @@ class TestControls:
         assert c.paused
         assert elapsed(lambda: c.wait(0.2)) >= 0.19
 
+    @pytest.mark.parametrize("switch", ["stop", "pause", "resume"])
+    def test_a_stuck_log_handler_does_not_delay_the_wake_up(self, switch, monkeypatch):
+        """写日志的 handler 卡住（或者出错）：等着的循环也得先被叫醒。"""
+        c = control.Controls()
+        if switch == "resume":
+            # 接着跑只有在循环看到过暂停以后才算变化
+            c.pause("setup")
+            assert c.paused
+        woke = threading.Event()
+
+        def waiter():
+            c.wait(5)
+            woke.set()
+        threading.Thread(target=waiter, daemon=True).start()
+        time.sleep(0.05)
+        release = threading.Event()
+
+        def stuck(*args, **kwargs):
+            release.wait(5)
+        monkeypatch.setattr(control.log, "info", stuck)
+        action = {"stop": lambda: c.request_stop("test"), "pause": lambda: c.pause("test"),
+                  "resume": c.resume}[switch]
+        threading.Thread(target=action, daemon=True).start()
+        try:
+            assert woke.wait(1), "the waiting loop was not woken while the log was stuck"
+        finally:
+            release.set()
+
     def test_resume_clears_the_pause(self):
         c = control.Controls()
         c.pause("test")
@@ -160,6 +189,14 @@ class TestTheSocket:
         monkeypatch.setattr(control.os, "umask", lambda *a: pytest.fail("umask changed"))
         srv, _ = serve(path)
         srv.close()
+
+    def test_a_uid_above_two_to_the_31_is_read_as_itself(self):
+        """struct ucred 里 uid 是无符号的：按有符号读，大 uid 会变成负数。"""
+        import struct
+        big = 2 ** 31 + 5
+        conn = SimpleNamespace(getsockopt=lambda level, option, size: struct.pack("=iII", 4242,
+                                                                               big, big))
+        assert control._peer_uid(conn) == big
 
     def test_another_user_gets_no_answer(self, path, monkeypatch):
         """测试里换不了 uid，所以反过来：让服务端以为自己是另一个 uid。"""

@@ -93,21 +93,25 @@ class Controls:
         with self._cond:
             self._cond.notify_all()
 
+    # 先叫醒等着的循环，再记日志：写日志的那个 handler 要是卡住或者出错，停下不能跟着晚
+
     def request_stop(self, reason):
-        if not self._stop:
+        first = not self._stop
+        if first:
             self._stop, self.stop_reason = True, reason
-            log.info("要求停下：%s", reason)
         self._changed()
+        if first:
+            log.info("要求停下：%s", reason)
 
     def pause(self, reason):
         self._paused, self.pause_reason = True, reason
-        log.info("暂停：%s", reason)
         self._changed()
+        log.info("暂停：%s", reason)
 
     def resume(self):
         self._paused, self.pause_reason = False, None
-        log.info("接着跑")
         self._changed()
+        log.info("接着跑")
 
     def wait(self, seconds):
         """最多等 seconds 秒。要求停下了，或者暂停状态和循环上一次读到的不一样了，就提前返回。
@@ -119,9 +123,14 @@ class Controls:
                                 timeout=seconds)
 
 
+# Linux 的 struct ucred：pid_t（有符号）、uid_t、gid_t（无符号），各 32 位。uid 按有符号读，
+# 2^31 以上的 uid 就成了负数，和 os.getuid() 永远对不上
+UCRED = struct.Struct("=iII")
+
+
 def _peer_uid(conn):
-    creds = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
-    return struct.unpack("3i", creds)[1]
+    creds = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, UCRED.size)
+    return UCRED.unpack(creds)[1]
 
 
 def _read_line(conn):
