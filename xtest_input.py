@@ -19,10 +19,13 @@ Linux 上的那一个。
      构造时就拒绝。宿主那边的 X（GNOME 的 Xwayland）没有这些属性，连错了就停在这里。
   2. 按下之前看一眼嵌套 X 的输入焦点，得是游戏窗口或者它里面的窗口。焦点在别处（Wine
      的对话框、覆盖层）就不发，记一笔，连续跳过的次数记在 skipped 上，暂停与否由调用方
-     决定。松开不看焦点：按着的键不管焦点在哪里都得松开。
+     决定。鼠标还要多一道：按钮事件落到指针下面的窗口，而不是焦点所在的窗口，所以中键
+     按下之前还要确认那一点上最里层的窗口是游戏窗口或者它里面的。松开不看这些：按着的
+     不管落到哪里都得松开。
   3. 只发配置 [keys] 里写的那几个键，而且不能是修饰键：Super 组合是 gamescope 自己的
      快捷键，Ctrl、Alt、Shift 会改掉别的键的意思。修饰键按嵌套 X 自己的修饰键映射认。
-     鼠标只有中键。
+     也不能是要配合修饰键才打得出的键（大写字母、Shift 档上的符号）：XTest 只发键码，
+     不带 Shift 发出去的是另一个字。鼠标只有中键。
   4. 按着什么自己记着，release_all 把它们全部松开，可以重复调用。
 
 live 为假就是空跑：检查照做、日志照记，一个 XTest 事件都不发。空跑也照样记着"按着"
@@ -38,7 +41,8 @@ from gamescope import describe_focus, gamescope_root_properties, within_window
 
 log = get_logger(__name__)
 
-# 鼠标只用中键（KmbBackend.battle_press）。X 的按钮号：1 左键、2 中键、3 右键。
+# 鼠标只用中键（KmbBackend.battle_press）。这是逻辑按钮号：1 左键、2 中键、3 右键。XTest 发的
+# 是物理按钮号，要经过服务器的指针映射才变成逻辑号，所以构造时按映射倒查一次。
 BUTTONS = {"middle": 2}
 
 # key_tap 按下到松开之间等多久，和探测器 L3 用的一样。
@@ -83,7 +87,19 @@ class XTestInput:
                 raise InputRefused(f"嵌套 X 的键盘映射里没有 {name!r}")
             if keycode in modifiers:
                 raise InputRefused(f"{name!r} 在嵌套 X 里是修饰键，不发")
+            # keysym_to_keycode 找的是"哪个键上有这个符号"，不管它在第几档。不在第一档的
+            # 符号（"A" 在 a 键的 Shift 档上），发那个键码打出来的是第一档的字
+            if display.keycode_to_keysym(keycode, 0) != keysym:
+                raise InputRefused(f"{name!r} 在嵌套 X 里要配合修饰键才打得出来，不发：只发"
+                                   "不按 Shift 等键就能打出的那个字")
             self._keycodes[name] = keycode
+        # get_pointer_mapping() 的第 N 项是物理按钮 N+1 对应的逻辑按钮
+        mapping = list(display.get_pointer_mapping())
+        self._buttons = {}
+        for button, logical in BUTTONS.items():
+            if logical not in mapping:
+                raise InputRefused(f"嵌套 X 的指针映射里没有哪个物理按钮对应逻辑上的 {button} 键")
+            self._buttons[button] = mapping.index(logical) + 1
         self._ready = True
         if not self._live:
             log.warning("空跑：一个 XTest 事件都不会发，只记日志")
@@ -103,9 +119,9 @@ class XTestInput:
         return self._keycodes[name]
 
     def _button(self, button):
-        if button not in BUTTONS:
-            raise ValueError(f"refusing to press {button!r}: only {sorted(BUTTONS)}")
-        return BUTTONS[button]
+        if button not in self._buttons:
+            raise ValueError(f"refusing to press {button!r}: only {sorted(self._buttons)}")
+        return self._buttons[button]
 
     def _focus_on_game(self, what):
         """焦点在游戏窗口或它里面才返回真。不在就记一笔，skipped 加一。"""
@@ -121,6 +137,21 @@ class XTestInput:
         log.warning("嵌套 X 的输入焦点不在游戏窗口上（焦点 %s，游戏 %s），%s 不发（连续第 %d 次）",
                     describe_focus(focus), hex(self._window.id), what, self.skipped)
         return False
+
+    def _window_at(self, root, rx, ry, max_depth=32):
+        """根窗口坐标 (rx, ry) 处最里层的窗口，也就是按钮事件会落到的那个。
+
+        TranslateCoords 应答里的 child 是目标窗口里包含这个点、映射着的子窗口；从根开始一层层
+        往下找，到没有子窗口为止。不靠"先移指针再 QueryPointer"：空跑时指针不动，这样也查
+        得出来。
+        """
+        window = root
+        for _ in range(max_depth):
+            child = window.translate_coords(root, rx, ry).child
+            if not getattr(child, "id", 0):
+                return window
+            window = child
+        return window
 
     def _send(self, event_type, detail, what, x=0, y=0):
         """发一个 XTest 事件。空跑只在这里拦。连接出错就不再算就绪。"""
@@ -176,11 +207,19 @@ class XTestInput:
         what = f"在窗口内 ({x}, {y}) 按下鼠标 {button}"
         if not self._ready or not self._focus_on_game(what):
             return
+        root = self._d.screen().root
         try:
             # TranslateCoords 把游戏窗口里的点换成根窗口坐标，XTest 的指针移动要的是后者
-            point = self._d.screen().root.translate_coords(self._window, x, y)
+            point = root.translate_coords(self._window, x, y)
+            target = self._window_at(root, point.x, point.y)
         except Exception:
             log.warning("换算不出指针位置，%s 不发", what, exc_info=True)
+            return
+        if not within_window(target, self._window.id):
+            self.skipped += 1
+            log.warning("根窗口 (%d, %d) 处最上面的不是游戏窗口（是 %s，游戏 %s），%s 不发"
+                        "（连续第 %d 次）", point.x, point.y, describe_focus(target),
+                        hex(self._window.id), what, self.skipped)
             return
         if (self._send(X.MotionNotify, 0, f"指针移到根窗口 ({point.x}, {point.y})",
                        x=point.x, y=point.y)
@@ -213,7 +252,7 @@ class XTestInput:
         """
         for name, keycode in self._keycodes.items():
             self._send(X.KeyRelease, keycode, f"松开 {name}")
-        for button, detail in BUTTONS.items():
+        for button, detail in self._buttons.items():
             self._send(X.ButtonRelease, detail, f"松开鼠标 {button}")
         self._held_keys.clear()
         self._held_buttons.clear()
