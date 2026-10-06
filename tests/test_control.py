@@ -412,6 +412,55 @@ class TestTheSocket:
         srv, _ = serve(path)
         srv.close()
 
+    def test_a_startup_log_that_fails_still_leaves_nothing_behind(self, path, monkeypatch):
+        """起好了才记"控制套接字在……"：这一句要是出错（比如装了一个会抛异常的日志过滤器），
+        监听、文件和锁也得收回，后来者才起得来。"""
+        real_info = control.log.info
+
+        def failing(msg, *args, **kwargs):
+            if msg.startswith("控制套接字在"):
+                raise RuntimeError("log filter failed")
+            real_info(msg, *args, **kwargs)
+        monkeypatch.setattr(control.log, "info", failing)
+        with pytest.raises(RuntimeError, match="log filter"):
+            serve(path)
+        monkeypatch.undo()
+        assert not os.path.lexists(path)
+        srv, _ = serve(path)
+        srv.close()
+
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+    def test_a_worker_that_cannot_start_leaves_the_server_closable(self, path, monkeypatch):
+        """起连接线程失败，记这件事的日志也出错，服务线程就此退出：线程表里不能留下那个没起来
+        的线程，不然 close() 去 join 它会出错，锁也就放不掉了。"""
+        srv, _ = serve(path)
+        real_start = threading.Thread.start
+        real_warning = control.log.warning
+
+        def no_worker(self):
+            if self.name == "gbfr-control-conn":
+                raise RuntimeError("can't start new thread")
+            real_start(self)
+
+        def failing(msg, *args, **kwargs):
+            if msg.startswith("起不了处理连接的线程"):
+                raise RuntimeError("log filter failed")
+            real_warning(msg, *args, **kwargs)
+        monkeypatch.setattr(control.threading.Thread, "start", no_worker)
+        monkeypatch.setattr(control.log, "warning", failing)
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            client.connect(str(path))
+            srv._thread.join(2)
+            assert not srv._thread.is_alive()
+            monkeypatch.undo()
+            srv.close()
+        finally:
+            client.close()
+        assert not os.path.lexists(path)
+        again, _ = serve(path)
+        again.close()
+
     def test_close_removes_the_socket_and_nobody_answers_after(self, path):
         srv, _ = serve(path)
         srv.close()

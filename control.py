@@ -21,13 +21,18 @@ pause(理由)，以及 wait(秒)。停止命令一到，wait 立刻返回，停�
     否则不起来：bind 建出文件到 chmod 收紧之间，是目录挡着别人。不动 umask，那是整个进程
     共用的。
   - 同一时间只跑一个循环。先拿旁边锁文件的排他 flock，拿不到就是另一个正在跑，新的不起来；
-    进程死了内核会替它放掉锁。拿到锁以后才去看套接字文件：连得上就是另一个循环（没用这把
-    锁的老版本），不起来；连不上的是上次没清掉的，删掉重来；那个位置上要是别的东西
+    进程死了内核会替它放掉锁。拿到锁以后才去看套接字文件：连得上就是有别人在听（它没拿这把
+    锁；发布过的版本都拿），不起来；连不上的是上次没清掉的，删掉重来；那个位置上要是别的东西
     （普通文件、链接、别人的套接字），不碰它，也不起来。两个同时启动的也不会都删掉同一个
     旧文件、各自起一个：先后由锁定。
   - 每个连接一个线程：一个连上了却不说话的客户端，挡不住后面的 stop。请求处理里出的错
     （比如 status 那个回调抛了异常）只落在那一个连接上，服务一直在。close() 返回之前，
     已经连上的也都断开、收完，收尾时不会再有命令进来。
+
+日志：标准的处理器写不出去时，自己经 Handler.handleError 报到 stderr，不会抛到记日志的地方；
+处理器要是卡住，每个要记日志的线程都会停在它那把锁上，循环自己每一轮也要记，整个进程都动不
+了。这里不为这两种情况另做安排，只是起服务、起连接线程失败时，先把监听、文件、锁和线程表收拾
+干净，再记日志：万一日志也出了错，留下的也是干净的。
 """
 
 import fcntl
@@ -170,12 +175,12 @@ class ControlServer:
             self._listen()
             self._thread = threading.Thread(target=self._serve, name="gbfr-control", daemon=True)
             self._thread.start()
+            log.info("控制套接字在 %s", self._path)
         except BaseException:
-            # 起到一半失败（比如线程数到了上限）：监听的套接字、文件和锁都收回，免得留下一个
-            # 没人服务、却让后来者以为"另一个在跑"的空壳
+            # 起到一半失败（比如线程数到了上限，或者记日志出错）：监听的套接字、文件和锁都收回，
+            # 免得留下一个没人服务、却让后来者以为"另一个在跑"的空壳
             self.close()
             raise
-        log.info("控制套接字在 %s", self._path)
         return self
 
     def _check_dir(self):
@@ -251,10 +256,11 @@ class ControlServer:
             try:
                 worker.start()
             except RuntimeError:
-                log.warning("起不了处理连接的线程，这个连接作废", exc_info=True)
+                # 先收拾再记日志：没起来的线程留在表里，close() 去 join 它会出错
                 with self._workers_lock:
                     self._workers.pop(worker, None)
                 conn.close()
+                log.warning("起不了处理连接的线程，这个连接作废", exc_info=True)
 
     def _handle_safely(self, conn):
         try:
