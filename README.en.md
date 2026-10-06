@@ -87,6 +87,7 @@ Requires Python 3.12 or newer; CI and the local setup use 3.13.
 | `supervisor.py` | the pure decision of when to switch input, pause or recover |
 | `config.py` | the TOML configuration |
 | `applog.py` | logging |
+| `gamescope.py` | finding the game's gamescope (its processes, nested X display and game window), and capturing frames with `gamescopectl`; the probe uses it, and so will the Linux platform layer |
 | `template/` | the reference images matched against the screen |
 | `tools/linux_probe.py` | the Linux probe; see [tools/README.md](tools/README.md) |
 | `docs/provenance/` | how this repository's history was produced from the archive |
@@ -105,7 +106,7 @@ Issue numbers in the older commit messages read `gbfr_auto#NN`, and those in cod
   - Every non-merge commit carries a `Co-Authored-By: Claude` trailer, except upstream's 6 commits and the 3 initial setup commits of 2026-08-23 (ruff and pre-commit config, pinned requirements, restored LICENSE).
 - **Review**: **no human line-by-line review.** The owner sets the direction and runs the tests that need the real game.
 - **Verification**:
-  - 333 automated tests on Linux (180 for the core, 153 for the probe), run in CI on every pull request.
+  - 333 automated tests on Linux (180 for the core, 37 for `gamescope.py`, 116 for the probe), run in CI on every pull request.
   - Only the probe has run against the game on Linux: on 2026-10-05, once per step; see [Status](#status). The bot itself has not. The tests do not cover capture, input, or anything else that needs the game itself.
 - **Risk**: the bot sends input to the game, and step 5 of the probe plan may load a library into the game process. The GPL provides no warranty (GPL-2.0 sections 11 and 12).
 - **Copyright**: whether AI-generated output is protected by copyright is legally unsettled. To the extent it is, the licence in [COPYRIGHT](COPYRIGHT) applies. AI output may also resemble its training data.

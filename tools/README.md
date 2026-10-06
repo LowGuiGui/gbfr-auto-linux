@@ -85,8 +85,10 @@ report is written as the probe goes, so a crash keeps everything up to that poin
     gamescope's root window properties were the same in both phases.
 
   Each of these results comes from that one run.
-- Unit tests (`tests/test_linux_probe.py`) cover finding the game in `/proc`, reading X
-  images, the `gamescopectl` round trip, the key allow-list, the verdicts and the report.
+- Unit tests cover finding the game in `/proc` and the `gamescopectl` round trip
+  (`tests/test_gamescope.py`; that code now lives in `gamescope.py`, shared with the
+  platform layer), and reading X images, the key allow-list, the verdicts and the report
+  (`tests/test_linux_probe.py`).
   Breaking each of those guards on purpose turns its test red.
 - Finding the PipeWire node is covered by unit tests. The fake `pw-dump` output follows
   the structure PipeWire 1.6.2 prints (Client and Node objects, the owning process ids in the
