@@ -9,9 +9,11 @@ subprocess.run 的替身（fake_proc、FakeRun）和 GAME_ENV 留在这里，探
 """
 
 import os
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -355,3 +357,138 @@ class TestAimingAtTheGame:
         root, game, child, overlay = window_tree()
         target = {"overlay": overlay, "root": root}.get(focus, focus)
         assert not gs.within_window(target, game.id)
+
+
+class TestWaitingCanBeStopped:
+    def test_a_stop_ends_the_wait_before_the_timeout(self, tmp_path):
+        ticks = iter(range(100))
+        polls = []
+
+        def stop():
+            polls.append(1)
+            return len(polls) > 2
+        assert not gs.wait_for_file(tmp_path / "never.png", timeout=50, sleep=lambda s: None,
+                                    clock=lambda: next(ticks), stop=stop)
+        assert len(polls) == 3
+
+    def test_without_a_stop_it_waits_as_before(self, tmp_path):
+        ticks = iter(range(100))
+        assert not gs.wait_for_file(tmp_path / "never.png", timeout=5, sleep=lambda s: None,
+                                    clock=lambda: next(ticks))
+
+
+class TestFitToScreen:
+    def test_the_game_s_own_size_is_left_alone(self):
+        frame = np.zeros((1440, 2560, 3), np.uint8)
+        assert gs.fit_to_screen(frame, (2560, 1440)) is frame
+
+    def test_the_measured_output_size_comes_back_at_the_game_s(self):
+        """2026-10-05 实测：截图 2941x1653，游戏 2560x1440。游戏里 (1000..1100, 500..600)
+        那一块，放大到输出里再缩回来，还得在原处。"""
+        scale = min(2941 / 2560, 1653 / 1440)
+        x0 = (2941 - round(2560 * scale)) // 2
+        out = np.zeros((1653, 2941, 3), np.uint8)
+        out[round(500 * scale):round(600 * scale),
+            x0 + round(1000 * scale):x0 + round(1100 * scale)] = 255
+        fitted = gs.fit_to_screen(out, (2560, 1440))
+        assert fitted.shape == (1440, 2560, 3)
+        assert fitted[550, 1050].tolist() == [255, 255, 255]
+        assert fitted[480, 980].tolist() == [0, 0, 0] and fitted[620, 1120].tolist() == [0, 0, 0]
+
+    def test_black_bars_beside_the_game_are_cut_off(self):
+        """输出比游戏宽：游戏在中间，两边是黑边。切完不能剩一列黑的。"""
+        out = np.zeros((360, 800, 3), np.uint8)
+        out[:, 80:720] = 200
+        fitted = gs.fit_to_screen(out, (640, 360))
+        assert fitted.shape == (360, 640, 3) and fitted.min() == 200
+
+    def test_black_bars_above_and_below_are_cut_off(self):
+        out = np.zeros((480, 640, 3), np.uint8)
+        out[60:420] = 200
+        fitted = gs.fit_to_screen(out, (640, 360))
+        assert fitted.shape == (360, 640, 3) and fitted.min() == 200
+
+    def test_a_smaller_output_is_scaled_up(self):
+        out = np.full((720, 1280, 3), 100, np.uint8)
+        fitted = gs.fit_to_screen(out, (2560, 1440))
+        assert fitted.shape == (1440, 2560, 3) and fitted.min() == 100
+
+
+class TestPrivateDir:
+    def test_it_is_made_for_this_user_only(self, tmp_path):
+        d = gs.private_dir(tmp_path)
+        assert d == tmp_path / gs.CAPTURE_DIR_NAME
+        assert stat.S_IMODE(d.stat().st_mode) == 0o700
+
+    def test_an_existing_private_dir_is_used(self, tmp_path):
+        (tmp_path / gs.CAPTURE_DIR_NAME).mkdir(mode=0o700)
+        assert gs.private_dir(tmp_path).is_dir()
+
+    @pytest.mark.parametrize("mode", [0o755, 0o750, 0o701])
+    def test_a_dir_others_can_enter_is_refused(self, tmp_path, mode):
+        d = tmp_path / gs.CAPTURE_DIR_NAME
+        d.mkdir()
+        d.chmod(mode)
+        with pytest.raises(gs.CaptureRefused, match=f"{mode:o}"):
+            gs.private_dir(tmp_path)
+
+    def test_a_dir_that_belongs_to_someone_else_is_refused(self, tmp_path, monkeypatch):
+        """测试里建不出别人的目录，所以反过来：让"自己"换一个 uid。"""
+        (tmp_path / gs.CAPTURE_DIR_NAME).mkdir(mode=0o700)
+        monkeypatch.setattr(gs.os, "getuid", lambda: os.stat(tmp_path).st_uid + 1)
+        with pytest.raises(gs.CaptureRefused, match="属主"):
+            gs.private_dir(tmp_path)
+
+    def test_a_symlink_is_refused_even_to_a_private_dir(self, tmp_path):
+        """链接指向哪里由放链接的人说了算，截图就写到了那里。"""
+        target = tmp_path / "elsewhere"
+        target.mkdir(mode=0o700)
+        (tmp_path / gs.CAPTURE_DIR_NAME).symlink_to(target)
+        with pytest.raises(gs.CaptureRefused, match="不是目录"):
+            gs.private_dir(tmp_path)
+
+    def test_a_file_in_its_place_is_refused(self, tmp_path):
+        """0600 的文件过得了权限那一关，得靠"是不是目录"拦下。"""
+        f = tmp_path / gs.CAPTURE_DIR_NAME
+        f.write_text("x")
+        f.chmod(0o600)
+        with pytest.raises(gs.CaptureRefused, match="不是目录"):
+            gs.private_dir(tmp_path)
+
+
+class TestScreenshotCapture:
+    def test_a_frame_comes_back_at_the_game_s_size_and_the_file_is_gone(self, tmp_path):
+        def gamescope_saves(path):
+            image = Image.new("RGB", (800, 360), (0, 0, 0))
+            image.paste((200, 200, 200), (80, 0, 720, 360))
+            image.save(path)
+        run = FakeRun(write=gamescope_saves)
+        capture = gs.ScreenshotCapture("gamescope-1", "/run/user/1000", (640, 360), tmp_path,
+                                       run=run, sleep=lambda s: None)
+        frame = capture()
+        assert frame.shape == (360, 640, 3) and frame.min() == 200
+        assert run.calls[0][0][:2] == ["gamescopectl", "screenshot"]
+        assert Path(run.calls[0][0][-1]) == tmp_path / "frame.png"
+        assert not (tmp_path / "frame.png").exists()
+        assert capture.last_ms is not None
+
+    def test_a_failure_is_none_with_the_reason_in_the_log(self, tmp_path, log_file):
+        capture = gs.ScreenshotCapture("gamescope-1", None, (640, 360), tmp_path, timeout=0.3,
+                                       run=FakeRun(returncode=1, stderr="no such instance"),
+                                       sleep=lambda s: None)
+        assert capture() is None
+        text = log_file()
+        assert "截图失败" in text and "no screenshot file appeared" in text
+
+    def test_a_stop_gives_up_on_the_frame_quietly(self, tmp_path, log_file):
+        polls = []
+
+        def stop():
+            polls.append(1)
+            return len(polls) > 1
+        capture = gs.ScreenshotCapture("gamescope-1", None, (640, 360), tmp_path, timeout=2,
+                                       stop=stop, run=FakeRun(), sleep=lambda s: None)
+        assert capture() is None
+        text = log_file()
+        assert "收到停止" in text and "截图失败" not in text
+

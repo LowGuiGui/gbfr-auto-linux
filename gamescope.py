@@ -13,17 +13,23 @@
     嵌套 X    DISPLAY 和 XAUTHORITY 用游戏进程里的、宿主上用得了的那一份；游戏窗口按
               STEAM_GAME 属性或 WM_CLASS steam_app_<appid> 认。
     截图      gamescopectl screenshot，只发给这个实例（GAMESCOPE_WAYLAND_DISPLAY），
-              等文件写完再读。
+              等文件写完再读。给循环用的 ScreenshotCapture 还会切掉黑边、缩放回游戏
+              自己的分辨率。
 
 这里没有任何东西往游戏发输入。
 """
 
 import os
+import stat
 import subprocess
 import time
 from pathlib import Path
 
 import numpy as np
+
+from applog import get_logger
+
+log = get_logger(__name__)
 
 APPID = "881020"
 X11_SOCKET_DIR = Path("/tmp/.X11-unix")
@@ -294,11 +300,17 @@ def run_gamescopectl(args, wayland_display, runtime_dir=None, timeout=10, run=su
     return run(["gamescopectl", *args], env=env, capture_output=True, text=True, timeout=timeout)
 
 
-def wait_for_file(path, timeout, sleep=time.sleep, clock=time.monotonic, interval=0.2):
-    """gamescope 在后台线程里存图：命令返回时文件不一定写完。等它出现并且大小停止变化。"""
+def wait_for_file(path, timeout, sleep=time.sleep, clock=time.monotonic, interval=0.2, stop=None):
+    """gamescope 在后台线程里存图：命令返回时文件不一定写完。等它出现并且大小停止变化。
+
+    stop 是一个返回真就不再等的函数：循环收到停止命令时，不该再为一帧等上几秒。这时也
+    返回 False。
+    """
     deadline = clock() + timeout
     last = -1
     while clock() < deadline:
+        if stop is not None and stop():
+            return False
         size = path.stat().st_size if path.exists() else -1
         if size > 0 and size == last:
             return True
@@ -308,7 +320,7 @@ def wait_for_file(path, timeout, sleep=time.sleep, clock=time.monotonic, interva
 
 
 def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
-                         run=subprocess.run, sleep=time.sleep):
+                         run=subprocess.run, sleep=time.sleep, stop=None):
     from PIL import Image
 
     # 截图由 gamescope 自己的进程去写。它的工作目录是启动器的会话目录，不是这个终端的，
@@ -322,9 +334,106 @@ def capture_gamescopectl(path, wayland_display, runtime_dir=None, timeout=10,
         path.unlink()
     result = run_gamescopectl(["screenshot", str(path)], wayland_display, runtime_dir,
                               timeout=timeout, run=run)
-    if not wait_for_file(path, timeout, sleep=sleep):
+    if not wait_for_file(path, timeout, sleep=sleep, stop=stop):
         raise RuntimeError(f"no screenshot file appeared (exit {result.returncode}, "
                            f"stdout {result.stdout.strip()[:120]!r}, "
                            f"stderr {result.stderr.strip()[:120]!r})")
     with Image.open(path) as image:
         return np.asarray(image.convert("RGB"))
+
+
+# --- 给循环用的截图 -------------------------------------------------------------
+
+# 截图放在 $XDG_RUNTIME_DIR 下的这个子目录里。XDG_RUNTIME_DIR 是 tmpfs，画面不落盘；目录
+# 是 0700，别的用户看不到画面，也没法在里面放一个符号链接让 gamescope 把图写到别处。
+CAPTURE_DIR_NAME = "gbfr-auto-linux"
+
+
+class CaptureRefused(RuntimeError):
+    """截图目录不安全，不往里面写。"""
+
+
+def private_dir(base, name=CAPTURE_DIR_NAME):
+    """base 下只有本用户能进的子目录，没有就建。
+
+    已经存在的话，必须是自己的、真正的目录（不是链接），而且组和其他人没有任何权限，
+    否则拒绝：gamescope 会往里面写截图，这边再从里面读回来。
+    """
+    path = Path(base, name)
+    try:
+        path.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    st = path.lstat()
+    if not stat.S_ISDIR(st.st_mode):
+        raise CaptureRefused(f"{path} 不是目录（可能是符号链接），不往里面写截图")
+    if st.st_uid != os.getuid() or st.st_mode & 0o077:
+        raise CaptureRefused(f"{path} 不只是本用户能进（属主 {st.st_uid}，权限 "
+                             f"{stat.S_IMODE(st.st_mode):o}），不往里面写截图")
+    return path
+
+
+def fit_to_screen(frame, size):
+    """把 gamescope 的截图变回游戏自己的分辨率。size 是 (宽, 高)，也就是嵌套 X 屏幕的大小。
+
+    gamescope 截下来的是它输出画面的大小（2026-10-05 实测 2941x1653，游戏是 2560x1440），
+    游戏的画面按比例放大，居中放在里面，比例不一样时两边或上下会有黑边。按同样的比例
+    算出游戏那一块，切出来，再缩放回 size。之后模板匹配和点击坐标都在游戏自己的像素里。
+    """
+    import cv2
+
+    out_h, out_w = frame.shape[:2]
+    width, height = size
+    if (out_w, out_h) == (width, height):
+        return frame
+    scale = min(out_w / width, out_h / height)
+    content_w, content_h = round(width * scale), round(height * scale)
+    x0, y0 = (out_w - content_w) // 2, (out_h - content_h) // 2
+    content = np.ascontiguousarray(frame[y0:y0 + content_h, x0:x0 + content_w])
+    # 缩小用 INTER_AREA，放大用 INTER_LINEAR：OpenCV 文档对两个方向各推荐的那个
+    interpolation = cv2.INTER_AREA if scale > 1 else cv2.INTER_LINEAR
+    return cv2.resize(content, (width, height), interpolation=interpolation)
+
+
+class ScreenshotCapture:
+    """循环用的截图：一次一张 gamescopectl screenshot，读完就删，切掉黑边、缩放成游戏的
+    分辨率。
+
+    调用一次返回一帧 (高, 宽, 3) 的 RGB 数组，截不到就返回 None，原因记进日志；连续几次
+    截不到该怎么办由循环决定。directory 应该是 private_dir() 给的目录。stop 返回真时不再
+    等这一帧。
+    """
+
+    def __init__(self, wayland_display, runtime_dir, size, directory, timeout=5.0, stop=None,
+                 run=subprocess.run, sleep=time.sleep, clock=time.monotonic):
+        self._wayland = wayland_display
+        self._runtime = runtime_dir
+        self._size = size
+        self._path = Path(directory, "frame.png")
+        self._timeout = timeout
+        self._stop = stop
+        self._run = run
+        self._sleep = sleep
+        self._clock = clock
+        self.last_ms = None
+
+    def __call__(self):
+        start = self._clock()
+        try:
+            frame = capture_gamescopectl(self._path, self._wayland, self._runtime,
+                                         timeout=self._timeout, run=self._run, sleep=self._sleep,
+                                         stop=self._stop)
+        except Exception as exc:
+            if self._stop is not None and self._stop():
+                log.info("收到停止，这一帧不等了")
+            else:
+                log.warning("截图失败: %s: %s", type(exc).__name__, str(exc)[:200])
+            return None
+        finally:
+            # 画面读进内存就删：截图里是游戏画面，不该在目录里留着
+            try:
+                self._path.unlink()
+            except FileNotFoundError:
+                pass
+        self.last_ms = round((self._clock() - start) * 1000)
+        return fit_to_screen(frame, self._size)
