@@ -11,20 +11,23 @@ stop、pause、resume、status 连过去发一个词；所有者再把 stop 和 
 
 Controls 是循环看的那一面（farm.Farm 的 controls）：stop_requested、paused 两个属性，
 pause(理由)，以及 wait(秒)。停止命令一到，wait 立刻返回，停下不用等完一整轮。暂停和接着跑
-也会叫醒 wait，而且从循环上一次看这两个属性的那一刻算起：在"看过了"和"开始等"之间来的
-命令，不会被睡过去。
+也会叫醒 wait：它拿现在的暂停状态和循环上一次读到的比，不一样就返回，所以在"看过了"和
+"开始等"之间来的命令不会被睡过去，读别的开关也不会把它算成看过了。
 
 协议：连上以后发一行，一个词；回一行 JSON。几道关：
 
   - 对端的 uid 要和自己一样（SO_PEERCRED 是内核给的，对端改不了），否则不理。
-  - 套接字文件是 0600，放在 $XDG_RUNTIME_DIR 里（本用户的 0700 目录）。
+  - 套接字文件是 0600，放在 $XDG_RUNTIME_DIR 里。那个目录得是本用户的、组和其他人都进不去，
+    否则不起来：bind 建出文件到 chmod 收紧之间，是目录挡着别人。不动 umask，那是整个进程
+    共用的。
   - 同一时间只跑一个循环。先拿旁边锁文件的排他 flock，拿不到就是另一个正在跑，新的不起来；
     进程死了内核会替它放掉锁。拿到锁以后才去看套接字文件：连得上就是另一个循环（没用这把
     锁的老版本），不起来；连不上的是上次没清掉的，删掉重来；那个位置上要是别的东西
     （普通文件、链接、别人的套接字），不碰它，也不起来。两个同时启动的也不会都删掉同一个
     旧文件、各自起一个：先后由锁定。
   - 每个连接一个线程：一个连上了却不说话的客户端，挡不住后面的 stop。请求处理里出的错
-    （比如 status 那个回调抛了异常）只落在那一个连接上，服务一直在。
+    （比如 status 那个回调抛了异常）只落在那一个连接上，服务一直在。close() 返回之前，
+    已经连上的也都断开、收完，收尾时不会再有命令进来。
 """
 
 import fcntl
@@ -64,30 +67,30 @@ class Controls:
 
     def __init__(self):
         self._cond = threading.Condition()
-        self._version = 0
-        self._seen = 0      # 循环上一次看 stop_requested 或 paused 时的版本
         self._stop = False
         self._paused = False
+        # 循环上一次读到的暂停状态。wait 拿现在的和它比；只有读 paused 才更新它，读
+        # stop_requested 不会把一次没看到的暂停顺带算成看过了
+        self._seen_paused = False
         self.stop_reason = None
         self.pause_reason = None
 
     @property
     def stop_requested(self):
-        self._seen = self._version
         return self._stop
 
     @property
     def paused(self):
-        self._seen = self._version
-        return self._paused
+        value = self._paused
+        self._seen_paused = value
+        return value
 
     def state(self):
-        """(paused, pause_reason)，给 status 用。不算"循环看过了"，所以不碰 _seen。"""
+        """(paused, pause_reason)，给 status 用。不算"循环看过了"，所以不碰 _seen_paused。"""
         return self._paused, self.pause_reason
 
     def _changed(self):
         with self._cond:
-            self._version += 1
             self._cond.notify_all()
 
     def request_stop(self, reason):
@@ -107,11 +110,13 @@ class Controls:
         self._changed()
 
     def wait(self, seconds):
-        """最多等 seconds 秒。要求停下了，或者自循环上一次看过开关以来暂停、接着跑过，就
-        提前返回。"""
+        """最多等 seconds 秒。要求停下了，或者暂停状态和循环上一次读到的不一样了，就提前返回。
+
+        暂停了又接着跑、而循环一次都没读到，就当没发生：状态和它看到的一样，没有要办的事。
+        """
         with self._cond:
-            start = self._seen
-            self._cond.wait_for(lambda: self._stop or self._version != start, timeout=seconds)
+            self._cond.wait_for(lambda: self._stop or self._paused != self._seen_paused,
+                                timeout=seconds)
 
 
 def _peer_uid(conn):
@@ -144,19 +149,33 @@ class ControlServer:
         self._inode = None
         self._lock = None
         self._closing = threading.Event()
+        self._workers = {}          # 线程 -> 它的连接
+        self._workers_lock = threading.Lock()
 
     def start(self):
+        self._check_dir()
         self._take_lock()
         try:
             self._claim()
             self._listen()
+            self._thread = threading.Thread(target=self._serve, name="gbfr-control", daemon=True)
+            self._thread.start()
         except BaseException:
-            self._drop_lock()
+            # 起到一半失败（比如线程数到了上限）：监听的套接字、文件和锁都收回，免得留下一个
+            # 没人服务、却让后来者以为"另一个在跑"的空壳
+            self.close()
             raise
-        self._thread = threading.Thread(target=self._serve, name="gbfr-control", daemon=True)
-        self._thread.start()
         log.info("控制套接字在 %s", self._path)
         return self
+
+    def _check_dir(self):
+        """套接字所在的目录得是本用户的，组和其他人都进不去。bind 建出文件到 chmod 之间，
+        靠的就是它；也就不用去动整个进程共用的 umask。"""
+        parent = self._path.parent
+        st = os.stat(parent)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+            raise RuntimeError(f"{parent} 不只是本用户能进（属主 {st.st_uid}，权限 "
+                               f"{stat.S_IMODE(st.st_mode):o}），控制套接字不放在这里")
 
     def _take_lock(self):
         """锁文件和套接字放在一起，O_NOFOLLOW：那个位置上是链接的话，宁可起不来。"""
@@ -178,17 +197,12 @@ class ControlServer:
 
     def _listen(self):
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        # bind 按 umask 建文件；先收紧再 bind，免得有一小段时间别人也能连
-        old_umask = os.umask(0o177)
-        try:
-            sock.bind(str(self._path))
-        finally:
-            os.umask(old_umask)
-        os.chmod(self._path, 0o600)
+        self._sock = sock
+        sock.bind(str(self._path))
         self._inode = self._path.lstat().st_ino
+        os.chmod(self._path, 0o600)
         sock.listen(8)
         sock.settimeout(0.5)
-        self._sock = sock
 
     def _claim(self):
         if not os.path.lexists(self._path):
@@ -216,15 +230,30 @@ class ControlServer:
                 continue
             except OSError:
                 break
-            threading.Thread(target=self._handle_safely, args=(conn,), name="gbfr-control-conn",
-                             daemon=True).start()
+            worker = threading.Thread(target=self._handle_safely, args=(conn,),
+                                      name="gbfr-control-conn", daemon=True)
+            with self._workers_lock:
+                if self._closing.is_set():
+                    conn.close()
+                    break
+                self._workers[worker] = conn
+            try:
+                worker.start()
+            except RuntimeError:
+                log.warning("起不了处理连接的线程，这个连接作废", exc_info=True)
+                with self._workers_lock:
+                    self._workers.pop(worker, None)
+                conn.close()
 
     def _handle_safely(self, conn):
-        with conn:
-            try:
+        try:
+            with conn:
                 self._handle(conn)
-            except Exception:
-                log.warning("控制连接出错，这一个连接作废，服务照常", exc_info=True)
+        except Exception:
+            log.warning("控制连接出错，这一个连接作废，服务照常", exc_info=True)
+        finally:
+            with self._workers_lock:
+                self._workers.pop(threading.current_thread(), None)
 
     def _handle(self, conn):
         conn.settimeout(CONNECTION_TIMEOUT)
@@ -233,6 +262,10 @@ class ControlServer:
             log.warning("别的用户（uid %d）连了控制套接字，不理", uid)
             return
         command = _read_line(conn)
+        if self._closing.is_set():
+            # 已经在收尾：读到的命令不再办
+            conn.sendall(b'{"ok": false, "error": "closing"}\n')
+            return
         if command == "stop":
             self._controls.request_stop("收到 stop 命令")
             reply = {"ok": True}
@@ -249,7 +282,8 @@ class ControlServer:
             except Exception as exc:
                 log.warning("取状态失败", exc_info=True)
                 extra = {"status_error": f"{type(exc).__name__}: {exc}"}
-            reply = {"ok": True, "paused": paused, "pause_reason": reason, **extra}
+            # 回调给的放在前面：它要是也带了 ok、paused 这些键，以这边的为准
+            reply = {**extra, "ok": True, "paused": paused, "pause_reason": reason}
         else:
             reply = {"ok": False, "error": f"unknown command {command!r}"}
         conn.sendall((json.dumps(reply, ensure_ascii=False, default=str) + "\n").encode("utf-8"))
@@ -263,8 +297,18 @@ class ControlServer:
             except OSError:
                 pass
             self._sock.close()
-        if self._thread is not None:
+        if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2)
+        # 已经连上的也断开、等它们收完：close() 返回以后，不能再有命令拨动开关
+        with self._workers_lock:
+            workers = list(self._workers.items())
+        for _, conn in workers:
+            try:
+                conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        for worker, _ in workers:
+            worker.join(timeout=CONNECTION_TIMEOUT + 1)
         # 只删自己建的那一个：期间要是被换掉了（另一个循环删了重建），留给它
         try:
             if self._inode is not None and self._path.lstat().st_ino == self._inode:
