@@ -367,3 +367,42 @@ def test_capture_cancels_when_pause_or_stop_arrives(home, game, command):
     assert (X.KeyRelease, 25) in game.d.events
     assert (X.ButtonRelease, 2) in game.d.events
     assert_session_free(home)
+
+
+@pytest.mark.parametrize("bad", [None, "blank"])
+def test_unready_transport_retries_held_release_before_readiness_stop(home, game, bad):
+    import numpy as np
+    import backend
+    import config
+    import farm
+    from Xlib import X
+
+    wi = gbfr_auto.xtest_input.XTestInput(game.d, game.w.game,
+                                         config.DEFAULTS["keys"], live=True)
+    controls = control.Controls()
+    frames = iter([frame_of(PAGE_NAME.BATTLE),
+                   None if bad is None else np.zeros((180, 200, 3), np.uint8)])
+    loop = farm.Farm(lambda: next(frames),
+                     backend.KmbBackend(wi, config.DEFAULTS["keys"],
+                                        gbfr_auto.centre_of(game.w.game)),
+                     gbfr_auto.observer(game.w.game, wi), controls, TEMPLATES,
+                     config.Config(config.DEFAULTS), window_input=wi,
+                     battle_inputs={"w", "middle"})
+    assert loop.tick() is None and set(wi.held) == {"w", "middle"}
+    game.d.fail = True
+    assert loop.tick() is None
+    assert not wi.is_ready() and wi.held
+    # Another release failure must enter the periodic paused retry path, even
+    # though the real observer now reports input_ready=False. No frame remains:
+    # this attempt cannot depend on a fresh capture to clear the old hold.
+    assert loop.tick() is None and controls.paused
+    game.d.fail = False
+    events_before = len(game.d.events)
+    assert loop.tick() is None and not wi.held
+    assert game.d.events[events_before:]
+    assert all(kind in (X.KeyRelease, X.ButtonRelease)
+               for kind, _ in game.d.events[events_before:])
+    assert controls.paused
+    # Clearing holds does not silently declare a broken transport ready again.
+    controls.resume()
+    assert "输入用不了" in loop.tick()

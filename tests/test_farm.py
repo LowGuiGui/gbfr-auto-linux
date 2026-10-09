@@ -746,7 +746,7 @@ def test_capture_release_failure_is_retried_before_new_input(next_frame):
     f.tick()
     assert f.tick() is None and wi.held
     assert f.tick() is None
-    assert wi.releases == 2
+    assert wi.releases >= 2
     if next_frame is None:
         assert not wi.held
     else:
