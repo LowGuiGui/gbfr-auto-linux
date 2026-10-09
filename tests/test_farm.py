@@ -170,8 +170,8 @@ def cfg(**overrides):
     return config.Config(values)
 
 
-def world(valid=True, hwnd=0x400000, ready=True):
-    return supervisor.Observation(hwnd=hwnd, hwnd_valid=valid, kmb_ready=ready)
+def world(valid=True, window_id=0x400000, ready=True):
+    return supervisor.Observation(window_id, valid, ready)
 
 
 def make(*frames, window_input=None, settings=None, observe=None, **kwargs):
@@ -365,7 +365,6 @@ class TestStopping:
         assert backend.calls == [] and matched == []
 
     def test_a_lost_window_stops_it_and_says_so(self):
-        """supervisor 的说法是"正在重新查找"，这一版并不找，所以理由要是自己的这一句。"""
         f, *_ = make(PAGE_NAME.SCORE, observe=lambda: world(valid=False))
         assert f.tick() == "游戏窗口不在了"
 
@@ -374,24 +373,10 @@ class TestStopping:
         assert f.tick().startswith("输入用不了")
 
     def test_a_different_window_means_the_game_restarted(self):
-        seen = iter([world(hwnd=0x400000), world(hwnd=0x600000)])
+        seen = iter([world(window_id=0x400000), world(window_id=0x600000)])
         f, *_ = make(PAGE_NAME.SCORE, observe=lambda: next(seen))
         assert f.tick() is None
         assert "换了一个" in f.tick()
-
-    def test_the_preferred_backend_is_the_one_checked(self):
-        """循环只有一个后端：观测里它可用就跑，supervisor 想退到另一个，就停下。"""
-        pad_only = supervisor.Observation(hwnd=0x400000, hwnd_valid=True, kmb_ready=False,
-                                          pad_ready=True)
-        f, *_ = make(PAGE_NAME.SCORE, observe=lambda: pad_only, prefer="pad")
-        assert f.tick() is None
-        f, *_ = make(PAGE_NAME.SCORE, observe=lambda: pad_only)
-        assert f.tick().startswith("输入用不了")
-        # 两个都可用时，supervisor 照偏好选；偏好没传给它的话，它会选 kmb，循环就停了
-        both = supervisor.Observation(hwnd=0x400000, hwnd_valid=True, kmb_ready=True,
-                                      pad_ready=True)
-        f, *_ = make(PAGE_NAME.SCORE, observe=lambda: both, prefer="pad")
-        assert f.tick() is None
 
     @pytest.mark.parametrize("threshold", [-1.0, 0.0, 1.5, float("nan"), float("inf")])
     def test_a_threshold_outside_its_range_is_refused(self, threshold):
@@ -419,18 +404,6 @@ class TestStopping:
         make(PAGE_NAME.SCORE, settings=cfg(detect__threshold=1.0, loop__poll_interval_ms=1,
                                            loop__max_battle_s=1, loop__max_page_s=1,
                                            loop__max_blind_taps=0, detect__max_anomaly_frames=0))
-
-    def test_an_unknown_backend_preference_is_refused(self):
-        """拼错的偏好，supervisor 照样会选出 kmb，循环却永远对不上它，第一轮就停下。"""
-        with pytest.raises(ValueError, match="prefer"):
-            make(PAGE_NAME.SCORE, prefer="kbm")
-
-    def test_an_action_this_version_cannot_carry_out_stops_it(self):
-        """观测里说焦点伪装开着：supervisor 要 spoof_off，这一版没有伪装可关，就停下。"""
-        spoofed = supervisor.Observation(hwnd=0x400000, hwnd_valid=True, kmb_ready=True,
-                                         spoof_on=True)
-        f, *_ = make(PAGE_NAME.SCORE, observe=lambda: spoofed)
-        assert "spoof_off" in f.tick()
 
     def test_three_unusable_captures_in_a_row_stop_it(self):
         blank = np.zeros((180, 200, 3), np.uint8)

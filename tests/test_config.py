@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""config.py —— 纯标准库，与平台无关。配置坏掉绝不能让程序起不来。"""
+"""config.py —— 纯标准库，与平台无关。普通读取错误回退，已退役的输入设置要求迁移。"""
 
 import tomllib
 
@@ -23,8 +23,7 @@ def test_generates_a_commented_default_on_first_run(tmp_path, log_file):
 def test_the_generated_default_parses_and_matches_DEFAULTS(tmp_path, log_file):
     """带注释的模板和 DEFAULTS 是两份东西，必须证明它们没有漂移。
 
-    注意用 _decode 而不是直接 tomllib.load —— 生成的文件带 BOM（记事本要它），
-    而 tomllib 不认 BOM。这条测试曾经因此变红，那正是它该做的事。
+    新模板是 UTF-8；读取器也保留对已有 BOM 文件的兼容。
     """
     config.load(str(tmp_path))
     raw = (tmp_path / config.CONFIG_FILENAME).read_bytes()
@@ -128,11 +127,8 @@ class TestAccess:
         assert cfg.get("keys.move") == "w"
 
 
-class TestWhatNotepadDoesToTheFile:
-    """配置文件是给人用记事本改的，它存盘的方式会把 tomllib 直接干掉。
-
-    两种都曾经导致同一个最糟的结果：退回默认值，于是用户改了半天配置一点不生效。
-    """
+class TestExistingFileEncodings:
+    """已有的 BOM 和本地编码配置仍可读取。"""
 
     def test_a_bom_does_not_defeat_the_parser(self, tmp_path, log_file):
         """记事本存 UTF-8 默认加 BOM，而 tomllib 不认 BOM。"""
@@ -160,13 +156,26 @@ class TestWhatNotepadDoesToTheFile:
         assert cfg.get("loop.poll_interval_ms") == 3000
         assert "既不是 UTF-8" in log_file()
 
-    def test_the_generated_file_carries_a_bom(self, tmp_path, log_file):
-        """没有 BOM 的话，记事本会按本地代码页解释，中文注释全是乱码。"""
+    def test_new_file_is_plain_utf8_toml(self, tmp_path, log_file):
         config.load(str(tmp_path))
-        assert (tmp_path / config.CONFIG_FILENAME).read_bytes()[:3] == b"\xef\xbb\xbf"
+        text = (tmp_path / config.CONFIG_FILENAME).read_text(encoding="utf-8")
+        assert tomllib.loads(text) == config.DEFAULTS
 
     def test_the_header_says_which_encoding_to_use(self, tmp_path, log_file):
         config.load(str(tmp_path))
         text = (tmp_path / config.CONFIG_FILENAME).read_text(encoding="utf-8-sig")
         assert "UTF-8" in text
         assert "Save this file as UTF-8" in text, "英文系统的用户也得看得懂这句"
+
+
+@pytest.mark.parametrize("legacy", [
+    "[input]\ndry_run = true\n", "[input]\ndry_run = false\n",
+    "[input]\nbackend = 'pad'\nmode = 'inject'\n", "[pad]\nconfirm = 'a'\n",
+    "[inject]\nwatchdog_ms = 15000\n", "input = 'malformed'\n",
+])
+def test_retired_sections_require_explicit_migration(tmp_path, log_file, legacy):
+    path = tmp_path / config.CONFIG_FILENAME
+    path.write_text(legacy, encoding="utf-8")
+    with pytest.raises(config.ConfigError, match="run --live"):
+        config.load(str(tmp_path))
+    assert path.read_text(encoding="utf-8") == legacy

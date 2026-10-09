@@ -78,8 +78,8 @@ def observer(window, window_input):
             alive = True
         except Exception:
             alive = False
-        return supervisor.Observation(hwnd=window.id if alive else None, hwnd_valid=alive,
-                                      kmb_ready=window_input.is_ready())
+        return supervisor.Observation(window_id=window.id if alive else None,
+                                      window_valid=alive, input_ready=window_input.is_ready())
     return observe
 
 
@@ -96,7 +96,10 @@ def centre_of(window):
 
 def cmd_run(args):
     applog.setup(str(REPO / "logs"))
-    cfg = config.load(str(REPO))
+    try:
+        cfg = config.load(str(REPO))
+    except config.ConfigError as exc:
+        return _refuse(exc)
     applog.set_level(cfg.get("log.level"))
     mode = "实跑，会发按键" if args.live else "空跑，不发按键"
     log.info("=== gbfr-auto-linux 开始（%s）===", mode)
@@ -162,7 +165,10 @@ def _refuse(exc):
 
 def cmd_release(args):
     applog.setup(str(REPO / "logs"))
-    cfg = config.load(str(REPO))
+    try:
+        cfg = config.load(str(REPO))
+    except config.ConfigError as exc:
+        return _refuse(exc)
     try:
         _, values = find_game(args.appid)
         d, window = connect(values, args.appid)

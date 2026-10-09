@@ -240,7 +240,7 @@ class TestHelpers:
             raise ConnectionError("BadWindow")
         window = SimpleNamespace(id=0x400000, get_geometry=gone)
         obs = gbfr_auto.observer(window, SimpleNamespace(is_ready=lambda: True))()
-        assert not obs.hwnd_valid and obs.hwnd is None
+        assert not obs.window_valid and obs.window_id is None
 
     def test_the_centre_is_the_window_s_own(self):
         window = SimpleNamespace(get_geometry=lambda: SimpleNamespace(width=2560, height=1440))
@@ -255,3 +255,16 @@ class TestHelpers:
         args = gbfr_auto.parse_args(["run"])
         assert args.live is False and args.repeats is None
         assert gbfr_auto.parse_args(["run", "--live", "--repeats", "3"]).repeats == 3
+
+
+@pytest.mark.parametrize("command", [["run"], ["run", "--live"], ["release"]])
+@pytest.mark.parametrize("legacy", ["[input]\ndry_run = true\n", "[pad]\nconfirm = 'a'\n",
+                                  "[inject]\nwatchdog_ms = 15000\n"])
+def test_retired_config_is_refused_before_discovery(home, monkeypatch, capsys, command, legacy):
+    path = home.repo / "gbfr_auto.toml"
+    path.write_text(legacy)
+    monkeypatch.setattr(gbfr_auto, "find_game", lambda *a, **k: pytest.fail("looked for game"))
+    assert gbfr_auto.main(command) == 1
+    assert "run --live" in capsys.readouterr().err
+    assert not os.path.lexists(home.socket)
+    assert path.read_text() == legacy

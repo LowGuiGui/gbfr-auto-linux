@@ -199,11 +199,16 @@ class TestCv2ApiSurface:
         import subprocess
         from pathlib import Path
         root = Path(__file__).resolve().parent.parent
-        files = subprocess.run(["git", "ls-files", "*.py"], cwd=root,
-                               capture_output=True, text=True).stdout.split()
+        files = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "*.py"],
+            cwd=root, capture_output=True, text=True, check=True).stdout.split("\0")
         used = set()
-        for rel in files:
-            text = (root / rel).read_text(encoding="utf-8", errors="replace")
+        for rel in set(files):
+            path = root / rel
+            # Unstaged deletions remain in the index; audit the code that exists now.
+            if not rel or not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
             used.update(re.findall(r"cv2\.([A-Za-z_0-9]+)", text))
         assert used <= set(CV2_SURFACE), \
             f"代码用了 CV2_SURFACE 里没列的符号: {sorted(used - set(CV2_SURFACE))}"

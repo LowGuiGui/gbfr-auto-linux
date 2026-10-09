@@ -2,17 +2,7 @@
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-# 配置层。
-#
-# 在此之前每个可调数值都是散落在源码里的字面量：轮询间隔在 main.py，匹配阈值在
-# opencv.py，按键在 option.py。接下来的每个功能都会再加一批旋钮（截图后端、缩放
-# 范围、面板停靠边、输入后端、每关配置），继续堆字面量是最糟的选择。
-#
-# 只依赖标准库，且不碰 tkinter/win32 —— opencv.py 要读匹配阈值，而它是全仓库唯一
-# 能在 Linux 上直接测的模块，不能被拖进平台依赖。
-#
-# 读取用 tomllib（3.11+ 标准库）。我们从不以程序方式写配置，只在文件不存在时把下
-# 面那份带注释的默认模板整个写出去，之后完全交给用户手改。
+"""Linux TOML 配置；仅在文件不存在时生成默认模板，不改写已有配置。"""
 
 import codecs
 import locale
@@ -47,24 +37,6 @@ DEFAULTS = {
         "anomaly_dir": "anomalies",
         "max_anomaly_frames": 50,
     },
-    "input": {
-        "mode": "fallback",
-        # 用键鼠还是虚拟手柄。mode 是键鼠**通道**（抢焦点 / 注入），跟这个是
-        # 两件事：手柄走 XInput 设备状态，跟窗口焦点无关。
-        "backend": "kmb",
-        # 空跑：照常识别、照常记录，但**不向游戏发送任何按键**。
-        "dry_run": False,
-    },
-    # 手柄按键映射。**默认值是未经验证的猜测** —— 没人在 Relink 里核对过，
-    # TESTING.md 有一条专门去确认。名字见 vigem.BUTTONS。
-    "pad": {
-        "battle": "right_thumb",
-        "again": "y",
-        "confirm": "a",
-    },
-    "inject": {
-        "watchdog_ms": 15000,
-    },
     "keys": {
         "move": "w",
         "again": "3",
@@ -80,13 +52,14 @@ DEFAULTS = {
 DEFAULT_TOML = """\
 # gbfr_auto configuration / gbfr_auto 配置文件
 #
-# Save this file as UTF-8. Notepad's "ANSI" will break the comments below.
+# Save this file as UTF-8. Input is disabled unless run uses --live.
 # Delete any line to fall back to its default; delete the whole file and it is
 # regenerated on next start. Unknown keys are ignored and reported in the log.
+# Retired input/pad/inject sections must be removed before running.
 #
-# 存盘请选 UTF-8，记事本的「ANSI」会让下面的注释读不出来。
+# 存盘请选 UTF-8；run 默认只空跑，加 --live 才发送输入。
 # 删掉某一行就会用回默认值；删掉整个文件，下次启动会重新生成这份模板。
-# 认不出的键会被忽略并在日志里报出来，不会让程序起不来。
+# 认不出的键会被忽略并记录。旧的 input/pad/inject 段落必须删除才可运行。
 
 [loop]
 poll_interval_ms = 3000     # 每隔多久截一次图并判断页面
@@ -102,20 +75,6 @@ save_anomaly_frames = false # 认不出页面时把截图存下来，用于事�
 anomaly_dir         = "anomalies"
 max_anomaly_frames  = 50    # 存满就不再存，避免把磁盘塞爆
 
-[input]
-mode    = "fallback"        # 键鼠通道: "fallback"（抢焦点）或 "inject"（DLL 注入）
-backend = "kmb"             # "kmb"（键鼠）或 "pad"（虚拟手柄）
-dry_run = false             # true = 照常识别与记录，但不向游戏发送任何按键
-
-[pad]
-# 虚拟手柄的按键映射。**未经验证** —— 见 TESTING.md 的 E1。
-battle  = "right_thumb"     # 键鼠那边是中键
-again   = "y"
-confirm = "a"
-
-[inject]
-watchdog_ms = 15000         # 启用注入模式的超时
-
 [keys]
 move    = "w"               # 战斗中按住的前进键
 again   = "3"               # 结算页切换到"再战"
@@ -124,6 +83,13 @@ confirm = "a"               # 确认／推进流程
 [log]
 level = "DEBUG"             # DEBUG / INFO / WARNING
 """
+
+
+RETIRED_SECTIONS = frozenset({"input", "pad", "inject"})
+
+
+class ConfigError(RuntimeError):
+    """配置需要显式迁移，不能悄悄丢掉旧的输入设置。"""
 
 
 class Config:
@@ -159,6 +125,13 @@ def _merged(user):
     未知键和类型不符的键都会被拒绝并记录 —— 静默忽略配置错误，就等于让人对着
     一个不生效的设置调半天。
     """
+    retired = sorted(RETIRED_SECTIONS.intersection(user))
+    if retired:
+        sections = ", ".join(f"[{name}]" for name in retired)
+        raise ConfigError(
+            f"Linux 不再支持配置段落 {sections}；请删除这些段落后重试。"
+            "run 默认空跑，只有 run --live 才发送输入；不要把旧的 dry_run 当作保护。"
+            "其他键位、识别和循环设置可以保留，原文件未修改。")
     result = {section: dict(items) for section, items in DEFAULTS.items()}
 
     for section, items in user.items():
@@ -187,10 +160,7 @@ def _merged(user):
 
 def _write_default(path):
     try:
-        # utf-8-sig：这个文件是给人用记事本改的。不带 BOM 的话记事本按本地代码页
-        # 解释，中文注释全是乱码；而且它另存时多半会补上 BOM，于是下次就读不了。
-        # 一开始就带上，来回都稳。
-        with open(path, "w", encoding="utf-8-sig") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(DEFAULT_TOML)
         return True
     except OSError as e:
@@ -199,15 +169,7 @@ def _write_default(path):
 
 
 def _decode(raw):
-    """把配置文件的字节解成文本，容忍记事本会做的两件事。
-
-    返回 (文本, 提示) —— 提示不为空时说明文件不是标准的 UTF-8，应当告诉用户。
-
-    两个坑都很常见：
-      1. 记事本存 UTF-8 默认加 BOM，而 tomllib 不认 BOM，直接报语法错误；
-      2. 记事本也可能按 ANSI（简中就是 GBK）存，那是 UnicodeDecodeError。
-    两种情况原来都会退回默认值，于是用户改了半天配置一点不生效 —— 比报错更糟。
-    """
+    """读取 UTF-8；兼容已有的 BOM 与本地编码文件，并报告编码回退。"""
     if raw.startswith(codecs.BOM_UTF8):
         raw = raw[len(codecs.BOM_UTF8):]
     try:
@@ -222,14 +184,14 @@ def _decode(raw):
         return None, f"配置文件既不是 UTF-8，也不是本地编码 {fallback}"
     return text, (
         f"配置文件不是 UTF-8（已按本地编码 {fallback} 读取）。"
-        "请用记事本「另存为」并把编码选成 UTF-8，否则下次可能读不出来。"
+        "请用编辑器另存为 UTF-8，否则下次可能读不出来。"
     )
 
 
 def load(directory):
     """读取 <directory>/gbfr_auto.toml，不存在就先写一份带注释的默认配置。
 
-    任何失败都退回默认值并记录 —— 配置坏掉不该让程序起不来。
+    读取或语法错误使用默认值并记录；已退役的输入段落抛出 ConfigError，要求迁移。
     """
     path = os.path.join(directory, CONFIG_FILENAME)
 
