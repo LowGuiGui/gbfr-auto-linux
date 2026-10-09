@@ -716,3 +716,48 @@ class TestTemplates:
     def test_a_missing_template_stops_it_from_starting(self, tmp_path):
         with pytest.raises(RuntimeError, match="flag_battle.png"):
             farm.load_templates(tmp_path)
+
+
+@pytest.mark.parametrize("bad", [None, np.zeros((180, 200, 3), np.uint8)])
+@pytest.mark.parametrize("partial", [False, True])
+def test_first_bad_capture_releases_and_only_a_fresh_frame_restarts(bad, partial):
+    wi = Input(press_lands=not partial)
+    f, backend, _, _ = make(PAGE_NAME.BATTLE, bad, bad, PAGE_NAME.BATTLE,
+                            window_input=wi, battle_inputs={"w", "middle"})
+    assert f.tick() is None
+    # A partial battle start normally releases itself; model a transport hold
+    # still present when the next observation fails.
+    wi.held = ["w"] if partial else ["middle", "w"]
+    assert f.tick() is None
+    assert not wi.held and not f._battling
+    after_failure = list(backend.calls)
+    assert f.tick() is None
+    assert not any(c in ("hold_move", "battle_press")
+                   for c in backend.calls[len(after_failure):])
+    wi.press_lands = True
+    assert f.tick() is None
+    assert wi.held == ["middle", "w"]
+
+
+@pytest.mark.parametrize("next_frame", [None, PAGE_NAME.BATTLE])
+def test_capture_release_failure_is_retried_before_new_input(next_frame):
+    wi = Input(failing_releases=1)
+    f, backend, _, _ = make(PAGE_NAME.BATTLE, None, next_frame, window_input=wi)
+    f.tick()
+    assert f.tick() is None and wi.held
+    assert f.tick() is None
+    assert wi.releases >= 2
+    if next_frame is None:
+        assert not wi.held
+    else:
+        assert backend.calls[-3:] == ["release_all", "hold_move", "battle_press"]
+
+
+def test_persistent_release_failure_pauses_without_sending_new_presses():
+    wi = Input(failing_releases=2)
+    f, backend, controls, _ = make(PAGE_NAME.BATTLE, None, PAGE_NAME.BATTLE, window_input=wi)
+    f.tick()
+    f.tick()
+    assert f.tick() is None and controls.paused
+    assert backend.calls.count("hold_move") == 1
+    assert f.tick() is None and not wi.held

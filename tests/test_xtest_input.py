@@ -895,3 +895,16 @@ class TestTheDoubleFollowsPythonXlib:
         names = [f.name for f in xprotocol.ConnectionSetupRequest._success_reply.fields if f.name]
         assert {"min_keycode", "max_keycode"} <= set(names)
 
+
+
+@pytest.mark.parametrize("failure", [None, "transport", "key mapping", "pointer mapping"])
+def test_recovery_result_covers_unrecorded_input(failure):
+    d, w = nested()
+    xi = live_input(d, w)
+    if failure == "transport":
+        d.fail = True
+    elif failure == "key mapping":
+        d.keymap[25] = ["z", "Z"]
+    elif failure == "pointer mapping":
+        d.pointer_map = (1, 0, 3)
+    assert xi.release_everything() is (failure is None)

@@ -518,10 +518,13 @@ class XTestInput:
         W 和中键点一下。记着的按键，松开发成功了才不再记着：发不出去的，release_all 还能
         再试。
 
+        返回 True 只表示所有请求已发给 X；跳过或发送失败返回 False，不证明游戏里的状态。
         记着的键用按下时的键码。没记着的，只在此刻的映射确认过时才松：那个键码的第一个符号
         还是配置里的字，而且不是修饰键。映射变了，按构造时的键码松开的就是另一个键，可能是
         别人正按着的修饰键。
         """
+        # Success confirms dispatch to X, not the game's observed state.
+        complete = True
         try:
             modifiers = _codes(self._d.get_modifier_mapping())
             rows = self._d.get_keyboard_mapping(self._first_keycode, self._keycode_count)
@@ -536,9 +539,12 @@ class XTestInput:
             if keycode not in self._held_keys and not confirmed:
                 log.warning("现在的键盘映射里，键码 %d 已经不是 %r（或者成了修饰键），这个键不松",
                             keycode, name)
+                complete = False
                 continue
             if self._send(X.KeyRelease, keycode, f"松开 {name}"):
                 self._held_keys.pop(keycode, None)
+            else:
+                complete = False
         try:
             pointer_map = self._d.get_pointer_mapping()
         except Exception:
@@ -551,6 +557,10 @@ class XTestInput:
                 detail = _physical(logical, pointer_map)
             if detail is None:
                 log.warning("现在的指针映射里没有 %s 键，这个键不松", button)
+                complete = False
                 continue
             if self._send(X.ButtonRelease, detail, f"松开鼠标 {button}"):
                 self._held_buttons.pop(button, None)
+            else:
+                complete = False
+        return complete

@@ -23,6 +23,7 @@ import argparse
 import os
 import signal
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 
 from Xlib import error as xerror
@@ -112,19 +113,21 @@ def cmd_run(args):
     except (control.AlreadyRunning, RuntimeError) as exc:
         return _refuse(exc)
 
-    d = window_input = None
-    try:
+    with ExitStack() as cleanup:
+        cleanup.callback(server.close)
         try:
             _, values = find_game(args.appid)
             d, window = connect(values, args.appid)
+            cleanup.callback(d.close)
             geometry = window.get_geometry()
             keys = cfg.section("keys")
             window_input = xtest_input.XTestInput(d, window, keys, live=args.live)
+            cleanup.callback(window_input.release_all)
             templates = farm.load_templates(REPO / "template", cfg.get("detect.template_scale"))
             capture = gamescope.ScreenshotCapture(
                 values["wayland"], values["runtime"], (geometry.width, geometry.height),
                 gamescope.private_dir(os.environ["XDG_RUNTIME_DIR"]),
-                stop=lambda: controls.stop_requested)
+                stop=lambda: controls.stop_requested or controls.paused)
             # 开打 = KmbBackend 按住前进键、按下中键：两样都按住了才算开打。Farm 也在这里面：
             # 配置里出了界的数，它不肯开始，那也是一次不开始，不是一串 traceback
             loop = farm.Farm(capture, backend.KmbBackend(window_input, keys, centre_of(window)),
@@ -149,12 +152,6 @@ def cmd_run(args):
         done = controls.stop_requested or (args.repeats and loop.battles >= args.repeats)
         print(f"停下：{reason}。完成 {loop.battles} 次战斗。日志：{applog.log_path()}")
         return 0 if done else 1
-    finally:
-        if window_input is not None:
-            window_input.release_all()
-        if d is not None:
-            d.close()
-        server.close()
 
 
 def _refuse(exc):
@@ -169,19 +166,30 @@ def cmd_release(args):
         cfg = config.load(str(REPO))
     except config.ConfigError as exc:
         return _refuse(exc)
+    # Recovery owns the same domain as run and observation probes. Acquiring
+    # the existing control server also refuses listeners without our lock.
     try:
-        _, values = find_game(args.appid)
-        d, window = connect(values, args.appid)
-    except (GameNotFound, RuntimeError, OSError, xerror.DisplayError, xerror.XError) as exc:
+        server = control.ControlServer(control.Controls(), control.socket_path(),
+                                       status=lambda: {"operation": "release"}).start()
+    except (RuntimeError, OSError) as exc:
         return _refuse(exc)
-    try:
-        xtest_input.XTestInput(d, window, cfg.section("keys"), live=True).release_everything()
-    except xtest_input.InputRefused as exc:
-        return _refuse(exc)
-    finally:
-        d.close()
-    print("配置里的键和中键都松了一遍。还按着的话，在游戏窗口里自己点一下 W 和鼠标中键")
-    return 0
+    with ExitStack() as cleanup:
+        cleanup.callback(server.close)
+        try:
+            _, values = find_game(args.appid)
+            d, window = connect(values, args.appid)
+            cleanup.callback(d.close)
+            complete = xtest_input.XTestInput(
+                d, window, cfg.section("keys"), live=True).release_everything()
+        except (GameNotFound, xtest_input.InputRefused, RuntimeError, OSError,
+                xerror.DisplayError, xerror.XError) as exc:
+            return _refuse(exc)
+        if not complete:
+            log.error("部分松开未确认：传输失败或当前映射不允许松开，见日志")
+            print("部分松开未确认，见日志；请检查游戏内的按键状态", file=sys.stderr)
+            return 1
+        print("配置里的键和中键松开请求已发送。请检查游戏内的按键状态")
+        return 0
 
 
 def cmd_send(args):

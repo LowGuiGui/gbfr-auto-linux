@@ -201,6 +201,16 @@ class Farm:
             # 暂停的时间不算在这一页上：从下一次认出页面重新计时
             self.page = None
 
+        if self._capture_failures and self._input.held:
+            # A failed send marks XTestInput unready but keeps the held state.
+            # Retry before readiness/observation can stop the session or capture
+            # can block; a persistent failure uses the existing paused retries.
+            self._release("重试松开未确认的输入")
+            if self._input.held:
+                self._controls.pause("松开输入未确认，暂停并重试")
+                self._pause_noted = True
+                return None
+
         reason = self._check_world()
         if reason:
             return reason
@@ -214,6 +224,7 @@ class Farm:
             self._enter_pause()
             return None
         if frame is None or is_blank_frame(frame):
+            self._release("没有可用画面")
             self._capture_failures += 1
             log.warning("这一轮没有可用的画面（%s，连续第 %d 次）",
                         "截图失败" if frame is None else "空白帧", self._capture_failures)
