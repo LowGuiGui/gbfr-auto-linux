@@ -128,15 +128,12 @@ class Farm:
 
     def __init__(self, capture, backend, observe, controls, templates, cfg, window_input,
                  repeats=None, clock=time.monotonic, anomaly_dir=None, save_frame=save_png,
-                 battle_inputs=None, prefer="kmb"):
+                 battle_inputs=None):
         """battle_inputs：开打以后 window_input.held 里应该有的那几样（比如 {"w", "middle"}）。
         全都按住了才算开打；只按住一部分（中键因为取不到窗口中心没发出去），下一轮接着按。
-        不给就退一步，按住了任何东西都算。repeats：完成几次就停，None 是不限；prefer：用哪个
-        后端，"kmb" 或 "pad"。"""
+        不给就退一步，按住了任何东西都算。repeats：完成几次就停，None 是不限。"""
         if repeats is not None and repeats < 1:
             raise ValueError(f"repeats must be at least 1, or None for no limit: {repeats!r}")
-        if prefer not in ("kmb", "pad"):
-            raise ValueError(f"prefer must be 'kmb' or 'pad': {prefer!r}")
         for key, allowed, rule in SETTING_RULES:
             value = cfg.get(key)
             if not allowed(value):
@@ -153,7 +150,6 @@ class Farm:
         self._anomaly_dir = Path(anomaly_dir) if anomaly_dir else None
         self._save_frame = save_frame
         self._battle_inputs = set(battle_inputs) if battle_inputs else None
-        self._prefer = prefer
         self.battles = 0
         self.page = None
         self._page_since = None
@@ -289,23 +285,10 @@ class Farm:
 
     def _check_world(self):
         obs = self._observe()
-        decision = supervisor.decide(self._prefer, obs, current_hwnd=self._window)
-        if not obs.hwnd_valid:
-            return "游戏窗口不在了"
-        if self._window is None:
-            self._window = obs.hwnd
-        if "reconnect_transport" in decision.actions:
-            return "游戏窗口换了一个，游戏多半重启过"
-        if decision.backend != self._prefer:
-            # 循环只有这一个后端；supervisor 退到别的后端，就是这一个用不了
-            return f"输入用不了：{decision.reason}"
-        # supervisor 还可能要别的（spoof_off：关掉 Windows 上的焦点伪装）。这一版做不了的，
-        # 宁可停下，也不当没看见
-        unsupported = [a for a in decision.actions
-                       if a not in ("release_all", "reconnect_transport", "reacquire_window")]
-        if unsupported:
-            return f"supervisor 要做 {', '.join(unsupported)}，这一版做不了"
-        return None
+        reason = supervisor.stop_reason(obs, current_window=self._window)
+        if reason is None and self._window is None:
+            self._window = obs.window_id
+        return reason
 
     def _recognise(self, frame):
         threshold = self._cfg.get("detect.threshold")

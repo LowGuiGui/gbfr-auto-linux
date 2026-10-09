@@ -7,7 +7,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 ## linux_probe.py
 
-Measures how the game behaves under gamescope, before any platform code is written. It asks
+Measures capture, input and focus behavior under gamescope. It asks
 four questions, and each is answered by a measurement that can come out either way:
 
 | Step | Question | How |
@@ -17,9 +17,9 @@ four questions, and each is answered by a measurement that can come out either w
 | L3 | Does input sent through XTest reach the game, and only the game? | Sends Escape twice to the nested X server, after asking. Checks whether the X server delivered the key to the game's window, whether the picture changed, and whether the key also reached this terminal on the host. |
 | L4 | Does the game pause when its window loses focus? | Captures a series of frames while the game is focused and another while it is not, and compares the motion with the logic of the Windows probe's A4 test (`framediff`). Also records the focus events the game window receives. |
 
-L5, the focus spoof built as an `.asi`, only matters if L4 finds a pause. It is not part of
-this tool. Its source is parked in history; `git restore --source=1db218a --
-hook/gbfr_hook.c` brings it back.
+The Windows focus spoof is historical and outside the Linux build. If a future
+measurement finds a focus pause, investigate that Linux behavior before selecting
+a remedy. This probe neither injects a library nor installs a game modification.
 
 ### Running it
 
