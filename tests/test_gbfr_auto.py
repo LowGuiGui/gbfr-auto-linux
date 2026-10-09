@@ -102,6 +102,7 @@ def game(monkeypatch):
 
     def make_capture(wayland, runtime, size, directory, stop=None):
         state.capture_args = (wayland, runtime, size, directory)
+        state.capture_cancelled = stop
         return state.capture
     monkeypatch.setattr(gbfr_auto.gamescope, "ScreenshotCapture", make_capture)
     return state
@@ -268,3 +269,101 @@ def test_retired_config_is_refused_before_discovery(home, monkeypatch, capsys, c
     assert "run --live" in capsys.readouterr().err
     assert not os.path.lexists(home.socket)
     assert path.read_text() == legacy
+
+
+def assert_session_free(home):
+    assert not os.path.lexists(home.socket)
+    server = control.ControlServer(control.Controls(), home.socket).start()
+    server.close()
+
+
+def test_release_refuses_a_running_owner_before_discovery(home, game, monkeypatch):
+    controls = control.Controls()
+    server = control.ControlServer(controls, home.socket).start()
+    monkeypatch.setattr(gbfr_auto, "find_game", lambda *a: pytest.fail("discovery while owned"))
+    try:
+        assert gbfr_auto.main(["release"]) == 1
+        assert control.send("status", home.socket)["ok"]
+        assert not controls.paused and not controls.stop_requested
+        assert not game.d.events
+    finally:
+        server.close()
+
+
+def test_release_keeps_ownership_until_display_closes(home, game):
+    closed = game.d.close
+
+    def close():
+        with pytest.raises(control.AlreadyRunning):
+            control.ControlServer(control.Controls(), home.socket).start()
+        closed()
+    game.d.close = close
+    assert gbfr_auto.main(["release"]) == 0
+    assert_session_free(home)
+
+
+@pytest.mark.parametrize("failure", ["transport", "key mapping", "pointer mapping"])
+def test_release_reports_incomplete_delivery(home, game, monkeypatch, capsys, failure):
+    original = gbfr_auto.xtest_input.XTestInput.release_everything
+
+    def release(wi):
+        if failure == "transport":
+            game.d.fail = True
+        elif failure == "key mapping":
+            game.d.keymap[25] = ["z", "Z"]
+        else:
+            game.d.pointer_map = (1, 0, 3)
+        return original(wi)
+    monkeypatch.setattr(gbfr_auto.xtest_input.XTestInput, "release_everything", release)
+    assert gbfr_auto.main(["release"]) == 1
+    assert "未确认" in capsys.readouterr().err
+    assert game.d.closed
+    assert_session_free(home)
+
+
+@pytest.mark.parametrize("command", [["run", "--repeats", "1"], ["release"]])
+@pytest.mark.parametrize("failure", ["release", "display", "both"])
+def test_teardown_errors_still_close_display_and_ownership(home, game, monkeypatch, command, failure):
+    attempts = []
+
+    def release(*args):
+        attempts.append("release")
+        if failure in ("release", "both"):
+            raise RuntimeError("release failed")
+        return True
+
+    def close():
+        attempts.append("display")
+        if failure in ("display", "both"):
+            raise RuntimeError("display close failed")
+    name = "release_everything" if command == ["release"] else "release_all"
+    monkeypatch.setattr(gbfr_auto.xtest_input.XTestInput, name, release)
+    game.d.close = close
+    # A runtime failure may propagate or become a nonzero CLI result, but it
+    # must never strand the owner or skip the remaining teardown operations.
+    try:
+        result = gbfr_auto.main(command)
+    except RuntimeError:
+        pass
+    else:
+        assert result == 1
+    assert attempts[-1] == "display" and "release" in attempts
+    assert_session_free(home)
+
+
+@pytest.mark.parametrize("command", ["pause", "stop"])
+def test_capture_cancels_when_pause_or_stop_arrives(home, game, command):
+    from Xlib import X
+
+    def during_capture(n):
+        if n == 2:
+            assert control.send(command, home.socket)["ok"]
+            assert game.capture_cancelled()
+            # End this fixture after observing cancellation, without resuming
+            # into another input-producing frame.
+            control.send("stop", home.socket)
+    game.capture.on_call = during_capture
+    assert gbfr_auto.main(["run", "--live"]) == 0
+    assert (X.KeyRelease, 25) in game.d.events
+    assert (X.ButtonRelease, 2) in game.d.events
+    assert_session_free(home)

@@ -41,6 +41,11 @@ and refer to the archive, [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbf
 | `test_gbfr_auto.py` | `gbfr_auto.py`: a dry run sending nothing, a live run letting go at the end, Ctrl+C and `stop` reaching the loop, a second loop refused before it looks for the game, refusing to start without the game, on a display that is not gamescope's or with a setting out of range, X errors at startup reported instead of a traceback, retired configuration refused before target discovery, the exit codes, and the stop, pause, resume, status and release commands |
 | `test_linux_probe.py` | the Linux probe's instruments: reading X images, the PipeWire node and capture, the key allow-list, the verdicts and the incremental report |
 
+Session regression tests also cover release on the first failed/blank capture,
+partial holds and release retries before fresh-frame actions, capture cancellation
+on pause, refusal of recovery while another session owns the lock, incomplete
+recovery delivery, and independent release/display/control teardown after errors.
+
 ## What is NOT covered, and why
 
 - **The app layer.** `main.py`, `option.py` and their tests (page dispatch,

@@ -214,12 +214,21 @@ class Farm:
             self._enter_pause()
             return None
         if frame is None or is_blank_frame(frame):
+            self._release("没有可用画面")
             self._capture_failures += 1
             log.warning("这一轮没有可用的画面（%s，连续第 %d 次）",
                         "截图失败" if frame is None else "空白帧", self._capture_failures)
             if self._capture_failures >= CAPTURE_FAILURES_TO_STOP:
                 return f"连续 {self._capture_failures} 轮截不到可用的画面"
             return None
+        if self._capture_failures and self._input.held:
+            # A usable frame does not undo a failed release. Clear the old hold
+            # before restarting; if it still cannot be cleared, yield and retry.
+            self._release("画面恢复，重试松开")
+            if self._input.held:
+                self._controls.pause("松开输入未确认，暂停并重试")
+                self._pause_noted = True
+                return None
         self._capture_failures = 0
 
         started = self._clock()
