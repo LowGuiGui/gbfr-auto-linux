@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-# Optional compatibility-probe environment. The existing application is unchanged.
+# Development environment with MaaFw: the native probes, the offline replay tool and
+# the pipeline tests that need the framework (the CI "maa" job installs this file).
 -r requirements.txt
 -r requirements-dev.txt
 MaaFw==5.16.1
