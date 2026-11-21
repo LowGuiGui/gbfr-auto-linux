@@ -35,12 +35,78 @@
   },
   "task": [
     {
-      "name": "地属性武器材料",
+      "name": "quakadile-materials",
+      "label": "巨爪岩鳄素材",
       "entry": "GBFR_Start",
-      "description": "任务：解决沙漠狂徒。MANIAC，推荐战力 7200；需能由当前 AI 队伍稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。",
+      "description": "任务：解决沙漠狂徒。MANIAC，推荐战力 7200。需要解锁任务，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。\n\n验证状态：integration candidate",
       "option": [
         "Runs"
-      ]
+      ],
+      "pipeline_override": {
+        "GBFR_Catalog_NameList": {
+          "expected": "解决沙漠狂徒"
+        },
+        "GBFR_Catalog_NameDetails": {
+          "expected": "解决沙漠狂徒"
+        },
+        "GBFR_Catalog_NameReady": {
+          "expected": "解决沙漠狂徒"
+        },
+        "GBFR_Catalog_NameConfirm": {
+          "expected": "解决沙漠狂徒"
+        },
+        "GBFR_Catalog_NameResult": {
+          "expected": "解决沙漠狂徒"
+        },
+        "GBFR_Catalog_ObjectiveDetails": {
+          "expected": "讨伐巨爪岩鳄"
+        },
+        "GBFR_Catalog_ObjectiveBattle": {
+          "expected": "讨伐巨爪岩鳄"
+        },
+        "GBFR_QuestConfig": {
+          "attach": {
+            "quest": "解决沙漠狂徒"
+          }
+        }
+      }
+    },
+    {
+      "name": "frost-quakadile-materials",
+      "label": "巨爪霜鳄素材",
+      "entry": "GBFR_Start",
+      "description": "任务：我要打造冰冷的铠甲。MANIAC，推荐战力 7200。需要解锁任务，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。\n\n验证状态：visible quest; untested battle",
+      "option": [
+        "Runs"
+      ],
+      "pipeline_override": {
+        "GBFR_Catalog_NameList": {
+          "expected": "我要打造冰冷的铠甲"
+        },
+        "GBFR_Catalog_NameDetails": {
+          "expected": "我要打造冰冷的铠甲"
+        },
+        "GBFR_Catalog_NameReady": {
+          "expected": "我要打造冰冷的铠甲"
+        },
+        "GBFR_Catalog_NameConfirm": {
+          "expected": "我要打造冰冷的铠甲"
+        },
+        "GBFR_Catalog_NameResult": {
+          "expected": "我要打造冰冷的铠甲"
+        },
+        "GBFR_Catalog_ObjectiveDetails": {
+          "expected": "讨伐巨爪霜鳄"
+        },
+        "GBFR_Catalog_ObjectiveBattle": {
+          "expected": "讨伐巨爪霜鳄"
+        },
+        "GBFR_QuestConfig": {
+          "attach": {
+            "quest": "我要打造冰冷的铠甲"
+          }
+        }
+      }
     }
   ],
   "option": {
@@ -52,17 +118,9 @@
         {
           "name": "1",
           "pipeline_override": {
-            "GBFR_Start": {
-              "action": {
-                "type": "Custom",
-                "param": {
-                  "custom_action": "GBFR",
-                  "custom_action_param": {
-                    "event": "begin",
-                    "quest": "解决沙漠狂徒",
-                    "limit": 1
-                  }
-                }
+            "GBFR_RunLimit": {
+              "attach": {
+                "limit": 1
               }
             }
           }
@@ -70,17 +128,9 @@
         {
           "name": "3",
           "pipeline_override": {
-            "GBFR_Start": {
-              "action": {
-                "type": "Custom",
-                "param": {
-                  "custom_action": "GBFR",
-                  "custom_action_param": {
-                    "event": "begin",
-                    "quest": "解决沙漠狂徒",
-                    "limit": 3
-                  }
-                }
+            "GBFR_RunLimit": {
+              "attach": {
+                "limit": 3
               }
             }
           }
@@ -88,17 +138,9 @@
         {
           "name": "10",
           "pipeline_override": {
-            "GBFR_Start": {
-              "action": {
-                "type": "Custom",
-                "param": {
-                  "custom_action": "GBFR",
-                  "custom_action_param": {
-                    "event": "begin",
-                    "quest": "解决沙漠狂徒",
-                    "limit": 10
-                  }
-                }
+            "GBFR_RunLimit": {
+              "attach": {
+                "limit": 10
               }
             }
           }
@@ -106,17 +148,9 @@
         {
           "name": "30",
           "pipeline_override": {
-            "GBFR_Start": {
-              "action": {
-                "type": "Custom",
-                "param": {
-                  "custom_action": "GBFR",
-                  "custom_action_param": {
-                    "event": "begin",
-                    "quest": "解决沙漠狂徒",
-                    "limit": 30
-                  }
-                }
+            "GBFR_RunLimit": {
+              "attach": {
+                "limit": 30
               }
             }
           }
@@ -124,22 +158,15 @@
         {
           "name": "999",
           "pipeline_override": {
-            "GBFR_Start": {
-              "action": {
-                "type": "Custom",
-                "param": {
-                  "custom_action": "GBFR",
-                  "custom_action_param": {
-                    "event": "begin",
-                    "quest": "解决沙漠狂徒",
-                    "limit": 999
-                  }
-                }
+            "GBFR_RunLimit": {
+              "attach": {
+                "limit": 999
               }
             }
           }
         }
       ]
     }
-  }
+  },
+  "welcome": "[查看进度、选择本轮后停止](http://127.0.0.1:12792/api/local-file?path=control.html)"
 }

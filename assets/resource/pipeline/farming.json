@@ -20,21 +20,22 @@
       "param": {
         "custom_action": "GBFR",
         "custom_action_param": {
-          "event": "begin",
-          "quest": "解决沙漠狂徒",
-          "limit": 1
+          "event": "begin"
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_Town": {
     "recognition": "OCR",
     "expected": "快捷移动",
     "roi": [
-      915,
-      665,
-      125,
-      40
+      880,
+      600,
+      400,
+      120
     ],
     "threshold": 0.8,
     "pre_delay": 0,
@@ -52,7 +53,10 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_TravelCounter": {
     "recognition": "And",
@@ -61,10 +65,10 @@
         "recognition": "OCR",
         "expected": "选择目的地",
         "roi": [
-          550,
-          190,
-          190,
-          45
+          495,
+          163,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -72,10 +76,10 @@
         "recognition": "OCR",
         "expected": "任务中心",
         "roi": [
-          565,
-          260,
-          165,
-          40
+          498,
+          230,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -116,16 +120,19 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_Approach": {
     "recognition": "OCR",
     "expected": "快捷移动",
     "roi": [
-      915,
-      665,
-      125,
-      40
+      880,
+      600,
+      400,
+      120
     ],
     "threshold": 0.8,
     "pre_delay": 0,
@@ -145,7 +152,10 @@
           "budget": 8
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_NearCounter": {
     "recognition": "OCR",
@@ -168,12 +178,16 @@
     },
     "expected": "任务中心",
     "roi": [
-      520,
-      220,
-      240,
-      70
+      607,
+      233,
+      90,
+      36
     ],
-    "threshold": 0.8
+    "threshold": 0.8,
+    "only_rec": true,
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_CounterSelected": {
     "recognition": "And",
@@ -182,10 +196,10 @@
         "recognition": "OCR",
         "expected": "任务中心",
         "roi": [
-          70,
-          15,
-          240,
-          50
+          40,
+          0,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -193,10 +207,10 @@
         "recognition": "OCR",
         "expected": "任务承接",
         "roi": [
-          95,
-          84,
-          160,
-          42
+          25,
+          55,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -241,7 +255,10 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_CounterReset": {
     "recognition": "And",
@@ -250,10 +267,10 @@
         "recognition": "OCR",
         "expected": "任务中心",
         "roi": [
-          70,
-          15,
-          240,
-          50
+          40,
+          0,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -261,10 +278,10 @@
         "recognition": "OCR",
         "expected": "任务承接",
         "roi": [
-          95,
-          84,
-          160,
-          42
+          25,
+          55,
+          300,
+          100
         ],
         "threshold": 0.8
       }
@@ -285,7 +302,10 @@
           "budget": 6
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_DifficultySelect": {
     "recognition": "And",
@@ -294,10 +314,10 @@
         "recognition": "OCR",
         "expected": "任务选择",
         "roi": [
-          115,
-          48,
-          220,
-          40
+          75,
+          18,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -306,9 +326,9 @@
         "expected": "按岛屿选择|按类别选择",
         "roi": [
           370,
-          100,
+          70,
           540,
-          40
+          100
         ],
         "threshold": 0.8
       }
@@ -333,7 +353,10 @@
           "budget": 3
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_HeroSelected": {
     "recognition": "And",
@@ -342,10 +365,10 @@
         "recognition": "OCR",
         "expected": "任务选择",
         "roi": [
-          115,
-          48,
-          220,
-          40
+          75,
+          18,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -353,10 +376,10 @@
         "recognition": "OCR",
         "expected": "泽卡的英雄",
         "roi": [
-          810,
-          218,
-          180,
-          40
+          750,
+          188,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -401,7 +424,10 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_HeroSelect": {
     "recognition": "And",
@@ -410,10 +436,10 @@
         "recognition": "OCR",
         "expected": "任务选择",
         "roi": [
-          115,
-          48,
-          220,
-          40
+          75,
+          18,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -421,10 +447,10 @@
         "recognition": "OCR",
         "expected": "泽卡的英雄",
         "roi": [
-          810,
-          218,
-          180,
-          40
+          750,
+          188,
+          300,
+          100
         ],
         "threshold": 0.8
       }
@@ -449,7 +475,10 @@
           "budget": 3
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_ProudTab": {
     "recognition": "And",
@@ -461,10 +490,10 @@
             "recognition": "OCR",
             "expected": "任务选择",
             "roi": [
-              115,
-              48,
-              220,
-              40
+              75,
+              18,
+              300,
+              100
             ],
             "threshold": 0.8
           },
@@ -472,10 +501,10 @@
             "recognition": "OCR",
             "expected": "MANIAC",
             "roi": [
-              225,
-              115,
-              145,
-              30
+              148,
+              80,
+              300,
+              100
             ],
             "threshold": 0.8
           },
@@ -483,10 +512,10 @@
             "recognition": "OCR",
             "expected": "PROUD",
             "roi": [
-              370,
-              115,
-              145,
-              30
+              293,
+              80,
+              300,
+              100
             ],
             "threshold": 0.8
           }
@@ -533,7 +562,10 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_QuestSelected": {
     "recognition": "And",
@@ -545,10 +577,10 @@
             "recognition": "OCR",
             "expected": "任务选择",
             "roi": [
-              115,
-              48,
-              220,
-              40
+              75,
+              18,
+              300,
+              100
             ],
             "threshold": 0.8
           },
@@ -556,10 +588,10 @@
             "recognition": "OCR",
             "expected": "MANIAC",
             "roi": [
-              225,
-              115,
-              145,
-              30
+              148,
+              80,
+              300,
+              100
             ],
             "threshold": 0.8
           },
@@ -567,26 +599,16 @@
             "recognition": "OCR",
             "expected": "PROUD",
             "roi": [
-              370,
-              115,
-              145,
-              30
+              293,
+              80,
+              300,
+              100
             ],
             "threshold": 0.8
           }
         ]
       },
-      {
-        "recognition": "OCR",
-        "expected": "解决沙漠狂徒",
-        "roi": [
-          650,
-          452,
-          520,
-          40
-        ],
-        "threshold": 0.8
-      }
+      "GBFR_Catalog_NameList"
     ],
     "pre_delay": 0,
     "post_delay": 1000,
@@ -603,7 +625,10 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_ScrollQuest": {
     "recognition": "And",
@@ -615,10 +640,10 @@
             "recognition": "OCR",
             "expected": "任务选择",
             "roi": [
-              115,
-              48,
-              220,
-              40
+              75,
+              18,
+              300,
+              100
             ],
             "threshold": 0.8
           },
@@ -626,10 +651,10 @@
             "recognition": "OCR",
             "expected": "MANIAC",
             "roi": [
-              225,
-              115,
-              145,
-              30
+              148,
+              80,
+              300,
+              100
             ],
             "threshold": 0.8
           },
@@ -637,10 +662,10 @@
             "recognition": "OCR",
             "expected": "PROUD",
             "roi": [
-              370,
-              115,
-              145,
-              30
+              293,
+              80,
+              300,
+              100
             ],
             "threshold": 0.8
           }
@@ -687,44 +712,27 @@
           "budget": 60
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_QuestDetails": {
     "recognition": "And",
     "all_of": [
-      {
-        "recognition": "OCR",
-        "expected": "解决沙漠狂徒",
-        "roi": [
-          440,
-          55,
-          400,
-          35
-        ],
-        "threshold": 0.8
-      },
+      "GBFR_Catalog_NameDetails",
       {
         "recognition": "OCR",
         "expected": "BOSS讨伐",
         "roi": [
+          55,
           145,
-          175,
-          120,
-          40
+          300,
+          100
         ],
         "threshold": 0.8
       },
-      {
-        "recognition": "OCR",
-        "expected": "讨伐巨爪岩鳄",
-        "roi": [
-          135,
-          130,
-          460,
-          40
-        ],
-        "threshold": 0.8
-      }
+      "GBFR_Catalog_ObjectiveDetails"
     ],
     "pre_delay": 0,
     "post_delay": 1000,
@@ -741,7 +749,10 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_Private": {
     "recognition": "And",
@@ -750,10 +761,10 @@
         "recognition": "OCR",
         "expected": "匹配设置",
         "roi": [
-          560,
-          175,
-          160,
-          45
+          490,
+          148,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -761,10 +772,10 @@
         "recognition": "OCR",
         "expected": "私人",
         "roi": [
-          500,
-          225,
-          270,
-          40
+          485,
+          195,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -772,12 +783,13 @@
         "recognition": "OCR",
         "expected": "OK",
         "roi": [
-          590,
-          455,
-          100,
-          40
+          615,
+          460,
+          50,
+          35
         ],
-        "threshold": 0.8
+        "threshold": 0.8,
+        "only_rec": true
       }
     ],
     "pre_delay": 0,
@@ -795,7 +807,10 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_ReadyTown": {
     "recognition": "And",
@@ -804,32 +819,22 @@
         "recognition": "OCR",
         "expected": "快捷移动",
         "roi": [
-          915,
-          665,
-          125,
-          40
+          880,
+          600,
+          400,
+          120
         ],
         "threshold": 0.8
       },
-      {
-        "recognition": "OCR",
-        "expected": "解决沙漠狂徒",
-        "roi": [
-          980,
-          295,
-          260,
-          38
-        ],
-        "threshold": 0.8
-      },
+      "GBFR_Catalog_NameReady",
       {
         "recognition": "OCR",
         "expected": "准备完毕",
         "roi": [
-          1050,
-          375,
-          180,
-          40
+          980,
+          345,
+          300,
+          100
         ],
         "threshold": 0.8
       }
@@ -849,30 +854,23 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_ReadyConfirm": {
     "recognition": "And",
     "all_of": [
-      {
-        "recognition": "OCR",
-        "expected": "解决沙漠狂徒",
-        "roi": [
-          565,
-          65,
-          320,
-          35
-        ],
-        "threshold": 0.8
-      },
+      "GBFR_Catalog_NameConfirm",
       {
         "recognition": "OCR",
         "expected": "私人匹配",
         "roi": [
-          895,
-          35,
-          100,
-          35
+          795,
+          3,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -880,10 +878,10 @@
         "recognition": "OCR",
         "expected": "准备完毕",
         "roi": [
-          580,
-          520,
-          130,
-          40
+          495,
+          490,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -927,7 +925,10 @@
           "budget": 1
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_BattleTip": {
     "recognition": "And",
@@ -936,10 +937,10 @@
         "recognition": "OCR",
         "expected": "AUTO.*SKIP",
         "roi": [
-          45,
-          642,
-          145,
-          35
+          0,
+          610,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -947,10 +948,10 @@
         "recognition": "OCR",
         "expected": "继续",
         "roi": [
-          1155,
-          640,
-          70,
-          40
+          980,
+          610,
+          300,
+          100
         ],
         "threshold": 0.8
       }
@@ -973,7 +974,10 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_Battle": {
     "recognition": "And",
@@ -982,24 +986,14 @@
         "recognition": "OCR",
         "expected": "剩余时间",
         "roi": [
-          1070,
-          78,
-          180,
-          32
+          980,
+          44,
+          300,
+          100
         ],
         "threshold": 0.8
       },
-      {
-        "recognition": "OCR",
-        "expected": "讨伐巨爪岩鳄",
-        "roi": [
-          1090,
-          46,
-          170,
-          32
-        ],
-        "threshold": 0.8
-      }
+      "GBFR_Catalog_ObjectiveBattle"
     ],
     "pre_delay": 0,
     "post_delay": 2000,
@@ -1019,7 +1013,10 @@
           "budget": 400
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_Defeat": {
     "recognition": "OCR",
@@ -1070,10 +1067,10 @@
         "recognition": "OCR",
         "expected": "距.*任务结束还有",
         "roi": [
-          550,
-          76,
-          180,
-          35
+          490,
+          44,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -1081,20 +1078,23 @@
         "recognition": "OCR",
         "expected": "返回城镇",
         "roi": [
-          1115,
-          45,
-          130,
-          35
+          980,
+          13,
+          300,
+          100
         ],
         "threshold": 0.8
       }
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
     ]
   },
   "GBFR_Result": {
     "recognition": "And",
     "pre_delay": 0,
     "post_delay": 1000,
-    "timeout": 90000,
+    "timeout": 180000,
     "next": [
       "GBFR_SettlementConfirm",
       "GBFR_Result",
@@ -1106,8 +1106,7 @@
       "param": {
         "custom_action": "GBFR",
         "custom_action_param": {
-          "key": "Return",
-          "budget": 8
+          "budget": 120
         }
       }
     },
@@ -1123,28 +1122,21 @@
         ],
         "threshold": 0.75
       },
-      {
-        "recognition": "OCR",
-        "expected": "解决沙漠狂徒",
-        "roi": [
-          625,
-          45,
-          240,
-          40
-        ],
-        "threshold": 0.8
-      },
+      "GBFR_Catalog_NameResult",
       {
         "recognition": "OCR",
         "expected": "继续",
         "roi": [
-          1080,
-          650,
-          150,
-          50
+          980,
+          620,
+          300,
+          100
         ],
         "threshold": 0.8
       }
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
     ]
   },
   "GBFR_ReturnTip": {
@@ -1154,10 +1146,10 @@
         "recognition": "OCR",
         "expected": "AUTO.*SKIP",
         "roi": [
-          45,
-          642,
-          145,
-          35
+          0,
+          610,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -1165,10 +1157,10 @@
         "recognition": "OCR",
         "expected": "继续",
         "roi": [
-          1155,
-          640,
-          70,
-          40
+          980,
+          610,
+          300,
+          100
         ],
         "threshold": 0.8
       }
@@ -1188,16 +1180,19 @@
           "budget": 2
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_SettledTown": {
     "recognition": "OCR",
     "expected": "快捷移动",
     "roi": [
-      915,
-      665,
-      125,
-      40
+      880,
+      600,
+      400,
+      120
     ],
     "threshold": 0.8,
     "pre_delay": 0,
@@ -1216,7 +1211,10 @@
           "budget": 1
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_Continue": {
     "pre_delay": 0,
@@ -1226,16 +1224,19 @@
       "GBFR_CounterSelected",
       "GBFR_CounterReset",
       "GBFR_Town"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
     ]
   },
   "GBFR_Finished": {
     "recognition": "OCR",
     "expected": "快捷移动",
     "roi": [
-      915,
-      665,
-      125,
-      40
+      880,
+      600,
+      400,
+      120
     ],
     "threshold": 0.8,
     "pre_delay": 0,
@@ -1259,9 +1260,9 @@
         "expected": "解决沙漠狂徒",
         "roi": [
           565,
-          65,
+          33,
           320,
-          35
+          100
         ],
         "threshold": 0.8
       },
@@ -1269,10 +1270,10 @@
         "recognition": "OCR",
         "expected": "私人匹配",
         "roi": [
-          895,
-          35,
-          100,
-          35
+          795,
+          3,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -1280,10 +1281,10 @@
         "recognition": "OCR",
         "expected": "准备完毕",
         "roi": [
-          580,
-          520,
-          130,
-          40
+          495,
+          490,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -1323,7 +1324,10 @@
           "budget": 1
         }
       }
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_SettlementConfirm": {
     "recognition": "And",
@@ -1332,10 +1336,10 @@
         "recognition": "OCR",
         "expected": "结算确认",
         "roi": [
-          560,
-          225,
-          170,
-          45
+          495,
+          198,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -1343,10 +1347,10 @@
         "recognition": "OCR",
         "expected": "是否完成结算确认",
         "roi": [
-          540,
-          315,
-          220,
-          50
+          500,
+          290,
+          300,
+          100
         ],
         "threshold": 0.8
       },
@@ -1387,6 +1391,110 @@
     ],
     "pre_delay": 0,
     "post_delay": 1000,
-    "timeout": 90000
+    "timeout": 90000,
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_Catalog_NameList": {
+    "recognition": "OCR",
+    "expected": "解决沙漠狂徒",
+    "roi": [
+      650,
+      422,
+      520,
+      100
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_Catalog_NameDetails": {
+    "recognition": "OCR",
+    "expected": "解决沙漠狂徒",
+    "roi": [
+      440,
+      23,
+      400,
+      100
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_Catalog_ObjectiveDetails": {
+    "recognition": "OCR",
+    "expected": "讨伐巨爪岩鳄",
+    "roi": [
+      135,
+      100,
+      460,
+      100
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_Catalog_NameReady": {
+    "recognition": "OCR",
+    "expected": "解决沙漠狂徒",
+    "roi": [
+      960,
+      264,
+      300,
+      100
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_Catalog_NameConfirm": {
+    "recognition": "OCR",
+    "expected": "解决沙漠狂徒",
+    "roi": [
+      565,
+      33,
+      320,
+      100
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_Catalog_ObjectiveBattle": {
+    "recognition": "OCR",
+    "expected": "讨伐巨爪岩鳄",
+    "roi": [
+      980,
+      12,
+      300,
+      100
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_Catalog_NameResult": {
+    "recognition": "OCR",
+    "expected": "解决沙漠狂徒",
+    "roi": [
+      595,
+      15,
+      300,
+      100
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_QuestConfig": {
+    "attach": {
+      "quest": "解决沙漠狂徒"
+    }
+  },
+  "GBFR_RunLimit": {
+    "attach": {
+      "limit": 1
+    }
+  },
+  "GBFR_UnexpectedScreen": {
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "error",
+          "reason": "The screen did not reach a supported transition within its time limit"
+        }
+      }
+    },
+    "pre_delay": 0,
+    "post_delay": 0
   }
 }

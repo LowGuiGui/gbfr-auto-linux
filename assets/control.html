@@ -1,0 +1,92 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui> -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GBFR 刷取状态</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101a27; color: #ecf2f8; }
+  body { max-width: 650px; margin: 8vh auto; padding: 24px; }
+  h1 { font-size: 26px; }
+  .card { border: 1px solid #34465b; border-radius: 16px; padding: 24px; background: #172638; }
+  #count { font-size: 42px; margin: 12px 0; font-variant-numeric: tabular-nums; }
+  #phase, #message { line-height: 1.6; }
+  button { padding: 12px 18px; margin: 8px 8px 0 0; border-radius: 8px; border: 1px solid #71859d;
+           background: #294766; color: white; font: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #stop { background: #57343a; }
+  small { display: block; color: #b2c1d2; line-height: 1.6; margin-top: 18px; }
+  details { margin-top: 16px; overflow-wrap: anywhere; }
+</style>
+<h1>GBFR 刷取状态</h1>
+<div class="card">
+  <div id="quest">等待任务</div>
+  <div id="count">—</div>
+  <div id="phase" role="status">正在连接软件……</div>
+  <button id="finish" disabled>本轮结束后停下</button>
+  <button id="stop" disabled>立即停止操作</button>
+  <p id="message" role="status"></p>
+  <small>“本轮结束后停下”会结算奖励并返回城镇。<br>“立即停止操作”会停止软件输入；游戏本身仍会继续运行。</small>
+  <details id="diagnostic" hidden><summary>诊断信息</summary><p id="error"></p></details>
+</div>
+<small>在主窗口选择刷取预设和次数，然后开始。成功次数在奖励结算并返回城镇后增加。</small>
+<script>
+  const $ = id => document.getElementById(id);
+  let active = null;
+  let busy = false;
+  const phases = {ready: '正在准备副本', starting: '正在进入副本', battle: '战斗中',
+                  settling: '已通关，正在结算奖励', finished: '已完成，停在城镇',
+                  error: '操作已停止。请查看游戏当前画面，再从支持的起点重新开始。'};
+  async function request(path, data) {
+    const response = await fetch('/api/' + path, data === undefined ? {cache: 'no-store'} : {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error('软件暂时无法响应，请在主窗口检查任务状态。');
+    return response.json();
+  }
+  async function refresh() {
+    try {
+      const state = await request('maa/state');
+      const running = Object.entries(state.instances).filter(([, item]) => item.is_running);
+      active = running.length === 1 ? {id: running[0][0],
+        task: running[0][1].task_run_state?.pending_task_ids?.[0]} : null;
+      const result = await request('local-file?path=agent/runtime/session.json');
+      $('quest').textContent = result.quest || '等待任务';
+      $('count').textContent = `${result.completed ?? 0} / ${result.limit ?? '—'} 次成功`;
+      $('phase').textContent = (phases[result.phase] || '等待任务') +
+        (result.finish_requested && active ? ' · 已收到本轮后停止请求' : '');
+      $('diagnostic').hidden = !result.error;
+      $('error').textContent = result.error || '';
+      $('finish').disabled = busy || !active?.task || result.finish_requested;
+      $('stop').disabled = busy || !active;
+    } catch (error) {
+      active = null;
+      $('finish').disabled = $('stop').disabled = true;
+      $('phase').textContent = '等待软件和刷取任务。请先在主窗口开始。';
+    }
+  }
+  async function command(kind) {
+    if (!active || busy) return;
+    const target = {...active};
+    busy = true;
+    $('finish').disabled = $('stop').disabled = true;
+    try {
+      if (kind === 'finish') {
+        const response = await request(`maa/instances/${encodeURIComponent(target.id)}/tasks/${target.task}/pipeline`,
+          {pipelineOverride: JSON.stringify({GBFR_Continue: {enabled: false}})});
+        if (!response.success) throw new Error('停止请求未被接受，请在主窗口检查任务状态。');
+        $('message').textContent = '已请求本轮后停止，正在等待当前任务结算。';
+      } else {
+        await request(`maa/instances/${encodeURIComponent(target.id)}/tasks/stop`, {});
+        $('message').textContent = '已请求立即停止操作。游戏本身不会暂停。';
+      }
+    } catch (error) { $('message').textContent = error.message; }
+    finally { busy = false; await refresh(); }
+  }
+  $('finish').addEventListener('click', () => command('finish'));
+  $('stop').addEventListener('click', () => command('stop'));
+  refresh();
+  setInterval(refresh, 1500);
+</script>
+</html>

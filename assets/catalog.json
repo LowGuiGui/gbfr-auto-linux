@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "profile": {
+    "game": "2.0.6",
+    "language": "zh-CN",
+    "capture": [
+      1280,
+      720
+    ],
+    "mode": "private quests with AI teammates",
+    "starts": [
+      "Seedhollow town",
+      "quest counter",
+      "difficulty/quest list"
+    ],
+    "finish": "town"
+  },
+  "quests": [
+    {
+      "id": "quakadile-materials",
+      "label": "巨爪岩鳄素材",
+      "name": "解决沙漠狂徒",
+      "objective": "讨伐巨爪岩鳄",
+      "difficulty": "MANIAC",
+      "recommended_power": 7200,
+      "purpose": "Materials for equipment upgrades; experience and mastery points are secondary rewards.",
+      "requirements": [
+        "Quest unlocked",
+        "A party able to clear this boss with AI teammates"
+      ],
+      "strategy": "AI party combat from the initial arena position; no combat input",
+      "evidence": "integration candidate"
+    },
+    {
+      "id": "frost-quakadile-materials",
+      "label": "巨爪霜鳄素材",
+      "name": "我要打造冰冷的铠甲",
+      "objective": "讨伐巨爪霜鳄",
+      "difficulty": "MANIAC",
+      "recommended_power": 7200,
+      "purpose": "Frost Quakadile materials for equipment upgrades.",
+      "requirements": [
+        "Quest unlocked",
+        "A party able to clear this boss with AI teammates"
+      ],
+      "strategy": "AI party combat from the initial arena position; pending live validation",
+      "evidence": "visible quest; untested battle"
+    }
+  ]
+}

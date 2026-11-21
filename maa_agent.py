@@ -31,7 +31,7 @@ class Hooks:
 
     def status(self):
         result = self.session.snapshot() if self.session else {"phase": "idle"}
-        return dict(result, node=self.last_node)
+        return dict(result, node=self.last_node, task_id=self.task_id)
 
     def write_status(self):
         self.status_path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,7 +49,9 @@ class Hooks:
 
     def begin(self, context, params):
         self.close()
-        self.session = Session(params["quest"], params.get("limit", 1))
+        quest = context.get_node_data("GBFR_QuestConfig")["attach"]["quest"]
+        limit = context.get_node_data("GBFR_RunLimit")["attach"]["limit"]
+        self.session = Session(params.get("quest", quest), params.get("limit", limit))
         self.calls = {}
         self.battle_started = None
         self.controls = Controls()
@@ -89,6 +91,12 @@ class Hooks:
                         if attempt < 2:
                             time.sleep(.2)
                     else:
+                        if "key" not in params:
+                            # Combat HUDs disappear during camera transitions.
+                            # No input or accounting change is authorized by the
+                            # old frame; let the native next list inspect again.
+                            self.write_status()
+                            return True
                         raise SessionError("The recognized screen changed before its action")
                 if event == "admit":
                     if self.session.finish_requested:

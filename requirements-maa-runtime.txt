@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+# Native resource Agent and offline recognition tools; no development tooling.
+-r requirements.txt
+MaaFw==5.16.1

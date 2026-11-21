@@ -46,3 +46,14 @@ def test_transition_budget_stops_a_stuck_menu(tmp_path):
     assert hooks.run(context, args)
     assert not hooks.run(context, args)
     assert "budget exhausted" in hooks.session.error
+
+
+def test_transient_combat_hud_retries_without_counting_or_input(tmp_path):
+    hooks, context = prepared(tmp_path)
+    hooks.session.admit()
+    context.run_recognition = lambda name, image: SimpleNamespace(hit=False)
+    args = SimpleNamespace(custom_action_param='{"event": "battle"}', node_name="Battle")
+    assert hooks.run(context, args)
+    assert hooks.session.phase == "starting"
+    assert hooks.session.completed == 0
+    assert hooks.guard is not None
