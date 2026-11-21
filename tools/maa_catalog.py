@@ -26,7 +26,7 @@ def render(interface, catalog):
         "name": quest["id"], "label": quest["label"], "entry": "GBFR_Start",
         "description": f"任务：{quest['name']}。{quest['difficulty']}，推荐战力 {quest['recommended_power']}。"
                        "需要解锁任务，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。"
-                       f"\n\n验证状态：{quest['evidence']}",
+                       "\n\n此预设仍在验证，请先用 1 次确认当前队伍能够完成。",
         "option": ["Runs"], "pipeline_override": quest_override(quest),
     } for quest in catalog["quests"]]
     interface["option"] = {"Runs": {

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from control import Controls
 from maa_agent import Hooks
+from maa_guard import FrameUnavailable
 from maa_session import Session
 
 
@@ -57,3 +58,15 @@ def test_transient_combat_hud_retries_without_counting_or_input(tmp_path):
     assert hooks.session.phase == "starting"
     assert hooks.session.completed == 0
     assert hooks.guard is not None
+
+
+def test_black_transition_frame_never_authorizes_menu_input(tmp_path):
+    hooks, context = prepared(tmp_path)
+    def capture():
+        raise FrameUnavailable("fade")
+    hooks.guard.capture = capture
+    context.run_recognition = lambda *args: None
+    args = SimpleNamespace(custom_action_param='{"key": "Return"}', node_name="Confirm")
+    assert not hooks.run(context, args)
+    assert hooks.session.completed == 0
+    assert hooks.session.error == "The recognized screen changed before its action"

@@ -18,6 +18,10 @@ KEYS = {"Return": 28, "Escape": 1, "Up": 103, "Down": 108, "Left": 105,
         "q": 16, "e": 18}
 
 
+class FrameUnavailable(ProbeError):
+    """A valid capture contains no recognizable scene, for example a fade."""
+
+
 def validate_controller(info, target):
     if (info.get("type") != "linux" or info.get("screencap_method") != 4
             or info.get("input_method") != 4 or info.get("use_win32_vk_code") is not False
@@ -80,7 +84,7 @@ class NativeGuard:
         if frame is None or frame.size == 0 or frame.shape[:2] != (720, 1280):
             raise ProbeError("The supported profile requires a usable 1280x720 capture")
         if float(frame.std()) < 1:
-            raise ProbeError("The capture is blank")
+            raise FrameUnavailable("The capture is blank")
         return frame
 
     def press(self, context, key, duration=100):

@@ -13,7 +13,7 @@ import sys
 import time
 
 from control import Controls, ControlServer, socket_path
-from maa_guard import NativeGuard
+from maa_guard import FrameUnavailable, NativeGuard
 from maa_session import Session, SessionError
 
 
@@ -85,7 +85,10 @@ class Hooks:
                     # Recheck the *same native recognition* on a newly captured frame.
                     # A screenshot from an earlier transition never authorizes input.
                     for attempt in range(3):
-                        recognition = context.run_recognition(argv.node_name, self.guard.capture())
+                        try:
+                            recognition = context.run_recognition(argv.node_name, self.guard.capture())
+                        except FrameUnavailable:
+                            recognition = None
                         if recognition is not None and recognition.hit:
                             break
                         if attempt < 2:

@@ -38,7 +38,7 @@
       "name": "quakadile-materials",
       "label": "巨爪岩鳄素材",
       "entry": "GBFR_Start",
-      "description": "任务：解决沙漠狂徒。MANIAC，推荐战力 7200。需要解锁任务，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。\n\n验证状态：integration candidate",
+      "description": "任务：解决沙漠狂徒。MANIAC，推荐战力 7200。需要解锁任务，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。\n\n此预设仍在验证，请先用 1 次确认当前队伍能够完成。",
       "option": [
         "Runs"
       ],
@@ -75,7 +75,7 @@
       "name": "frost-quakadile-materials",
       "label": "巨爪霜鳄素材",
       "entry": "GBFR_Start",
-      "description": "任务：我要打造冰冷的铠甲。MANIAC，推荐战力 7200。需要解锁任务，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。\n\n验证状态：visible quest; untested battle",
+      "description": "任务：我要打造冰冷的铠甲。MANIAC，推荐战力 7200。需要解锁任务，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。\n\n此预设仍在验证，请先用 1 次确认当前队伍能够完成。",
       "option": [
         "Runs"
       ],
