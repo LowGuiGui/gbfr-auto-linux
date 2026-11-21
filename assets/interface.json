@@ -2,7 +2,7 @@
   "interface_version": 2,
   "name": "GBFRLinux",
   "label": "GBFR 自动刷取",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "license": "GPL-2.0-or-later",
   "description": "简体中文界面；单人任务与 AI 队友。两个素材预设，成功次数限制和本轮后停止。",
   "controller": [

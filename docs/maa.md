@@ -1,7 +1,7 @@
 <!-- SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui> -->
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 
-# Native Maa resource candidate 0.1.0-rc.1
+# Native Maa resource candidate 0.1.0-rc.2
 
 This candidate uses MXU's existing interface and MaaFramework's native Linux
 controller. It is separate from the legacy `gbfr_auto.py` command-line loop.
@@ -80,6 +80,11 @@ Choose one material preset and a successful-run limit. The task must already be
 unlocked, and the AI party must be able to clear it. Start from Seedhollow town,
 the quest counter, or a supported difficulty/quest-list menu. Automatic title-screen
 continuation and arbitrary battle/result recovery are outside this candidate.
+
+If an unstarted quest is already accepted in town, choosing a preset can replace
+that reservation. The flow recognizes the game's specific replacement confirmation
+after selecting the requested quest, then selects it again. Stopping before
+departure leaves the accepted quest in town; it does not count as a completed run.
 
 The welcome link opens the progress/stop panel using MXU's existing loopback server.
 The default local port is 12792. Only one game and one controlling session are

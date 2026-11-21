@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 > [!IMPORTANT]
-> **The Maa GUI has two live-tested farming presets in local candidate 0.1.0-rc.1.**
+> **The Maa GUI has two live-tested farming presets in local candidate 0.1.0-rc.2.**
 >
 > It uses the existing MXU client, MaaFramework's native Linux controller and this project's game resources.
 > See the [Maa guide](docs/maa.md) for installation, scope and stop behavior.

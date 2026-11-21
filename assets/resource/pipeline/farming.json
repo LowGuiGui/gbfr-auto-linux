@@ -738,6 +738,7 @@
     "post_delay": 1000,
     "timeout": 30000,
     "next": [
+      "GBFR_ReplaceAcceptedQuest",
       "GBFR_Private"
     ],
     "action": {
@@ -1486,5 +1487,61 @@
     },
     "pre_delay": 0,
     "post_delay": 0
+  },
+  "GBFR_ReplaceAcceptedQuest": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "确定要放弃已承接的任务吗",
+        "roi": [
+          400,
+          265,
+          500,
+          90
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          535,
+          410,
+          210,
+          25
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 100
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 1
+        }
+      }
+    },
+    "next": [
+      "GBFR_QuestSelected",
+      "GBFR_ScrollQuest"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   }
 }

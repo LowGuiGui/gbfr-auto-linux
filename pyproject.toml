@@ -6,7 +6,7 @@
 
 [project]
 name = "gbfr-auto-linux"
-version = "0.1.0rc1"
+version = "0.1.0rc2"
 description = "Native Maa farming resources for Granblue Fantasy: Relink on Linux"
 requires-python = ">=3.12"
 # PEP 639. The code is GPL-2.0-or-later; the template images are the game's artwork,

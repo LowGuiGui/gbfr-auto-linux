@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 > [!IMPORTANT]
-> **Maa 图形客户端已有两个实测刷取预设，首个本地候选版本为 0.1.0-rc.1。**
+> **Maa 图形客户端已有两个实测刷取预设，首个本地候选版本为 0.1.0-rc.2。**
 >
 > 使用现有 MXU 客户端、MaaFramework 原生 Linux 控制器和本项目的游戏资源。
 > 安装、支持范围及停止方式见 [Maa 使用说明](docs/maa.md)。
