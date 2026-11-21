@@ -70,3 +70,17 @@ def test_black_transition_frame_never_authorizes_menu_input(tmp_path):
     assert not hooks.run(context, args)
     assert hooks.session.completed == 0
     assert hooks.session.error == "The recognized screen changed before its action"
+
+
+def test_finish_before_departure_cancels_without_input_or_admission(tmp_path):
+    hooks, context = prepared(tmp_path)
+    context.get_node_data = lambda name: {"enabled": False}
+    context.run_recognition = lambda name, image: SimpleNamespace(hit=True)
+    overrides = []
+    context.override_pipeline = lambda value: overrides.append(value) or True
+    args = SimpleNamespace(custom_action_param=json.dumps({"event": "admit", "key": "Return"}),
+                           node_name="Ready")
+    assert hooks.run(context, args)
+    assert hooks.session.finish_requested
+    assert hooks.session.episode == hooks.session.completed == 0
+    assert overrides == [{"Ready": {"next": ["GBFR_CancelReady"]}}]

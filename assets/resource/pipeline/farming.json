@@ -1255,17 +1255,7 @@
   "GBFR_CancelReady": {
     "recognition": "And",
     "all_of": [
-      {
-        "recognition": "OCR",
-        "expected": "解决沙漠狂徒",
-        "roi": [
-          565,
-          33,
-          320,
-          100
-        ],
-        "threshold": 0.8
-      },
+      "GBFR_Catalog_NameConfirm",
       {
         "recognition": "OCR",
         "expected": "私人匹配",

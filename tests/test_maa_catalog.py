@@ -35,3 +35,22 @@ def test_generated_interface_is_current():
     interface = json.loads((ROOT / "assets/interface.json").read_text())
     catalog = json.loads((ROOT / "assets/catalog.json").read_text())
     assert render(interface, catalog) == interface
+
+
+def test_shared_flow_has_no_unoverridable_quest_name():
+    pipeline = json.loads((ROOT / "assets/resource/pipeline/farming.json").read_text())
+    catalog = json.loads((ROOT / "assets/catalog.json").read_text())
+    names = {q["name"] for q in catalog["quests"]}
+
+    def check(value):
+        if isinstance(value, dict):
+            assert value.get("expected") not in names
+            for child in value.values():
+                check(child)
+        elif isinstance(value, list):
+            for child in value:
+                check(child)
+
+    for name, node in pipeline.items():
+        if not name.startswith("GBFR_Catalog_"):
+            check(node)
