@@ -159,11 +159,20 @@ def run(seconds):
                     child.kill()
                     child.wait(timeout=2)
             report["owned_gamescope_reaped"] = child.poll() is not None
-    report["gate"] = "not passed; inspect failed and untested checks; game evidence still required"
+    checks = report["checks"]
+    report["fixture_passed"] = bool(
+        not report.get("error") and report.get("owned_gamescope_reaped")
+        and checks.get("capture", {}).get("usable_frames", 0) > 0
+        and checks.get("receiver", {}).get("passed")
+        and checks.get("busy_capture_stop", {}).get("passed")
+        and checks.get("target_loss", {}).get("status") == "passed")
+    report["gate"] = (
+        "owned fixture passed; real-game acceptance remains separate" if report["fixture_passed"]
+        else "not passed; inspect failed and untested checks; game evidence still required")
     write_json(out / "report.json", report)
     print(f"Private compatibility report: {out / 'report.json'}")
     print(f"Gate: {report['gate']}")
-    return 1
+    return 0 if report["fixture_passed"] else 1
 
 
 def main():

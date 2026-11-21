@@ -328,12 +328,13 @@ def stop_trial(controller, target, out, receiver_path):
         else:
             raise ProbeError("pipeline key press was not observed by the receiver")
         check_target(target)
-        capture = controller.post_screencap()
-        time.sleep(0.1)
-        pending = not capture.done
         before = read_receiver_state(state_path)
         if not receiver_holds_w(before):
             raise ProbeError("pipeline hold ended before the stop request")
+        # Request stop immediately after enqueueing capture. A fixed 100 ms wait
+        # systematically misses fast native captures and tests only an idle queue.
+        capture = controller.post_screencap()
+        pending = not capture.done
         requested = time.monotonic()
         stop = tasker.post_stop()
         # Observe release independently of asynchronous task completion. A pipeline
