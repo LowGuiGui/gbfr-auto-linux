@@ -71,7 +71,9 @@ create a success. Repeated victory/result frames cannot add another count.
 The flow uses private matching. It waits through the game's results countdown and
 does not enable the in-game repeat toggle; keep that toggle off. The software starts
 each new run from town. It stops on defeat, an unsupported screen or a bounded
-transition/battle timeout. It does not change equipment, spend materials or advance
+transition/battle timeout. The current two routes have a ten-minute wall-clock
+battle budget, starting when their battle HUD is first observed; cinematics count
+toward that budget. It does not change equipment, spend materials or advance
 the story. Repeated battles still grant the game's normal rewards and experience.
 
 “Finish this run” waits for rewards and town, then prevents another admission.

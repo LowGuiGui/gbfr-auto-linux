@@ -34,7 +34,7 @@ This project maintains game screens, farming presets and small accounting/stop h
 |---|---|
 | Client/runtime | Pinned MXU 2.11.2 and MaaFramework 5.16.1; separate version directories preserve rollback |
 | Real-game validation | Chinese 2.0.6, 16:9, Seedhollow town; one complete 1/1 run of 解决沙漠狂徒. Consecutive runs and the second route remain under acceptance |
-| Goal catalog | Quakadile and Frost Quakadile material presets, with individual evidence in [catalog.json](assets/catalog.json) |
+| Goal catalog | Quakadile and Blizzadile material presets, with individual evidence in [catalog.json](assets/catalog.json) |
 | Stop behavior | Successful-run limits, immediate automation stop and finish-current-run; the latter requires one preset per Start |
 | Outside current support | Automatic title continuation, arbitrary battle/result adoption, equipment/spending automation, all progression and DLC quests |
 
@@ -87,8 +87,15 @@ Requires Python 3.12 or newer; CI and the local setup use 3.13.
 
 ## Project structure
 
+The first four rows are the Maa path. The legacy CLI and shared checks remain in
+the repository.
+
 | File | What it does |
 |---|---|
+| `assets/catalog.json`, `assets/interface.json` | Material goals, prerequisites and standard client options |
+| `assets/resource/` | Shared native Maa recognition and quest flow |
+| `maa_agent.py`, `maa_guard.py`, `maa_session.py`, `maa_target.py` | Target/input checks, ownership, successful-run accounting and stop semantics |
+| `tools/build_maa.py`, `assets/control.html` | Independent client bundle and a progress/stop panel on the existing client's server |
 | `opencv.py` | template matching, and the guard against blank frames |
 | `pages.py` | the engine that works out which screen is showing, from an ordered rule tree |
 | `pagetree.py` | the game's actual tree: which templates, which screens, and what to do on each |

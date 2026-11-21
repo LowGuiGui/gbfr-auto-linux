@@ -82,8 +82,14 @@ Maa 的游戏验收不代表旧循环已完成同等验证。旧命令行默认�
 
 ## 项目结构
 
+Maa 路径在表格前四项；旧命令行循环和复用的检查工具也保留在仓库中。
+
 | 文件 | 作用 |
 |---|---|
+| `assets/catalog.json`、`assets/interface.json` | 素材目标、前提条件与标准客户端选项 |
+| `assets/resource/` | Maa 的共享识别与任务流程 |
+| `maa_agent.py`、`maa_guard.py`、`maa_session.py`、`maa_target.py` | 目标和输入检查、单会话管理、通关计数与停止语义 |
+| `tools/build_maa.py`、`assets/control.html` | 独立客户端构建，以及现有客户端服务上的进度/停止面板 |
 | `opencv.py` | 模板匹配，以及对空白帧的防护 |
 | `pages.py` | 按有序规则树判断当前是哪个画面的引擎 |
 | `pagetree.py` | 游戏实际的判定树：用哪些模板、有哪些画面、每个画面做什么 |

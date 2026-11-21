@@ -30,12 +30,13 @@
         "A party able to clear this boss with AI teammates"
       ],
       "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
-      "evidence": "integration candidate",
+      "evidence": "live-validated: one exact-limit run and five consecutive runs, with finish requested during battle five",
       "target_rewards": [
         "Landbeast Plate",
         "Landbeast Horn"
       ],
-      "reward_source": "https://origin.ludo.guide/guide/granblue-fantasy-relink/quests-maniac"
+      "reward_source": "https://origin.ludo.guide/guide/granblue-fantasy-relink/quests-maniac",
+      "validation_date": "2026-11-21"
     },
     {
       "id": "frost-quakadile-materials",

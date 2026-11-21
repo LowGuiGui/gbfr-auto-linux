@@ -34,6 +34,7 @@
 <script>
   const $ = id => document.getElementById(id);
   let active = null;
+  let activeKey = null;
   let busy = false;
   const phases = {ready: '正在准备副本', starting: '正在进入副本', battle: '战斗中',
                   settling: '已通关，正在结算奖励', finished: '已完成，停在城镇',
@@ -53,6 +54,11 @@
       active = queue ? {id: running[0][0],
         task: queue.pending_task_ids?.[queue.current_task_index ?? 0],
         singlePreset: queue.pending_task_ids?.length === 1} : null;
+      const nextKey = active ? `${active.id}:${active.task}` : null;
+      if (nextKey !== activeKey) {
+        $('message').textContent = '';
+        activeKey = nextKey;
+      }
       const result = await request('local-file?path=agent/runtime/session.json');
       $('quest').textContent = result.quest || '等待任务';
       $('count').textContent = `${result.completed ?? 0} / ${result.limit ?? '—'} 次成功`;

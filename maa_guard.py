@@ -57,7 +57,8 @@ class NativeGuard:
                 raise ProbeError("The nested display changed during connection")
             self.display = gamescope.connect_x(self.target.display, values["xauth"])
             window, self.game_pid, self.game_start = select_game_window(self.display, self.target)
-            self.input = XTestInput(self.display, window, {k: k for k in KEYS}, live=False)
+            self.input = XTestInput(self.display, window, {k: k for k in KEYS}, live=False,
+                                    announce_dry_run=False)
             self.check()
         except BaseException:
             self.close()

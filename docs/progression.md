@@ -5,7 +5,8 @@
 
 Reviewed on 2026-11-21 for the 2.0.6 screen profile. A growth goal is not a claim
 that every quest associated with it is automated. The executable list and evidence
-status are in `assets/catalog.json`; the client exposes only those entries.
+status are in `catalog.json` in a built directory (`assets/catalog.json` in the
+source tree); the client exposes only those entries.
 
 | Player situation | Useful goal | Software boundary |
 |---|---|---|
