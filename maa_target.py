@@ -85,6 +85,38 @@ def check_target(target):
         raise ProbeError("target socket disappeared")
 
 
+def select_game_window(display, target, proc=Path("/proc")):
+    """Select the visible game itself, excluding Wine/loader windows with its app id."""
+    from Xlib import X
+
+    matches = []
+    pid_atom = display.intern_atom("_NET_WM_PID")
+    for window in gamescope.walk_windows(display):
+        try:
+            if window.get_attributes().map_state != X.IsViewable:
+                continue
+            if f"steam_app_{target.appid}" not in (window.get_wm_class() or ()):
+                continue
+            if window.get_wm_name() != "Granblue Fantasy: Relink":
+                continue
+            prop = window.get_full_property(pid_atom, X.AnyPropertyType)
+            if prop is None or len(prop.value) != 1:
+                continue
+            pid = int(prop.value[0])
+            command = (Path(proc) / str(pid) / "cmdline").read_bytes().split(b"\0")[0]
+            executable = command.replace(b"\\", b"/").rsplit(b"/", 1)[-1].lower()
+            if executable != b"granblue_fantasy_relink.exe":
+                continue
+            if gamescope.nearest_gamescope(pid) != target.pid:
+                continue
+            matches.append((window, pid, process_stamp(pid, proc)))
+        except (OSError, ValueError, AttributeError):
+            continue
+    if len(matches) != 1:
+        raise ProbeError("Expected one visible GBFR game window owned by its game process")
+    return matches[0]
+
+
 def select_instance(target, instances):
     selected = [i for i in instances if i.display_no == target.display_no]
     if len(selected) != 1:

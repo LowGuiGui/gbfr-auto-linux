@@ -10,7 +10,9 @@ events; Maa's Linux controller owns the input transport and normal key release.
 import time
 
 import gamescope
-from maa_target import ProbeError, check_target, discover_target, read_node
+from maa_target import (
+    ProbeError, check_target, discover_target, process_stamp, read_node, select_game_window,
+)
 from xtest_input import XTestInput, _codes, _is_down
 
 KEYS = {"Return": 28, "Escape": 1, "Up": 103, "Down": 108, "Left": 105,
@@ -54,9 +56,7 @@ class NativeGuard:
             if values["display"] != self.target.display:
                 raise ProbeError("The nested display changed during connection")
             self.display = gamescope.connect_x(self.target.display, values["xauth"])
-            window = gamescope.find_game_window(self.display, "881020")
-            if window is None:
-                raise ProbeError("The GBFR window is unavailable")
+            window, self.game_pid, self.game_start = select_game_window(self.display, self.target)
             self.input = XTestInput(self.display, window, {k: k for k in KEYS}, live=False)
             self.check()
         except BaseException:
@@ -70,6 +70,8 @@ class NativeGuard:
 
     def check(self):
         check_target(self.target)
+        if hasattr(self, "game_pid") and process_stamp(self.game_pid) != self.game_start:
+            raise ProbeError("The game process was replaced")
         info = self.controller.info
         validate_controller(info, self.target)
         if info["pw_node_id"] != self.node:
