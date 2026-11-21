@@ -24,6 +24,17 @@ and refer to the archive, [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbf
 
 ## What is covered
 
+The Maa path adds target/process identity, native controller configuration, bounded
+input/release, callback-scoped handle rebinding, session ownership and episode
+accounting tests. Negative controls reject helper windows, replaced sources,
+ambiguous targets, stale/blank action frames, duplicate results and unavailable
+session ownership. Catalog checks ensure each goal updates every quest-specific
+recognition leaf and that run-limit options cannot replace the chosen quest.
+Builder checks cover dependency hash refusal and separate version directories.
+
+These checks do not prove a game's UI or a party's battle performance. Native frame
+replay and bounded live acceptance are separate; see [the Maa guide](../docs/maa.md).
+
 | File | Covers |
 |---|---|
 | `test_opencv.py` | template matching, which inputs it takes and which it refuses (PIL images, alpha, grayscale, a template larger than the screen), every read-failure path, resolution sensitivity (#12), and the NCC degeneracy that makes a black frame score 1.0 |

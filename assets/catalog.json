@@ -26,10 +26,16 @@
       "purpose": "Materials for equipment upgrades; experience and mastery points are secondary rewards.",
       "requirements": [
         "Quest unlocked",
+        "Full Assist enabled",
         "A party able to clear this boss with AI teammates"
       ],
-      "strategy": "AI party combat from the initial arena position; no combat input",
-      "evidence": "integration candidate"
+      "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
+      "evidence": "integration candidate",
+      "target_rewards": [
+        "Landbeast Plate",
+        "Landbeast Horn"
+      ],
+      "reward_source": "https://origin.ludo.guide/guide/granblue-fantasy-relink/quests-maniac"
     },
     {
       "id": "frost-quakadile-materials",
@@ -38,13 +44,19 @@
       "objective": "讨伐巨爪霜鳄",
       "difficulty": "MANIAC",
       "recommended_power": 7200,
-      "purpose": "Frost Quakadile materials for equipment upgrades.",
+      "purpose": "Blizzadile materials for equipment upgrades.",
       "requirements": [
         "Quest unlocked",
+        "Full Assist enabled",
         "A party able to clear this boss with AI teammates"
       ],
-      "strategy": "AI party combat from the initial arena position; pending live validation",
-      "evidence": "visible quest; untested battle"
+      "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
+      "evidence": "visible quest; untested battle",
+      "target_rewards": [
+        "Frostbeast Plate",
+        "Frostbeast Horn"
+      ],
+      "reward_source": "https://origin.ludo.guide/guide/granblue-fantasy-relink/quests-maniac"
     }
   ]
 }

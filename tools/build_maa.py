@@ -56,6 +56,7 @@ def build(output, cache, python):
     shutil.copytree(ROOT / "LICENSES", output / "LICENSES")
     shutil.copy2(ROOT / "COPYRIGHT", output / "COPYRIGHT")
     shutil.copy2(ROOT / "docs/maa.md", output / "README.md")
+    shutil.copy2(ROOT / "docs/progression.md", output / "progression.md")
     notices = output / "third-party"
     notices.mkdir()
     with tarfile.open(downloads["mxu"]) as archive:

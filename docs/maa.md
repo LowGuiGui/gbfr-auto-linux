@@ -20,17 +20,24 @@ bug with newer PipeWire; the fix is included from 3.16.22. An unmodified 3.16.31
 build passed the isolated capture/input fixture. Game acceptance and the supported
 quest list must be checked separately; a fixture pass is not a completed game run.
 
-The two catalog entries are MANIAC Quakadile and Frost Quakadile material quests.
+The two catalog entries are MANIAC Quakadile and Blizzadile material quests.
 Their evidence fields distinguish candidates from accepted routes. The current
-strategy leaves battle to the AI party. Recommended quest power does not guarantee
+strategy uses the game's Full Assist setting and AI teammates, without automation
+combat input. Recommended quest power does not guarantee
 that a particular party can win without player input.
+
+Full Assist must be enabled before starting this profile. Older guides limit it to
+Extreme; the [current official systems page](https://relink-ragnarok.granbluefantasy.com/en/systems/)
+extends it to Maniac, Proud and quests through the expansion story. This does not
+establish support for every mechanic or arena. See [progression scope](progression.md)
+for the distinction between useful growth goals and implemented presets.
 
 ## Build and run
 
 Use Python 3.13 and `uv`. From the repository:
 
 ```sh
-python tools/build_maa.py --output dist/maa-candidate
+python3 tools/build_maa.py --output dist/maa-candidate
 ```
 
 The builder verifies downloaded archives/models against `assets/dependencies.json`,
@@ -85,6 +92,13 @@ the old configuration with the old version; import compatible task settings thro
 MXU's configuration export/import controls. Do not overwrite an old environment or
 copy live runtime locks/status files. Rollback means reopening the preserved old
 client with its preserved configuration. Do not update components during a task.
+
+After an Agent failure, use the client's normal Stop action first; native Maa tracks
+the bounded keys registered by the pipeline. Check the game before resuming. A full
+client/compositor crash is not a verified automatic-release condition. Do not run
+the legacy command's broad release operation against an active Maa session, force
+focus or kill the game as a recovery shortcut. Recover through the game's own menu
+and reconnect only when the game responds normally.
 
 ## Development boundary
 

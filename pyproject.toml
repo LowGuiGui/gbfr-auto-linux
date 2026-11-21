@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-# Project metadata. Nothing is packaged yet, so there is no build backend:
-# dependencies stay pinned in requirements*.txt, and ruff keeps its own file.
+# Project metadata, without a Python distribution build backend. The native
+# client bundle is built by tools/build_maa.py with separately pinned dependencies.
 
 [project]
 name = "gbfr-auto-linux"
