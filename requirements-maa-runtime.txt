@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-# Native resource Agent and offline recognition tools; no development tooling.
--r requirements.txt
+# Bundled Agent runtime only. The Agent needs MaaFw and the X11 client for its input
+# checks; OpenCV and Pillow stay in the development environment, where the offline
+# replay tool and the legacy capture path use them.
 MaaFw==5.16.1
+numpy==2.5.2
+python-xlib==0.33
