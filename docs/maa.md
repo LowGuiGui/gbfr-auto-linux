@@ -43,7 +43,7 @@ intended for local installation, not relocation to an arbitrary computer.
 
 Start GBFR through Steam in a compatible Gamescope session, then run `./mxu` from
 the bundle directory. Select GBFR's Gamescope device and the Chinese resource.
-Choose a material preset and a successful-run limit. The task must already be
+Choose one material preset and a successful-run limit. The task must already be
 unlocked, and the AI party must be able to clear it. Start from Seedhollow town,
 the quest counter, or a supported difficulty/quest-list menu. Automatic title-screen
 continuation and arbitrary battle/result recovery are outside this candidate.
@@ -51,6 +51,9 @@ continuation and arbitrary battle/result recovery are outside this candidate.
 The welcome link opens the progress/stop panel using MXU's existing loopback server.
 The default local port is 12792. Only one game and one controlling session are
 supported. A second Agent or the legacy loop cannot acquire the same session lock.
+The finish-current-run panel requires exactly one queued preset; it disables that
+button for multiple queued tasks because MXU's per-task override does not cancel
+later queued presets. Immediate stop remains available.
 
 ## What completion means
 

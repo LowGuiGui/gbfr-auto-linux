@@ -49,8 +49,10 @@
     try {
       const state = await request('maa/state');
       const running = Object.entries(state.instances).filter(([, item]) => item.is_running);
-      active = running.length === 1 ? {id: running[0][0],
-        task: running[0][1].task_run_state?.pending_task_ids?.[0]} : null;
+      const queue = running.length === 1 ? running[0][1].task_run_state : null;
+      active = queue ? {id: running[0][0],
+        task: queue.pending_task_ids?.[queue.current_task_index ?? 0],
+        singlePreset: queue.pending_task_ids?.length === 1} : null;
       const result = await request('local-file?path=agent/runtime/session.json');
       $('quest').textContent = result.quest || '等待任务';
       $('count').textContent = `${result.completed ?? 0} / ${result.limit ?? '—'} 次成功`;
@@ -58,8 +60,11 @@
         (result.finish_requested && active ? ' · 已收到本轮后停止请求' : '');
       $('diagnostic').hidden = !result.error;
       $('error').textContent = result.error || '';
-      $('finish').disabled = busy || !active?.task || result.finish_requested;
+      $('finish').disabled = busy || !active?.task || !active.singlePreset || result.finish_requested;
       $('stop').disabled = busy || !active;
+      if (active && !active.singlePreset) {
+        $('message').textContent = '本轮后停止目前支持一次运行一个预设。当前选了多个预设，可以使用立即停止；下次请只勾选一个。';
+      }
     } catch (error) {
       active = null;
       $('finish').disabled = $('stop').disabled = true;
@@ -67,7 +72,7 @@
     }
   }
   async function command(kind) {
-    if (!active || busy) return;
+    if (!active || busy || (kind === 'finish' && !active.singlePreset)) return;
     const target = {...active};
     busy = true;
     $('finish').disabled = $('stop').disabled = true;
