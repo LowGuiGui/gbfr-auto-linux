@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 
-def replay(resource_path, image_path, names):
+def replay(resource_path, image_path, names, pipeline_override=None):
     import cv2
     from maa.controller import CustomController
     from maa.pipeline import JPipelineParser
@@ -35,6 +35,8 @@ def replay(resource_path, image_path, names):
     resource.use_cpu()
     if not resource.post_bundle(resource_path).wait().succeeded:
         raise ValueError("Native resource loading failed")
+    if pipeline_override is not None and not resource.override_pipeline(pipeline_override):
+        raise ValueError("Native preset override failed")
     controller = Offline()
     controller.post_connection().wait()
     tasker = Tasker()
@@ -60,11 +62,14 @@ def main():
     parser.add_argument("resource", type=Path)
     parser.add_argument("image", type=Path)
     parser.add_argument("nodes", nargs="+")
+    parser.add_argument("--override", type=Path,
+                        help="JSON pipeline_override for the selected preset")
     parser.add_argument("--log-dir", type=Path, default=Path("probe-runs/replay"))
     args = parser.parse_args()
     Tasker.set_log_dir(args.log_dir)
     Tasker.set_stdout_level(LoggingLevelEnum.Off)
-    print(json.dumps(replay(args.resource, args.image, args.nodes), ensure_ascii=False))
+    overrides = json.loads(args.override.read_text()) if args.override else None
+    print(json.dumps(replay(args.resource, args.image, args.nodes, overrides), ensure_ascii=False))
 
 
 if __name__ == "__main__":

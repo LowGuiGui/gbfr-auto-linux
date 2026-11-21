@@ -119,6 +119,8 @@ Run the repository health checks:
 
 `tools/maa_replay.py RESOURCE IMAGE NODE...` checks native recognition on saved
 images with all input disabled. Check each intended screen and unrelated negative
-frames. Keep private full-screen captures/logs outside version control. A supported
+frames. Supply `--override PRESET.json` with a task's `pipeline_override` to check a
+different catalog goal against both its own images and images from another quest.
+Keep private full-screen captures/logs outside version control. A supported
 release additionally needs real consecutive quest completions, exact-count and
 delayed-stop trials, failure/ownership controls and independent-bundle validation.
