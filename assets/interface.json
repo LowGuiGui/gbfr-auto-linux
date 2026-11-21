@@ -1,0 +1,145 @@
+{
+  "interface_version": 2,
+  "name": "GBFRLinux",
+  "label": "GBFR 自动刷取",
+  "version": "0.1.0-dev",
+  "license": "GPL-2.0-or-later",
+  "description": "简体中文界面；单人任务与 AI 队友。当前预设处于验证中。",
+  "controller": [
+    {
+      "name": "GBFR Gamescope",
+      "type": "Linux",
+      "display_short_side": 720,
+      "linux": {
+        "screencap": "PipeWire",
+        "input": "Libei",
+        "pipewire_source": "Gamescope",
+        "use_win32_vk_code": false
+      }
+    }
+  ],
+  "resource": [
+    {
+      "name": "简体中文 720p",
+      "path": [
+        "./resource"
+      ]
+    }
+  ],
+  "agent": {
+    "child_exec": "./.venv/bin/python",
+    "child_args": [
+      "-B",
+      "./agent/maa_agent.py"
+    ]
+  },
+  "task": [
+    {
+      "name": "地属性武器材料",
+      "entry": "GBFR_Start",
+      "description": "任务：解决沙漠狂徒。MANIAC，推荐战力 7200；需能由当前 AI 队伍稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。",
+      "option": [
+        "Runs"
+      ]
+    }
+  ],
+  "option": {
+    "Runs": {
+      "type": "select",
+      "label": "成功通关次数",
+      "default_case": "1",
+      "cases": [
+        {
+          "name": "1",
+          "pipeline_override": {
+            "GBFR_Start": {
+              "action": {
+                "type": "Custom",
+                "param": {
+                  "custom_action": "GBFR",
+                  "custom_action_param": {
+                    "event": "begin",
+                    "quest": "解决沙漠狂徒",
+                    "limit": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "3",
+          "pipeline_override": {
+            "GBFR_Start": {
+              "action": {
+                "type": "Custom",
+                "param": {
+                  "custom_action": "GBFR",
+                  "custom_action_param": {
+                    "event": "begin",
+                    "quest": "解决沙漠狂徒",
+                    "limit": 3
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "10",
+          "pipeline_override": {
+            "GBFR_Start": {
+              "action": {
+                "type": "Custom",
+                "param": {
+                  "custom_action": "GBFR",
+                  "custom_action_param": {
+                    "event": "begin",
+                    "quest": "解决沙漠狂徒",
+                    "limit": 10
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "30",
+          "pipeline_override": {
+            "GBFR_Start": {
+              "action": {
+                "type": "Custom",
+                "param": {
+                  "custom_action": "GBFR",
+                  "custom_action_param": {
+                    "event": "begin",
+                    "quest": "解决沙漠狂徒",
+                    "limit": 30
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "999",
+          "pipeline_override": {
+            "GBFR_Start": {
+              "action": {
+                "type": "Custom",
+                "param": {
+                  "custom_action": "GBFR",
+                  "custom_action_param": {
+                    "event": "begin",
+                    "quest": "解决沙漠狂徒",
+                    "limit": 999
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

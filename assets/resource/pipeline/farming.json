@@ -1,0 +1,1392 @@
+{
+  "GBFR_Start": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "timeout": 30000,
+    "next": [
+      "GBFR_NearCounter",
+      "GBFR_CounterSelected",
+      "GBFR_CounterReset",
+      "GBFR_Town",
+      "GBFR_QuestSelected",
+      "GBFR_ProudTab",
+      "GBFR_ScrollQuest",
+      "GBFR_HeroSelected",
+      "GBFR_HeroSelect",
+      "GBFR_DifficultySelect"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "begin",
+          "quest": "解决沙漠狂徒",
+          "limit": 1
+        }
+      }
+    }
+  },
+  "GBFR_Town": {
+    "recognition": "OCR",
+    "expected": "快捷移动",
+    "roi": [
+      915,
+      665,
+      125,
+      40
+    ],
+    "threshold": 0.8,
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_TravelCounter"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "r",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_TravelCounter": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "选择目的地",
+        "roi": [
+          550,
+          190,
+          190,
+          45
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "任务中心",
+        "roi": [
+          565,
+          260,
+          165,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          510,
+          268,
+          260,
+          28
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 200
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 2000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_NearCounter",
+      "GBFR_Approach"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_Approach": {
+    "recognition": "OCR",
+    "expected": "快捷移动",
+    "roi": [
+      915,
+      665,
+      125,
+      40
+    ],
+    "threshold": 0.8,
+    "pre_delay": 0,
+    "post_delay": 400,
+    "timeout": 30000,
+    "next": [
+      "GBFR_NearCounter",
+      "GBFR_Approach"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "w",
+          "duration": 250,
+          "budget": 8
+        }
+      }
+    }
+  },
+  "GBFR_NearCounter": {
+    "recognition": "OCR",
+    "pre_delay": 0,
+    "post_delay": 1500,
+    "timeout": 30000,
+    "next": [
+      "GBFR_CounterSelected",
+      "GBFR_CounterReset"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "f",
+          "budget": 2
+        }
+      }
+    },
+    "expected": "任务中心",
+    "roi": [
+      520,
+      220,
+      240,
+      70
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_CounterSelected": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "任务中心",
+        "roi": [
+          70,
+          15,
+          240,
+          50
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "任务承接",
+        "roi": [
+          95,
+          84,
+          160,
+          42
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          80,
+          88,
+          300,
+          32
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 400
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_QuestSelected",
+      "GBFR_ProudTab",
+      "GBFR_ScrollQuest",
+      "GBFR_HeroSelected",
+      "GBFR_HeroSelect",
+      "GBFR_DifficultySelect"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_CounterReset": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "任务中心",
+        "roi": [
+          70,
+          15,
+          240,
+          50
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "任务承接",
+        "roi": [
+          95,
+          84,
+          160,
+          42
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_CounterSelected",
+      "GBFR_CounterReset"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Up",
+          "budget": 6
+        }
+      }
+    }
+  },
+  "GBFR_DifficultySelect": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "任务选择",
+        "roi": [
+          115,
+          48,
+          220,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "按岛屿选择|按类别选择",
+        "roi": [
+          370,
+          100,
+          540,
+          40
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_QuestSelected",
+      "GBFR_ProudTab",
+      "GBFR_ScrollQuest",
+      "GBFR_HeroSelected",
+      "GBFR_HeroSelect",
+      "GBFR_DifficultySelect"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "e",
+          "budget": 3
+        }
+      }
+    }
+  },
+  "GBFR_HeroSelected": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "任务选择",
+        "roi": [
+          115,
+          48,
+          220,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "泽卡的英雄",
+        "roi": [
+          810,
+          218,
+          180,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          780,
+          220,
+          210,
+          40
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 600
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_QuestSelected",
+      "GBFR_ProudTab",
+      "GBFR_ScrollQuest",
+      "GBFR_HeroSelected",
+      "GBFR_HeroSelect",
+      "GBFR_DifficultySelect"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_HeroSelect": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "任务选择",
+        "roi": [
+          115,
+          48,
+          220,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "泽卡的英雄",
+        "roi": [
+          810,
+          218,
+          180,
+          40
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_QuestSelected",
+      "GBFR_ProudTab",
+      "GBFR_ScrollQuest",
+      "GBFR_HeroSelected",
+      "GBFR_HeroSelect",
+      "GBFR_DifficultySelect"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Right",
+          "budget": 3
+        }
+      }
+    }
+  },
+  "GBFR_ProudTab": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "And",
+        "all_of": [
+          {
+            "recognition": "OCR",
+            "expected": "任务选择",
+            "roi": [
+              115,
+              48,
+              220,
+              40
+            ],
+            "threshold": 0.8
+          },
+          {
+            "recognition": "OCR",
+            "expected": "MANIAC",
+            "roi": [
+              225,
+              115,
+              145,
+              30
+            ],
+            "threshold": 0.8
+          },
+          {
+            "recognition": "OCR",
+            "expected": "PROUD",
+            "roi": [
+              370,
+              115,
+              145,
+              30
+            ],
+            "threshold": 0.8
+          }
+        ]
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          380,
+          120,
+          110,
+          20
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 300
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_QuestSelected",
+      "GBFR_ProudTab",
+      "GBFR_ScrollQuest",
+      "GBFR_HeroSelected",
+      "GBFR_HeroSelect",
+      "GBFR_DifficultySelect"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "q",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_QuestSelected": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "And",
+        "all_of": [
+          {
+            "recognition": "OCR",
+            "expected": "任务选择",
+            "roi": [
+              115,
+              48,
+              220,
+              40
+            ],
+            "threshold": 0.8
+          },
+          {
+            "recognition": "OCR",
+            "expected": "MANIAC",
+            "roi": [
+              225,
+              115,
+              145,
+              30
+            ],
+            "threshold": 0.8
+          },
+          {
+            "recognition": "OCR",
+            "expected": "PROUD",
+            "roi": [
+              370,
+              115,
+              145,
+              30
+            ],
+            "threshold": 0.8
+          }
+        ]
+      },
+      {
+        "recognition": "OCR",
+        "expected": "解决沙漠狂徒",
+        "roi": [
+          650,
+          452,
+          520,
+          40
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_QuestDetails"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_ScrollQuest": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "And",
+        "all_of": [
+          {
+            "recognition": "OCR",
+            "expected": "任务选择",
+            "roi": [
+              115,
+              48,
+              220,
+              40
+            ],
+            "threshold": 0.8
+          },
+          {
+            "recognition": "OCR",
+            "expected": "MANIAC",
+            "roi": [
+              225,
+              115,
+              145,
+              30
+            ],
+            "threshold": 0.8
+          },
+          {
+            "recognition": "OCR",
+            "expected": "PROUD",
+            "roi": [
+              370,
+              115,
+              145,
+              30
+            ],
+            "threshold": 0.8
+          }
+        ]
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          245,
+          120,
+          110,
+          20
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 300
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_QuestSelected",
+      "GBFR_ProudTab",
+      "GBFR_ScrollQuest",
+      "GBFR_HeroSelected",
+      "GBFR_HeroSelect",
+      "GBFR_DifficultySelect"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Down",
+          "budget": 60
+        }
+      }
+    }
+  },
+  "GBFR_QuestDetails": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "解决沙漠狂徒",
+        "roi": [
+          440,
+          55,
+          400,
+          35
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "BOSS讨伐",
+        "roi": [
+          145,
+          175,
+          120,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "讨伐巨爪岩鳄",
+        "roi": [
+          135,
+          130,
+          460,
+          40
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_Private"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_Private": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "匹配设置",
+        "roi": [
+          560,
+          175,
+          160,
+          45
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "私人",
+        "roi": [
+          500,
+          225,
+          270,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "OK",
+        "roi": [
+          590,
+          455,
+          100,
+          40
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_ReadyTown"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_ReadyTown": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "快捷移动",
+        "roi": [
+          915,
+          665,
+          125,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "解决沙漠狂徒",
+        "roi": [
+          980,
+          295,
+          260,
+          38
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "准备完毕",
+        "roi": [
+          1050,
+          375,
+          180,
+          40
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_ReadyConfirm"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "3",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_ReadyConfirm": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "解决沙漠狂徒",
+        "roi": [
+          565,
+          65,
+          320,
+          35
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "私人匹配",
+        "roi": [
+          895,
+          35,
+          100,
+          35
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "准备完毕",
+        "roi": [
+          580,
+          520,
+          130,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          535,
+          527,
+          210,
+          30
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 100
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "next": [
+      "GBFR_Defeat",
+      "GBFR_Victory",
+      "GBFR_Battle",
+      "GBFR_BattleTip"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "event": "admit",
+          "budget": 1
+        }
+      }
+    }
+  },
+  "GBFR_BattleTip": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "AUTO.*SKIP",
+        "roi": [
+          45,
+          642,
+          145,
+          35
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "继续",
+        "roi": [
+          1155,
+          640,
+          70,
+          40
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "next": [
+      "GBFR_Defeat",
+      "GBFR_Victory",
+      "GBFR_Battle",
+      "GBFR_BattleTip"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_Battle": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "剩余时间",
+        "roi": [
+          1070,
+          78,
+          180,
+          32
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "讨伐巨爪岩鳄",
+        "roi": [
+          1090,
+          46,
+          170,
+          32
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 2000,
+    "timeout": 90000,
+    "next": [
+      "GBFR_Defeat",
+      "GBFR_Victory",
+      "GBFR_Battle",
+      "GBFR_BattleTip"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "battle",
+          "budget": 400
+        }
+      }
+    }
+  },
+  "GBFR_Defeat": {
+    "recognition": "OCR",
+    "expected": "QUEST FAILED|任务失败",
+    "roi": [
+      300,
+      180,
+      700,
+      350
+    ],
+    "threshold": 0.8,
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "error",
+          "reason": "The quest failed; no further run was admitted"
+        }
+      }
+    }
+  },
+  "GBFR_Victory": {
+    "recognition": "And",
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "next": [
+      "GBFR_Result",
+      "GBFR_ReturnTip",
+      "GBFR_SettledTown"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "victory",
+          "budget": 1
+        }
+      }
+    },
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "距.*任务结束还有",
+        "roi": [
+          550,
+          76,
+          180,
+          35
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "返回城镇",
+        "roi": [
+          1115,
+          45,
+          130,
+          35
+        ],
+        "threshold": 0.8
+      }
+    ]
+  },
+  "GBFR_Result": {
+    "recognition": "And",
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "next": [
+      "GBFR_SettlementConfirm",
+      "GBFR_Result",
+      "GBFR_ReturnTip",
+      "GBFR_SettledTown"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 8
+        }
+      }
+    },
+    "all_of": [
+      {
+        "recognition": "TemplateMatch",
+        "template": "battle_results.png",
+        "roi": [
+          40,
+          0,
+          550,
+          100
+        ],
+        "threshold": 0.75
+      },
+      {
+        "recognition": "OCR",
+        "expected": "解决沙漠狂徒",
+        "roi": [
+          625,
+          45,
+          240,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "继续",
+        "roi": [
+          1080,
+          650,
+          150,
+          50
+        ],
+        "threshold": 0.8
+      }
+    ]
+  },
+  "GBFR_ReturnTip": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "AUTO.*SKIP",
+        "roi": [
+          45,
+          642,
+          145,
+          35
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "继续",
+        "roi": [
+          1155,
+          640,
+          70,
+          40
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "next": [
+      "GBFR_SettledTown"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 2
+        }
+      }
+    }
+  },
+  "GBFR_SettledTown": {
+    "recognition": "OCR",
+    "expected": "快捷移动",
+    "roi": [
+      915,
+      665,
+      125,
+      40
+    ],
+    "threshold": 0.8,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "timeout": 30000,
+    "next": [
+      "GBFR_Continue",
+      "GBFR_Finished"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "settle",
+          "budget": 1
+        }
+      }
+    }
+  },
+  "GBFR_Continue": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "timeout": 30000,
+    "next": [
+      "GBFR_CounterSelected",
+      "GBFR_CounterReset",
+      "GBFR_Town"
+    ]
+  },
+  "GBFR_Finished": {
+    "recognition": "OCR",
+    "expected": "快捷移动",
+    "roi": [
+      915,
+      665,
+      125,
+      40
+    ],
+    "threshold": 0.8,
+    "pre_delay": 0,
+    "post_delay": 0,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "finish"
+        }
+      }
+    }
+  },
+  "GBFR_CancelReady": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "解决沙漠狂徒",
+        "roi": [
+          565,
+          65,
+          320,
+          35
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "私人匹配",
+        "roi": [
+          895,
+          35,
+          100,
+          35
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "准备完毕",
+        "roi": [
+          580,
+          520,
+          130,
+          40
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          535,
+          527,
+          210,
+          30
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 100
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "next": [
+      "GBFR_Finished"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Escape",
+          "budget": 1
+        }
+      }
+    }
+  },
+  "GBFR_SettlementConfirm": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "结算确认",
+        "roi": [
+          560,
+          225,
+          170,
+          45
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "是否完成结算确认",
+        "roi": [
+          540,
+          315,
+          220,
+          50
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          530,
+          436,
+          220,
+          30
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 100
+      }
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 1
+        }
+      }
+    },
+    "next": [
+      "GBFR_ReturnTip",
+      "GBFR_SettledTown"
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000
+  }
+}

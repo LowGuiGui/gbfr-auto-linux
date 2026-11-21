@@ -17,6 +17,11 @@ SPDX-License-Identifier = "GPL-2.0-or-later"
 # used as template-matching references. The artwork is Cygames'; see the licence
 # file named below and COPYRIGHT.
 [[annotations]]
-path = "template/*.png"
+path = ["template/*.png", "assets/resource/image/*.png"]
 SPDX-FileCopyrightText = "Cygames, Inc."
 SPDX-License-Identifier = "LicenseRef-Cygames-Game-Assets"
+
+[[annotations]]
+path = ["assets/**/*.json"]
+SPDX-FileCopyrightText = "2026 LowGuiGui <https://github.com/LowGuiGui>"
+SPDX-License-Identifier = "GPL-2.0-or-later"
