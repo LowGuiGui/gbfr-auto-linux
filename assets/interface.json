@@ -2,9 +2,9 @@
   "interface_version": 2,
   "name": "GBFRLinux",
   "label": "GBFR 自动刷取",
-  "version": "0.1.0-dev",
+  "version": "0.1.0-rc.1",
   "license": "GPL-2.0-or-later",
-  "description": "简体中文界面；单人任务与 AI 队友。当前预设处于验证中。",
+  "description": "简体中文界面；单人任务与 AI 队友。两个素材预设，成功次数限制和本轮后停止。",
   "controller": [
     {
       "name": "GBFR Gamescope",
@@ -38,7 +38,7 @@
       "name": "quakadile-materials",
       "label": "巨爪岩鳄素材",
       "entry": "GBFR_Start",
-      "description": "任务：解决沙漠狂徒。MANIAC，推荐战力 7200。需要解锁任务、开启完全辅助模式，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。\n\n此预设仍在验证，请先用 1 次确认当前队伍能够完成。一次只勾选一个预设。 [查看进度和停止](http://127.0.0.1:12792/api/local-file?path=control.html)",
+      "description": "任务：解决沙漠狂徒。MANIAC，推荐战力 7200。需要解锁任务、开启完全辅助模式、关闭游戏内自动重复，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。\n\n请先用 1 次确认当前队伍能够完成。一次只勾选一个预设。 [查看进度和停止](http://127.0.0.1:12792/api/local-file?path=control.html)",
       "option": [
         "Runs"
       ],
@@ -75,7 +75,7 @@
       "name": "frost-quakadile-materials",
       "label": "巨爪霜鳄素材",
       "entry": "GBFR_Start",
-      "description": "任务：我要打造冰冷的铠甲。MANIAC，推荐战力 7200。需要解锁任务、开启完全辅助模式，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。\n\n此预设仍在验证，请先用 1 次确认当前队伍能够完成。一次只勾选一个预设。 [查看进度和停止](http://127.0.0.1:12792/api/local-file?path=control.html)",
+      "description": "任务：我要打造冰冷的铠甲。MANIAC，推荐战力 7200。需要解锁任务、开启完全辅助模式、关闭游戏内自动重复，且当前 AI 队伍能稳定通关。从希德霍姆城镇或任务中心开始，完成后返回城镇。\n\n请先用 1 次确认当前队伍能够完成。一次只勾选一个预设。 [查看进度和停止](http://127.0.0.1:12792/api/local-file?path=control.html)",
       "option": [
         "Runs"
       ],

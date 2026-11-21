@@ -5,9 +5,9 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 # tests
 
-Runs on **Linux**, with nothing stubbed. The core modules have no platform
-dependencies, so `conftest.py` only puts the repo root on `sys.path` and provides
-the `log_file` fixture. The probe's tests use small doubles for the X display and for
+Runs on **Linux**, with test doubles for external displays, processes and controller
+callbacks. `conftest.py` puts the repo root on `sys.path` and provides the `log_file`
+fixture. The probe's tests use small doubles for the X display and for
 `subprocess.run`, written against python-xlib's and subprocess's documented signatures;
 `test_gamescope.py` defines the `/proc` and `subprocess.run` doubles, and the probe's tests
 import them from there. `test_xtest_input.py` has its own double for the nested X server,

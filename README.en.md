@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 > [!IMPORTANT]
-> **The Maa GUI candidate has completed one real-game farming route. It remains experimental.**
+> **The Maa GUI has two live-tested farming presets in local candidate 0.1.0-rc.1.**
 >
 > It uses the existing MXU client, MaaFramework's native Linux controller and this project's game resources.
 > See the [Maa guide](docs/maa.md) for installation, scope and stop behavior.
@@ -33,7 +33,7 @@ This project maintains game screens, farming presets and small accounting/stop h
 | Component | Current scope |
 |---|---|
 | Client/runtime | Pinned MXU 2.11.2 and MaaFramework 5.16.1; separate version directories preserve rollback |
-| Real-game validation | Chinese 2.0.6, 16:9, Seedhollow town; one complete 1/1 run of 解决沙漠狂徒. Consecutive runs and the second route remain under acceptance |
+| Real-game validation | Chinese 2.0.6, 16:9, Seedhollow town; Quakadile passed 1/1 and five consecutive runs; Blizzadile passed 1/1. A finish request during battle five stopped after settlement in town |
 | Goal catalog | Quakadile and Blizzadile material presets, with individual evidence in [catalog.json](assets/catalog.json) |
 | Stop behavior | Successful-run limits, immediate automation stop and finish-current-run; the latter requires one preset per Start |
 | Outside current support | Automatic title continuation, arbitrary battle/result adoption, equipment/spending automation, all progression and DLC quests |

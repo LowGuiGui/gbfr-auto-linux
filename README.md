@@ -10,7 +10,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 > [!IMPORTANT]
-> **Maa 图形客户端已能完成一条真实游戏刷取流程，仍是实验性候选版本。**
+> **Maa 图形客户端已有两个实测刷取预设，首个本地候选版本为 0.1.0-rc.1。**
 >
 > 使用现有 MXU 客户端、MaaFramework 原生 Linux 控制器和本项目的游戏资源。
 > 安装、支持范围及停止方式见 [Maa 使用说明](docs/maa.md)。
@@ -31,7 +31,7 @@ Maa 提供识别、流程调度、截图和输入，MXU 提供已有界面。本
 | 部分 | 当前范围 |
 |---|---|
 | 客户端与运行时 | 固定 MXU 2.11.2、MaaFramework 5.16.1；独立目录构建，保留旧版本用于回滚 |
-| 真实游戏验证 | 简体中文 2.0.6、16:9、希德霍姆城镇起点；“解决沙漠狂徒”完成一次完整的 1/1 流程。连续运行与第二条路线仍在验收 |
+| 真实游戏验证 | 简体中文 2.0.6、16:9、希德霍姆城镇起点；岩鳄完成 1/1 与连续五轮，霜鳄完成 1/1；第五轮战斗中请求停止后正确结算回城 |
 | 目标目录 | 巨爪岩鳄、巨爪霜鳄素材两个预设；各自验证状态记录在 [catalog.json](assets/catalog.json) |
 | 停止 | 成功次数限制、立即停止操作，以及当前轮结算后停止；后者要求每次只选一个预设 |
 | 尚不支持 | 自动从标题画面继续、任意战斗/结果画面接管、自动配装和消耗素材、全成长路线与所有 DLC 副本 |

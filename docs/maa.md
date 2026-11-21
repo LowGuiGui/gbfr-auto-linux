@@ -1,7 +1,7 @@
 <!-- SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui> -->
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 
-# Native Maa resource candidate
+# Native Maa resource candidate 0.1.0-rc.1
 
 This candidate uses MXU's existing interface and MaaFramework's native Linux
 controller. It is separate from the legacy `gbfr_auto.py` command-line loop.
@@ -17,8 +17,11 @@ convention or replaced capture source.
 
 Gamescope needs working PipeWire support. Version 3.16.20 has an upstream loop-lock
 bug with newer PipeWire; the fix is included from 3.16.22. An unmodified 3.16.31
-build passed the isolated capture/input fixture. Game acceptance and the supported
-quest list must be checked separately; a fixture pass is not a completed game run.
+build passed both isolated controller checks and the game trials below. The game
+trials used a silent headless 2560×1440 Gamescope session, normalized to 1280×720.
+The normal Wayland window profile passed a separate capture/input fixture. Other
+compositor versions, languages, aspect ratios and gameplay modifications need
+their own checks.
 
 The two catalog entries are MANIAC Quakadile and Blizzadile material quests.
 Their evidence fields distinguish candidates from accepted routes. The current
@@ -31,6 +34,29 @@ Extreme; the [current official systems page](https://relink-ragnarok.granbluefan
 extends it to Maniac, Proud and quests through the expansion story. This does not
 establish support for every mechanic or arena. See [progression scope](progression.md)
 for the distinction between useful growth goals and implemented presets.
+
+## Validation scope
+
+Checked on 2026-11-21 with the pinned client/runtime pair and game 2.0.6:
+
+| Behavior | Evidence and limit |
+|---|---|
+| Quakadile, 解决沙漠狂徒 | An exact 1/1 run and five consecutive completed runs without menu intervention. The five-run trial took about 37 minutes. |
+| Blizzadile, 我要打造冰冷的铠甲 | One exact 1/1 run from town through settlement and back to town, without menu intervention. |
+| Finish after this run | The GUI request arrived during battle five of a limit-10 session; exactly five runs settled in town and no sixth run began. |
+| Entry screens | Town is the end-to-end tested start. Counter and difficulty/quest-list nodes were exercised in navigation and checked on saved frames. Unknown starts stop with a bounded explanation. |
+| Ownership and errors | A second controller was refused. Unknown-screen and immediate-stop trials ended with zero completions. Saved-frame checks reject mismatched quest names. |
+| Input release | Native fixture checks covered ordinary release, stop with capture pending and target loss. They do not establish recovery from an indefinitely wedged compositor or arbitrary client crash. |
+| Defeat | Accounting/failure behavior is checked in automated tests; a real defeat was not deliberately induced. |
+
+The standard client was exercised on a private X11 display and through its web
+interface. The tests did not open a window on the working desktop.
+
+The tested strategy uses Full Assist with an existing high-level AI party. These
+trials do not measure material drop rates, prove an optimal leveling route, or
+guarantee that a weaker party can clear either quest. Do not send physical input
+to the controlled game during a task; overlapping manual control is not a
+supported operating mode.
 
 ## Build and run
 
@@ -89,11 +115,13 @@ interpret an uncertain battle as a successful completion. A stopped client may
 display its last cached screenshot; request live screenshots before acting.
 
 Keep the previous version directory intact. Build an update into a new directory,
-stop the old task, then exit the old client before opening the new one. Preserve
-the old configuration with the old version; import compatible task settings through
-MXU's configuration export/import controls. Do not overwrite an old environment or
-copy live runtime locks/status files. Rollback means reopening the preserved old
-client with its preserved configuration. Do not update components during a task.
+stop the old task, then exit the old client before opening the new one. For the same
+pinned MXU version, copy `config/mxu-GBFRLinux.json` into the new bundle while both
+clients are closed; retain the original beside the old client. For a different
+client version, check its configuration compatibility and use MXU's export/import
+controls as appropriate. Do not overwrite an old environment or copy live runtime
+locks/status files. Rollback means reopening the preserved old client with its
+preserved configuration. Do not update components during a task.
 
 After an Agent failure, use the client's normal Stop action first; native Maa tracks
 the bounded keys registered by the pipeline. Check the game before resuming. A full

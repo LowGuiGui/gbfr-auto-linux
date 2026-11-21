@@ -27,7 +27,8 @@
       "requirements": [
         "Quest unlocked",
         "Full Assist enabled",
-        "A party able to clear this boss with AI teammates"
+        "A party able to clear this boss with AI teammates",
+        "In-game automatic repeat disabled"
       ],
       "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
       "evidence": "live-validated: one exact-limit run and five consecutive runs, with finish requested during battle five",
@@ -49,15 +50,17 @@
       "requirements": [
         "Quest unlocked",
         "Full Assist enabled",
-        "A party able to clear this boss with AI teammates"
+        "A party able to clear this boss with AI teammates",
+        "In-game automatic repeat disabled"
       ],
       "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
-      "evidence": "visible quest; untested battle",
+      "evidence": "live-validated: one exact-limit run from town to settlement and town",
       "target_rewards": [
         "Frostbeast Plate",
         "Frostbeast Horn"
       ],
-      "reward_source": "https://origin.ludo.guide/guide/granblue-fantasy-relink/quests-maniac"
+      "reward_source": "https://origin.ludo.guide/guide/granblue-fantasy-relink/quests-maniac",
+      "validation_date": "2026-11-21"
     }
   ]
 }
