@@ -173,12 +173,12 @@ CV2_SURFACE = (
     "imdecode", "imread", "imwrite", "cvtColor", "resize",
     "matchTemplate", "minMaxLoc",
     "IMREAD_COLOR", "INTER_LINEAR", "INTER_AREA", "TM_CCOEFF_NORMED",
-    "COLOR_RGB2BGR", "COLOR_BGR2RGB",
+    "COLOR_RGB2BGR", "COLOR_BGR2RGB", "IMWRITE_JPEG_QUALITY",
 )
 
 
 class TestCv2ApiSurface:
-    """本仓库只用到 cv2 的 13 个符号，全是多年未变的核心 API。
+    """本仓库只用到 cv2 的 14 个符号，全是多年未变的核心 API。
 
     4.14.0.94 和 5.0.0.93 实测行为完全一致（见 requirements.txt 的注释），所以
     pin 版本不影响结果。真正会在升级时炸掉的，是某个符号被挪走或改名 —— 这条
