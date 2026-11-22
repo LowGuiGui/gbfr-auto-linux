@@ -10,9 +10,9 @@ SPDX-License-Identifier: GPL-2.0-or-later
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 > [!IMPORTANT]
-> **Maa 0.2.0 is in development: it now farms with the game's own Repeat Quest, passes the offline tests, and has not yet run end to end in the real game.**
+> **Maa 0.2.0 is a release candidate: it farms with the game's own Repeat Quest. 0.2.0-rc.1 passed its first real-game acceptance (12 Quakadile runs in a row, finish after this run, stop now).**
 >
-> The last version validated in the real game is 0.1.0-rc.2, which returns to town after every run. It uses the existing MXU client,
+> The previous version, kept for rollback, is 0.1.0-rc.2, which returns to town after every run. It uses the existing MXU client,
 > MaaFramework's native Linux controller and this project's game resources. See the [Maa guide](docs/maa.en.md) for setup, use and stopping.
 
 > [!WARNING]
@@ -33,7 +33,7 @@ This project maintains game screens, farming presets and small accounting/stop h
 | Component | Current scope |
 |---|---|
 | Client/runtime | Pinned MXU 2.11.2 and MaaFramework 5.16.1; separate version directories preserve rollback |
-| Real-game validation | 0.1.0-rc.2: Chinese 2.0.6, 16:9, Seedhollow town; Quakadile passed 1/1 and five consecutive runs; Blizzadile passed 1/1. The game's Repeat Quest behaviour was measured (12 Quakadile runs); the 0.2.0 loop has not yet run in the real game |
+| Real-game validation | 0.2.0-rc.1 (2026-11-22): 12 Quakadile runs in a row with no intervention (across the tenth-run dialog), finish after this run and stop now all passed; the new loop is not yet validated for Blizzadile. 0.1.0-rc.2: Chinese 2.0.6, 16:9, Seedhollow town; Quakadile passed 1/1 and five consecutive runs; Blizzadile passed 1/1 |
 | Goal catalog | Quakadile and Blizzadile material presets, with individual evidence in [catalog.json](assets/catalog.json) |
 | Stop behavior | A number of successful runs (1-999) or until stopped; finish after the current run (one preset per Start); immediate automation stop |
 | Outside current support | Automatic title continuation, arbitrary battle/result adoption, equipment/spending automation, all progression and DLC quests |

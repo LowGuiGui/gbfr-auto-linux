@@ -46,14 +46,14 @@ def validate_controller(info, target):
         raise ProbeError("Select GBFR's native Gamescope PipeWire/libei controller")
 
 
-def wait_native(job, seconds=5):
+def wait_native(job, what, seconds=5):
     deadline = time.monotonic() + seconds
     while not job.done:
         if time.monotonic() >= deadline:
-            raise ProbeError("Native controller operation timed out")
+            raise ProbeError(f"Native {what} timed out")
         time.sleep(.01)
     if not job.succeeded:
-        raise ProbeError("Native controller operation failed")
+        raise ProbeError(f"Native {what} failed")
     return job
 
 
@@ -171,14 +171,33 @@ class NativeGuard:
             raise
 
     def close(self):
-        if self.display is not None:
-            self.display.close()
-            self.display = None
+        """Release the X connection. Never raises: it runs while handling another failure."""
+        display, self.display = self.display, None
+        if display is not None:
+            try:
+                display.close()
+            except Exception:
+                pass  # e.g. ConnectionClosedError once the nested X server is gone
 
     def alive(self):
         """Cheap per-key check: the game process that owned the window is still the same."""
         if process_stamp(self.game_pid) != self.game_start:
             raise ProbeError("The game process was replaced")
+
+    def lost(self):
+        """Why the game or its Gamescope is gone, or None. Reads only /proc and a socket.
+
+        It runs while another failure is handled, so an unexpected error here means
+        "cannot tell" (None) rather than replacing that failure."""
+        try:
+            check_target(self.target)
+            if hasattr(self, "game_pid"):
+                self.alive()
+        except ProbeError as exc:
+            return str(exc)
+        except Exception:
+            return None
+        return None
 
     def check(self):
         check_target(self.target)
@@ -192,7 +211,7 @@ class NativeGuard:
             raise ProbeError("The capture source was replaced")
 
     def capture(self):
-        frame = wait_native(self.controller.post_screencap()).get()
+        frame = wait_native(self.controller.post_screencap(), "screenshot").get()
         if frame is None or frame.size == 0 or frame.shape[:2] != (720, 1280):
             raise ProbeError("The supported profile requires a usable 1280x720 capture")
         if float(frame.std()) < 1:
@@ -215,7 +234,7 @@ class NativeGuard:
         result = context.run_action(node, pipeline_override=override or {})
         if result is None or not result.success:
             # A failed or interrupted press must not leave the key down.
-            wait_native(self.controller.post_key_up(KEYS[key]))
+            wait_native(self.controller.post_key_up(KEYS[key]), "key release")
             raise ProbeError("Native key press failed")
         deadline = time.monotonic() + .5
         while is_down(self.display.query_keymap(), keycode):

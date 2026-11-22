@@ -148,3 +148,43 @@ def test_the_resource_carries_exactly_the_guards_key_nodes():
     pipeline = json.loads((ROOT / "assets/resource/pipeline/farming.json").read_text())
     nodes = {name: node for name, node in pipeline.items() if name.startswith("GBFR_Key_")}
     assert nodes == key_nodes()
+
+
+def test_closing_a_display_whose_server_is_gone_does_not_raise():
+    from Xlib.error import ConnectionClosedError
+
+    class Dead:
+        def close(self):
+            raise ConnectionClosedError("server")
+
+    guard = NativeGuard.__new__(NativeGuard)
+    guard.display = Dead()
+    guard.close()
+    assert guard.display is None
+    guard.close()
+
+
+def watched(monkeypatch, check):
+    monkeypatch.setattr(maa_guard, "check_target", check)
+    guard = NativeGuard.__new__(NativeGuard)
+    guard.target = SimpleNamespace()
+    return guard
+
+
+def test_lost_names_a_vanished_game_or_gamescope(monkeypatch):
+    def vanished(target):
+        raise ProbeError("process 4242 is gone or its identity cannot be read")
+    assert watched(monkeypatch, vanished).lost() == "process 4242 is gone or its identity cannot be read"
+
+
+def test_lost_checks_the_game_process_itself(monkeypatch):
+    guard = watched(monkeypatch, lambda target: None)
+    guard.game_pid, guard.game_start = 2 ** 30, "1"  # above any Linux pid_max
+    assert "is gone" in guard.lost()
+
+
+def test_lost_is_none_while_the_target_lives_or_cannot_be_judged(monkeypatch):
+    assert watched(monkeypatch, lambda target: None).lost() is None
+    def broken(target):
+        raise OSError("unexpected")
+    assert watched(monkeypatch, broken).lost() is None

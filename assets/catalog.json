@@ -33,7 +33,7 @@
         "A party able to clear this boss with AI teammates"
       ],
       "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
-      "evidence": "live-validated: one exact-limit run and five consecutive runs, with finish requested during battle five. Repeat loop: game behaviour measured 2026-11-21 (scripted, Quakadile); this pipeline not yet run against the game",
+      "evidence": "live-validated: one exact-limit run and five consecutive runs, with finish requested during battle five. Repeat loop: 0.2.0-rc.1 passed a real-game acceptance on 2026-11-22: 12 consecutive runs across the tenth-run dialog, finish requested in run 2, immediate stop in run 1",
       "target_rewards": [
         "Landbeast Plate",
         "Landbeast Horn"
@@ -57,7 +57,7 @@
         "A party able to clear this boss with AI teammates"
       ],
       "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
-      "evidence": "live-validated: one exact-limit run from town to settlement and town. Repeat loop: game behaviour measured 2026-11-21 (scripted, Quakadile); this pipeline not yet run against the game",
+      "evidence": "live-validated: one exact-limit run from town to settlement and town. Repeat loop: game behaviour measured 2026-11-21 (scripted, Quakadile); the repeat loop not yet run against this quest",
       "target_rewards": [
         "Frostbeast Plate",
         "Frostbeast Horn"

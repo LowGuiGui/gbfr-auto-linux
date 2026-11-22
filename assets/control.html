@@ -39,6 +39,7 @@
   let busy = false;
   const phases = {ready: '正在接任务', starting: '正在进入副本', battle: '战斗中',
                   settled: '已通关，正在结算', finished: '已完成，停在城镇',
+                  stopped: '已按你的要求停止',
                   error: '操作已停止。请查看游戏当前画面，再从支持的起点重新开始。'};
   async function request(path, data) {
     const response = await fetch('/api/' + path, data === undefined ? {cache: 'no-store'} : {
@@ -69,7 +70,7 @@
       $('phase').textContent = (phases[result.phase] || '等待任务') + note +
         (result.finish_requested && active ? ' · 已收到本轮后停止请求' : '') +
         (result.overrun ? ` · 多完成 ${result.overrun} 次：停止时下一轮已经开始` : '');
-      $('reason').hidden = !result.error;
+      $('reason').hidden = !(result.message || result.error);
       $('reason').textContent = result.message || result.error || '';
       $('diagnostic').hidden = !result.error;
       $('error').textContent = result.error || '';

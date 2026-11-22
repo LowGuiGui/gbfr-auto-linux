@@ -1100,8 +1100,24 @@
     },
     "pre_delay": 0,
     "post_delay": 0,
+    "on_error": [
+      "GBFR_Stopped"
+    ]
+  },
+  "GBFR_Stopped": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "halt"
+        }
+      }
+    },
     "focus": {
-      "Node.Action.Failed": "已停止。原因见控制面板的诊断信息；游戏本身没有被关闭。"
+      "Node.Action.Failed": "已停止。原因见控制面板。"
     }
   },
   "GBFR_ReplaceAcceptedQuest": {
@@ -1482,9 +1498,9 @@
         }
       }
     },
-    "focus": {
-      "Node.Action.Failed": "任务失败，已停止，没有开始下一轮。"
-    }
+    "on_error": [
+      "GBFR_Stopped"
+    ]
   },
   "GBFR_Result": {
     "recognition": "And",
@@ -1875,7 +1891,10 @@
     },
     "focus": {
       "Node.Action.Succeeded": "已结束，游戏停在城镇"
-    }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
   },
   "GBFR_TownRestart": {
     "recognition": "And",

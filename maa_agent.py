@@ -13,16 +13,23 @@ import json
 from pathlib import Path
 import sys
 import time
+import traceback
 
 from control import Controls, ControlServer, socket_path
 from maa_guard import FrameUnavailable, NativeGuard
-from maa_messages import explain
-from maa_session import Session, SessionError
+from maa_messages import describe
+from maa_session import ENDED, Session, SessionError
 
 # Events whose screen is rechecked on a fresh frame before the session believes it.
 OBSERVED = {"battle", "settle"}
 # Events that also re-verify the game process and capture source (R4: not per key).
 IDENTITY = {"admit", "settle", "town"}
+# Every failure ends the task through this node; MXU's log shows its focus message.
+STOPPED_NODE = "GBFR_Stopped"
+
+
+class Stopped(SessionError):
+    """The player or the client stopped the automation. Not an error."""
 
 
 class Hooks:
@@ -37,11 +44,16 @@ class Hooks:
         self.battle_limit = 600
         self.task_id = None
         self.last_node = None
+        self.startup_error = None  # a failure before the session existed
 
     def status(self):
-        result = self.session.snapshot() if self.session else {"phase": "idle"}
-        message = explain(result.get("error"))
-        return dict(result, message=message, node=self.last_node, task_id=self.task_id)
+        if self.session:
+            result = self.session.snapshot()
+        elif self.startup_error:
+            result = {"phase": "error", "error": self.startup_error}
+        else:
+            result = {"phase": "idle"}
+        return dict(result, message=describe(result), node=self.last_node, task_id=self.task_id)
 
     def progress(self):
         session = self.session
@@ -56,15 +68,20 @@ class Hooks:
         temporary.replace(self.status_path)
 
     def close(self):
-        if self.guard is not None:
-            self.guard.close()
-            self.guard = None
-        if self.owner is not None:
-            self.owner.close()
-            self.owner = None
+        """Release the guard and the control socket. Never raises."""
+        guard, self.guard = self.guard, None
+        owner, self.owner = self.owner, None
+        for item in (guard, owner):
+            if item is not None:
+                try:
+                    item.close()
+                except Exception:
+                    traceback.print_exc()
 
     def begin(self, context, params):
         self.close()
+        self.session = None
+        self.startup_error = None
         quest = context.get_node_data("GBFR_QuestConfig")["attach"]
         limit = context.get_node_data("GBFR_RunLimit")["attach"]["limit"]
         if type(limit) is str and limit.isdecimal():
@@ -116,92 +133,153 @@ class Hooks:
         return False
 
     def run(self, context, argv):
+        """One custom action. Never raises: MaaFw reported an exception that escaped
+        this callback as a *successful* action, and the pipeline went on as if nothing
+        had failed. Every failure comes back as False instead."""
         try:
-            self.last_node = argv.node_name
-            params = json.loads(argv.custom_action_param)
-            event = params.get("event")
-            if event == "begin":
-                self.begin(context, params)
-                self.task_id = argv.task_detail.task_id
-                self.write_status()
-                return True
-            if self.guard is None or self.session is None:
-                raise SessionError("Start a new session from town or the quest's ready room")
-            # Agent proxy handles belong to the current callback context.
-            # Keep process/socket identity across callbacks, never its proxy.
-            self.guard.controller = context.tasker.controller
-            if event in IDENTITY:
-                self.guard.check()
-            self._finish_flag(context)
-            self.calls[argv.node_name] = self.calls.get(argv.node_name, 0) + 1
-            if self.calls[argv.node_name] > params.get("budget", 20):
-                raise SessionError(params.get("exhausted",
-                                              "Screen transition budget exhausted: " + argv.node_name))
-            if self.controls.stop_requested or self.controls.paused or context.tasker.stopping:
-                raise SessionError("Automation was stopped")
-            if ("key" in params or event in OBSERVED) and not self._recheck(context, argv.node_name):
-                if "key" in params and params.get("on_change") != "skip":
-                    raise SessionError("The recognized screen changed before its action")
-                # Combat HUDs drop during camera transitions, and the tenth-run dialog
-                # can cover the results page. Nothing is pressed or counted from the
-                # old frame; the native next list inspects the screen again.
-                self.write_status()
-                return True
-            if event == "admit":
-                if self.session.finish_requested:
-                    if not context.override_pipeline({argv.node_name: {"next": ["GBFR_CancelReady"]}}):
-                        raise SessionError("Could not stop before starting the quest")
-                    self.write_status()
-                    return True
-                self.session.admit()
-            if "key" in params:
-                self.guard.press(context, params["key"], params.get("duration", 100))
-            if event == "battle":
-                self.session.battle()
-                self.battle_started = self.battle_started or time.monotonic()
-                if time.monotonic() - self.battle_started > self.battle_limit:
-                    raise SessionError(f"The battle exceeded its {self.battle_limit} s limit")
-            elif event == "victory":
-                if self.session.phase != "battle":
-                    raise SessionError("A victory screen appeared without an observed battle")
-            elif event == "settle":
-                self.session.settle()
-                self.calls = {}
-                self.battle_started = None
-                # Shown in the client's log as the pipeline passes GBFR_Counted.
-                context.override_pipeline({"GBFR_Counted": {"focus": {
-                    "Node.Action.Succeeded": self.progress()}}})
-            elif event == "repeat_on":
-                self.session.repeat_on()
-            elif event == "repeat_off":
-                self.session.repeat_off()
-            elif event == "tenth_run":
-                self.session.tenth_run()
-            elif event == "town":
-                self.session.town()
-                self.calls = {}
-            elif event == "finish":
-                self.session.finish()
+            return self._run(context, argv)
+        except Exception as exc:
+            try:
+                self._failed(context, exc)
+            except Exception:
+                traceback.print_exc()
                 self.close()
-            elif event == "error":
-                raise SessionError(params["reason"])
+            return False
+
+    def _diagnose(self, exc):
+        """Name a vanished game or Gamescope as the cause, whatever failed first because of it."""
+        if self.guard is not None and not isinstance(exc, Stopped):
+            lost = self.guard.lost()
+            if lost:
+                return f"The game or its Gamescope closed during the session ({lost})"
+        return str(exc)
+
+    def _failed(self, context, exc):
+        try:
+            reason = self._diagnose(exc)
+            # Keep the first outcome: after a failed action the pipeline's on_error
+            # nodes call in again, and their reason would hide the real cause.
+            if self.session is None:
+                self.startup_error = self.startup_error or reason
+            elif self.session.phase not in ENDED:
+                if isinstance(exc, Stopped):
+                    self.session.stop()
+                else:
+                    self.session.fail(reason)
+            self.write_status()
+            message = self.status()["message"]
+            if message:
+                context.override_pipeline({STOPPED_NODE: {"focus": {"Node.Action.Failed": message}}})
+        finally:
+            self.close()
+
+    def task_ended(self, succeeded):
+        """The client's task ended. MaaFw reports a stopped task as succeeded, and the
+        pipeline's only successful end is GBFR_Finished, so an unfinished session whose
+        task succeeded was stopped by the player."""
+        if self.session and self.session.phase not in ENDED:
+            if succeeded:
+                self.session.stop()
+            else:
+                self.session.fail("Automation ended before a verified town finish")
+            self.write_status()
+        self.close()
+
+    def _run(self, context, argv):
+        self.last_node = argv.node_name
+        params = json.loads(argv.custom_action_param)
+        event = params.get("event")
+        if event == "halt":
+            return False  # GBFR_Stopped: the task ends failed, after MXU shows why
+        if event == "begin":
+            self.task_id = argv.task_detail.task_id  # first, so a failed begin still ends cleanly
+            self.begin(context, params)
             self.write_status()
             return True
-        except Exception as exc:
-            # Keep the first reason: after a failed action the pipeline's on_error
-            # node calls in again, and its message would hide the real cause.
-            if self.session and not self.session.error:
-                self.session.fail(str(exc))
+        if self.guard is None or self.session is None:
+            raise SessionError("Start a new session from town or the quest's ready room")
+        # Agent proxy handles belong to the current callback context.
+        # Keep process/socket identity across callbacks, never its proxy.
+        self.guard.controller = context.tasker.controller
+        if event in IDENTITY:
+            self.guard.check()
+        self._finish_flag(context)
+        self.calls[argv.node_name] = self.calls.get(argv.node_name, 0) + 1
+        if self.calls[argv.node_name] > params.get("budget", 20):
+            raise SessionError(params.get("exhausted",
+                                          "Screen transition budget exhausted: " + argv.node_name))
+        if self.controls.stop_requested or self.controls.paused or context.tasker.stopping:
+            raise Stopped("Automation was stopped")
+        if ("key" in params or event in OBSERVED) and not self._recheck(context, argv.node_name):
+            if "key" in params and params.get("on_change") != "skip":
+                raise SessionError("The recognized screen changed before its action")
+            # Combat HUDs drop during camera transitions, and the tenth-run dialog
+            # can cover the results page. Nothing is pressed or counted from the
+            # old frame; the native next list inspects the screen again.
             self.write_status()
+            return True
+        if event == "admit":
+            if self.session.finish_requested:
+                if not context.override_pipeline({argv.node_name: {"next": ["GBFR_CancelReady"]}}):
+                    raise SessionError("Could not stop before starting the quest")
+                self.write_status()
+                return True
+            self.session.admit()
+        if "key" in params:
+            self.guard.press(context, params["key"], params.get("duration", 100))
+        if event == "battle":
+            self.session.battle()
+            self.battle_started = self.battle_started or time.monotonic()
+            if time.monotonic() - self.battle_started > self.battle_limit:
+                raise SessionError(f"The battle exceeded its {self.battle_limit} s limit")
+        elif event == "victory":
+            if self.session.phase != "battle":
+                raise SessionError("A victory screen appeared without an observed battle")
+        elif event == "settle":
+            self.session.settle()
+            self.calls = {}
+            self.battle_started = None
+            # Shown in the client's log as the pipeline passes GBFR_Counted.
+            context.override_pipeline({"GBFR_Counted": {"focus": {
+                "Node.Action.Succeeded": self.progress()}}})
+        elif event == "repeat_on":
+            self.session.repeat_on()
+        elif event == "repeat_off":
+            self.session.repeat_off()
+        elif event == "tenth_run":
+            self.session.tenth_run()
+        elif event == "town":
+            self.session.town()
+            self.calls = {}
+        elif event == "finish":
+            self.session.finish()
             self.close()
-            return False
+        elif event == "error":
+            raise SessionError(params["reason"])
+        self.write_status()
+        return True
+
+
+def task_sink(hooks):
+    """Tell the hooks when the client's task ends: finished, stopped or failed."""
+    from maa.tasker import TaskerEventSink
+
+    class Events(TaskerEventSink):
+        def on_raw_notification(self, tasker, msg, details):
+            if details.get("task_id") != hooks.task_id:
+                return
+            if msg in {"Tasker.Task.Failed", "Tasker.Task.Succeeded"}:
+                try:
+                    hooks.task_ended(msg == "Tasker.Task.Succeeded")
+                except Exception:
+                    traceback.print_exc()
+    return Events()
 
 
 def main():
     from maa.agent.agent_server import AgentServer
     from maa.custom_action import CustomAction
     from maa.custom_recognition import CustomRecognition
-    from maa.tasker import TaskerEventSink
 
     hooks = Hooks(Path(__file__).resolve().parent / "runtime" / "session.json")
 
@@ -216,16 +294,7 @@ def main():
     AgentServer.register_custom_action("GBFR", Action())
     AgentServer.register_custom_recognition("GBFRSession", Gate())
 
-    class Events(TaskerEventSink):
-        def on_raw_notification(self, tasker, msg, details):
-            if details.get("task_id") != hooks.task_id:
-                return
-            if msg in {"Tasker.Task.Failed", "Tasker.Task.Succeeded"}:
-                if hooks.session and hooks.session.phase not in {"finished", "error"}:
-                    hooks.session.fail("Automation ended before a verified town finish")
-                    hooks.write_status()
-                hooks.close()
-    AgentServer.add_tasker_sink(Events())
+    AgentServer.add_tasker_sink(task_sink(hooks))
     try:
         if not AgentServer.start_up(sys.argv[-1]):
             raise RuntimeError("Could not connect the GBFR Agent")

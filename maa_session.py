@@ -8,11 +8,17 @@ from the quest menus (`admit`); later runs start because the game repeats the qu
 after the session turned Repeat Quest on (`repeat_on`). A run counts once, on its
 results screen, and only after a battle of that run was observed. With repeat on the
 game skips the victory screen, so victory is not part of the boundary.
+
+A session ends in one of three ways: `finished` (the run limit or a finish request
+was reached and the game is back in town), `stopped` (the player stopped the
+automation; counted runs stand), or `error` (something the session cannot account
+for, with its reason).
 """
 
 from dataclasses import asdict, dataclass
 
-PHASES = ("ready", "starting", "battle", "settled", "finished", "error")
+PHASES = ("ready", "starting", "battle", "settled", "finished", "stopped", "error")
+ENDED = {"finished", "stopped", "error"}
 
 
 class SessionError(RuntimeError):
@@ -28,6 +34,10 @@ class Session:
     admissions: int = 0  # runs started from the quest menus
     phase: str = "ready"
     repeat: bool = False  # Repeat Quest was verified on after the last settled run
+    # Repeat Quest was last seen on in the game. Unlike `repeat` it survives a results
+    # screen, because the game keeps the toggle on until it is turned off or reset by
+    # the tenth-run dialog; it tells a stopped player whether the game keeps farming.
+    left_on: bool = False
     cap_seen: bool = False  # the tenth-run dialog showed on the current results screen
     finish_requested: bool = False
     error: str | None = None
@@ -40,7 +50,7 @@ class Session:
 
     @property
     def should_continue(self):
-        if self.error or self.finish_requested:
+        if self.error or self.finish_requested or self.phase == "stopped":
             return False
         return self.limit is None or self.completed < self.limit
 
@@ -80,18 +90,18 @@ class Session:
     def repeat_on(self):
         if self.phase != "settled" or not self.should_continue:
             raise SessionError("Repeat Quest may only be turned on to continue the session")
-        self.repeat = True
+        self.repeat = self.left_on = True
 
     def repeat_off(self):
         if self.phase != "settled":
             raise SessionError("Repeat Quest can only be turned off on a results screen")
-        self.repeat = False
+        self.repeat = self.left_on = False
 
     def tenth_run(self):
         """The game's tenth-run dialog: it reset Repeat Quest and asks whether to go on."""
         if self.phase != "settled":
             raise SessionError("The tenth-run dialog appeared outside a results screen")
-        self.repeat = False
+        self.repeat = self.left_on = False
         self.cap_seen = True
 
     def town(self):
@@ -105,6 +115,11 @@ class Session:
         if self.phase not in {"ready", "settled"} or self.repeat or self.should_continue:
             raise SessionError("The session did not reach its settlement boundary")
         self.phase = "finished"
+
+    def stop(self):
+        """The player stopped the automation before the session finished."""
+        if self.phase not in ENDED:
+            self.phase = "stopped"
 
     def fail(self, reason):
         self.error = str(reason)

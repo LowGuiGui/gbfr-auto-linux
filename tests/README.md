@@ -36,8 +36,12 @@ The pipeline graph tests (`test_maa_pipeline_graph.py`, harness `maa_graph.py`) 
 the real resource and Agent against a scripted game that follows the Repeat Quest
 behaviour measured on 2026-11-21: N = 1, 3 and 12 (across the tenth-run dialog),
 finishing during battle or on the rewards page, until-stopped, a toggle that never
-changes, a failed quest, an unknown start and stale results. Leaves are scripted;
-composed nodes and the session gate run natively.
+changes, a failed quest, an unknown start, stale results, a game that closes mid-battle,
+and the client's Stop. Leaves are scripted; composed nodes and the session gate run
+natively. The harness also records the focus messages a client such as MXU logs, so the
+tests check that every count, the finish and every failure reason reach that log. A
+static check pins the assumption behind recording a stop: the only successful end of
+the pipeline is `GBFR_Finished`.
 
 `test_maa_fixtures.py` runs native OCR and template recognition on measured game
 frames in `fixtures/maa/`, masked to the regions recognition reads

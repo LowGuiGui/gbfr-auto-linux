@@ -4,10 +4,11 @@
 # GBFR farming with Maa: user guide
 
 > [!IMPORTANT]
-> **0.2.0 is in development.** The new loop farms with the game's own Repeat Quest.
-> It passes every offline test but has not yet run end to end in the real game through
-> MXU. The last version validated in the real game is 0.1.0-rc.2, which returned to
-> town and took the quest again after every run. See [Limits and evidence](#limits-and-evidence).
+> **0.2.0 is a release candidate.** The new loop farms with the game's own Repeat Quest.
+> 0.2.0-rc.1 passed its first real-game acceptance on 2026-11-22: 12 Quakadile runs in a
+> row with no intervention, finish after this run, and stop now all behaved as intended.
+> Later fixes to stop and error reporting have passed offline tests only. See
+> [Limits and evidence](#limits-and-evidence).
 
 The [Chinese guide](maa.md) is authoritative; this is its translation.
 
@@ -61,7 +62,8 @@ directory's absolute path; copy it again if the directory moves.
    "一直刷，直到我停止" (until I stop it).
 4. Press Start.
 
-Leave the game alone from then on. MXU's log shows "第 k/N 次完成" (run k of N done).
+Leave the game alone from then on. MXU's log shows "第 k/N 次完成" (run k of N done). When the
+software stops on an error, the log also says why.
 
 ## What one run looks like
 
@@ -71,10 +73,10 @@ Leave the game alone from then on. MXU's log shows "第 k/N 次完成" (run k of
 | Battle | Watches without pressing. Stops if one battle passes 10 minutes |
 | Results | Counts once when the results screen appears. On the rewards page it turns Repeat Quest on to continue or off to stop: it waits until the rewards are shown, presses 3, reads the toggle back, and presses once more if it did not change |
 | Later runs | The game starts the next run itself, and skips the treasure-chest phase while Repeat Quest is on |
-| Tenth run | The game resets Repeat Quest to off and asks "是否继续挑战该任务？". The software does not answer; the dialog times out into town and the software takes the quest again. This costs about 80 s per ten runs |
+| Tenth run | The game resets Repeat Quest to off and asks "是否继续挑战该任务？". The software does not answer; the dialog times out into town and the software takes the quest again. In the acceptance this cost only about 25 s per ten runs |
 
-Measured with the test party (2026-11-21, Quakadile): with Repeat Quest on, a run
-takes about 6 minutes, of which about 4.5 are battle.
+Measured in the acceptance (2026-11-22, Quakadile, test party): with Repeat Quest on, a
+run takes about 6 minutes, of which about 5 are battle; 12 runs took 74 minutes.
 
 ## Stopping
 
@@ -85,19 +87,23 @@ takes about 6 minutes, of which about 4.5 are battle.
 - **Stop now**: MXU's Stop, or "立即停止操作" in the panel. This stops only the
   software's input; the game does not pause. If Repeat Quest is on, the game keeps
   farming by itself until its tenth-run dialog, then returns to town. To stop it at
-  once, press 3 on the rewards page of the results to turn Repeat Quest off.
+  once, press 3 on the rewards page of the results to turn Repeat Quest off. The control
+  panel shows "已按你的要求停止" (stopped as you asked) with the runs counted, and says whether
+  Repeat Quest is still on. MXU may show the run as failed; that is how MXU shows a
+  stopped task, and the panel is the one to trust.
 - **Leaving the game**: use the game's own menu. Never force-kill the game, Wine/Proton
   or Gamescope; that can damage the save.
 
 ## When it stops with an error
 
-The control panel says why the software stopped and what to do; the technical reason
-is folded below it. Common cases:
+When the software stops on an error, the control panel and MXU's log both say why and
+what to do; the panel also has the technical reason folded below. Common cases:
 
 | The panel says | What to do |
 |---|---|
 | The screen did not become what was expected in time | Look at the game. Return to town or the ready screen and start again. Usual causes: a wrong starting screen, a dialog, a language other than simplified Chinese, no click in the window since launch |
 | MXU is not connected to GBFR's Gamescope | Pick GBFR's Gamescope as MXU's device and make sure the game was started through Steam |
+| The game or its Gamescope closed during the run | Start the game again through Steam, wait for a stable screen, click in the window, and start again from town. Counted runs stand |
 | The battle passed its 600 s limit | Check that Full Assist is on and the party can clear the quest |
 | Pressed 3 twice and Repeat Quest is still off | Check whether the game is stuck; start again from town |
 | Another window or overlay is over the game; Ctrl, Shift, Alt or similar is held | Close the overlay, release the key, start again |
@@ -125,25 +131,42 @@ PipeWire output and input its libei socket; Gamescope 3.16.22 or newer is requir
 (PipeWire capture stalls on 3.16.20). One game and one session at a time; a second
 controller is refused.
 
-**Verified (2026-11-21):**
+**Verified:**
 
-- The game's own behaviour: a measurement script ran 12 Quakadile runs in the real game.
+- Real-game acceptance of the new loop (2026-11-22, 0.2.0-rc.1, run through MXU, game
+  window in the background):
+  - 12 Quakadile runs in a row with no intervention. Run 1 took the quest from the menus,
+    and the software pressed no key in runs 2 to 9. The tenth-run dialog went unanswered;
+    the game returned to town and the software took the quest again. After run 12 it
+    turned Repeat Quest off and finished in town.
+  - Finish requested during run 2's battle: run 2 was counted, Repeat Quest was turned
+    off, and the session finished in town with no third run.
+  - Stop now during run 1's battle: no key was left held, and the game finished the run
+    by itself and returned to town.
+  - MXU's log showed every count and the finish message; a second controller started
+    during the acceptance was refused.
+  - After a game restart no loading-tips screen needed a key, so AUTO SKIP stayed on
+    (seen once).
+- The game's own behaviour (2026-11-21): a measurement script ran 12 Quakadile runs in the real game.
   The results have two pages with a 30 s countdown each, and the Repeat Quest toggle is on
   the second (rewards) page. With repeat on the game skips the treasure-chest phase. On
   the tenth run the game resets the toggle and shows a dialog that, left alone, ends in
   town. Keys sent in the first ~2 s of the rewards page are ignored. After one click in
   the window following launch, keys kept working with the window in the background for
   about 80 minutes.
-- Offline tests of the new loop: 17 scripted-game scenarios written from that behaviour;
+- Offline tests of the new loop: 20 scripted-game scenarios written from that behaviour,
+  including a game that closes mid-run and an immediate stop;
   13 recognition cases on measured frames masked to the regions recognition reads;
   recognition replayed on all 3,406 measured frames with no false hit.
 - Menu navigation from town to departure is unchanged from 0.1.0-rc.2, which was
   validated in the real game: Quakadile once and five runs in a row, Blizzadile once.
 
-**Not yet verified:** a full run of the new loop in the real game; what choosing
-"是" in the dialog does; the Repeat Quest loop for Blizzadile; the game's behaviour after
-a failed battle; whether AUTO SKIP survives a game restart; whether MXU shows the
-progress messages the software writes.
+**Not yet verified:** what choosing "是" in the dialog does; the Repeat Quest loop for
+Blizzadile; what the game and the software do after a failed battle; pressing "继续" on a
+loading-tips screen (none appeared in the acceptance); the pre-key checks stopping a held
+key in the real game; the fixes made after the acceptance (the right reason when the game
+closes, an immediate stop recorded as a stop rather than an error, error reasons in MXU's
+log), which have run only in offline tests.
 
 **Out of scope:** starting the game, continuing from the title screen, changing
 equipment, spending materials, advancing the story, input during battle; other

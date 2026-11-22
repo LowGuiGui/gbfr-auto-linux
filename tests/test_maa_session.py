@@ -140,3 +140,38 @@ def test_finish_before_departure_is_a_clean_finish():
 def test_invalid_limit_refused(limit):
     with pytest.raises(SessionError):
         Session("boss", limit)
+
+
+def test_a_stop_is_its_own_ending_not_an_error():
+    session = Session("boss", 3)
+    session.admit()
+    session.battle()
+    session.stop()
+    assert session.phase == "stopped"
+    assert session.error is None
+    assert not session.should_continue
+    finished = Session("boss", 1)
+    first_run(finished)
+    finished.finish()
+    finished.stop()  # a late stop notification never rewrites a finished session
+    assert finished.phase == "finished"
+
+
+def test_left_on_follows_the_games_toggle_across_results_screens():
+    session = Session("boss", 5)
+    first_run(session)
+    assert not session.left_on
+    session.repeat_on()
+    session.battle()
+    session.settle()
+    # The session re-reads the toggle on each results page, but the game keeps it on.
+    assert session.left_on and not session.repeat
+    session.tenth_run()
+    assert not session.left_on
+    session.town()
+    session.admit()
+    session.battle()
+    session.settle()
+    session.repeat_on()
+    session.repeat_off()
+    assert not session.left_on

@@ -4,10 +4,15 @@
 import json
 from types import SimpleNamespace
 
+import pytest
+from Xlib.error import ConnectionClosedError
+
 from control import Controls
 from maa_agent import Hooks
 from maa_guard import FrameUnavailable
+from maa_messages import explain
 from maa_session import Session
+from maa_target import ProbeError
 
 
 def prepared(tmp_path):
@@ -15,9 +20,11 @@ def prepared(tmp_path):
     hooks.session = Session("boss", 3)
     hooks.controls = Controls()
     hooks.guard = SimpleNamespace(controller="expired proxy", check=lambda: None,
-                                  close=lambda: None, capture=lambda: "fresh image")
+                                  close=lambda: None, capture=lambda: "fresh image",
+                                  lost=lambda: None)
     context = SimpleNamespace(tasker=SimpleNamespace(controller="current proxy", stopping=False),
-                              get_node_data=lambda name: {"enabled": True})
+                              get_node_data=lambda name: {"enabled": True},
+                              override_pipeline=lambda value: True)
     return hooks, context
 
 
@@ -159,3 +166,120 @@ def test_each_count_rewrites_the_progress_message(tmp_path):
     assert overrides == [{"GBFR_Counted": {"focus": {"Node.Action.Succeeded": "第 1/3 次完成"}}}]
     hooks.session.limit = None
     assert hooks.progress() == "已完成 1 次（一直刷，等你停止）"
+
+
+def failing_capture():
+    raise ProbeError("Native screenshot failed")
+
+
+def watching(context):
+    overrides = []
+    context.override_pipeline = lambda value: overrides.append(value) or True
+    return overrides
+
+
+def test_a_failure_after_the_game_closed_names_the_closed_game(tmp_path):
+    hooks, context = prepared(tmp_path)
+    hooks.session.admit()
+    hooks.guard.capture = failing_capture
+    hooks.guard.lost = lambda: "process 4242 is gone or its identity cannot be read"
+    context.run_recognition = lambda name, image: SimpleNamespace(hit=True)
+    overrides = watching(context)
+    args = SimpleNamespace(custom_action_param='{"event": "battle"}', node_name="GBFR_Battle")
+    assert not hooks.run(context, args)
+    error = hooks.session.error
+    assert error.startswith("The game or its Gamescope closed during the session")
+    assert "4242" in error
+    assert overrides == [{"GBFR_Stopped": {"focus": {"Node.Action.Failed": explain(error)}}}]
+    assert hooks.guard is None
+
+
+def test_a_failure_with_the_game_still_running_keeps_its_own_reason(tmp_path):
+    hooks, context = prepared(tmp_path)
+    hooks.session.admit()
+    hooks.guard.capture = failing_capture
+    context.run_recognition = lambda name, image: SimpleNamespace(hit=True)
+    args = SimpleNamespace(custom_action_param='{"event": "battle"}', node_name="GBFR_Battle")
+    assert not hooks.run(context, args)
+    assert hooks.session.error == "Native screenshot failed"
+
+
+def test_a_close_that_raises_neither_escapes_nor_hides_the_reason(tmp_path):
+    hooks, context = prepared(tmp_path)
+    def dead_display():
+        raise ConnectionClosedError("server")
+    hooks.guard.close = dead_display
+    args = SimpleNamespace(custom_action_param='{"budget": 0, "exhausted": "Toggle stuck"}',
+                           node_name="GBFR_RepeatOn")
+    assert hooks.run(context, args) is False  # not an exception MaaFw would count as success
+    assert hooks.session.error == "Toggle stuck"
+    assert hooks.guard is None
+    hooks.close()
+
+
+def test_a_stop_request_is_recorded_as_a_stop_and_explained(tmp_path):
+    hooks, context = settled(tmp_path)
+    hooks.session.repeat_on()
+    hooks.session.battle()
+    hooks.controls.request_stop("test")
+    overrides = watching(context)
+    args = SimpleNamespace(custom_action_param='{"event": "battle"}', node_name="GBFR_Battle")
+    assert not hooks.run(context, args)
+    later = SimpleNamespace(custom_action_param='{"event": "error", "reason": "Timed out"}',
+                            node_name="GBFR_UnexpectedScreen")
+    assert not hooks.run(context, later)
+    status = hooks.status()
+    assert status["phase"] == "stopped" and status["error"] is None
+    assert status["message"].startswith("已按要求停止，已计数的 1 次有效")
+    assert "还开着" in status["message"]
+    assert overrides[-1] == {"GBFR_Stopped": {"focus": {"Node.Action.Failed": status["message"]}}}
+
+
+@pytest.mark.parametrize("succeeded, phase, error", [
+    (True, "stopped", None),
+    (False, "error", "Automation ended before a verified town finish"),
+])
+def test_how_the_task_ended_decides_between_stop_and_error(tmp_path, succeeded, phase, error):
+    hooks, _ = prepared(tmp_path)
+    hooks.session.admit()
+    hooks.task_ended(succeeded)
+    assert (hooks.session.phase, hooks.session.error) == (phase, error)
+    assert hooks.guard is None
+
+
+def test_a_task_end_after_the_finish_changes_nothing(tmp_path):
+    hooks, _ = prepared(tmp_path)
+    hooks.session.limit = 1
+    hooks.session.admit()
+    hooks.session.battle()
+    hooks.session.settle()
+    hooks.session.finish()
+    hooks.task_ended(True)
+    assert hooks.session.phase == "finished"
+
+
+def test_a_failure_before_the_session_exists_is_still_reported(tmp_path):
+    hooks = Hooks(tmp_path / "status.json")
+    hooks.session = Session("old", 1)  # left over from an earlier task
+    data = {"GBFR_QuestConfig": {"attach": {"quest": "boss"}},
+            "GBFR_RunLimit": {"attach": {"limit": 0}}}
+    context = SimpleNamespace(get_node_data=lambda name: data.get(name),
+                              override_pipeline=lambda value: True)
+    args = SimpleNamespace(custom_action_param='{"event": "begin"}', node_name="GBFR_Start",
+                           task_detail=SimpleNamespace(task_id=7))
+    assert not hooks.run(context, args)
+    status = json.loads((tmp_path / "status.json").read_text())
+    assert status["phase"] == "error" and "successful-run limit" in status["error"]
+    assert "次数设置无效" in status["message"]
+
+
+def test_the_session_lock_is_released_even_if_the_guard_cannot_close(tmp_path):
+    hooks = Hooks(tmp_path / "status.json")
+    released = []
+    def dead_display():
+        raise ConnectionClosedError("server")
+    hooks.guard = SimpleNamespace(close=dead_display)
+    hooks.owner = SimpleNamespace(close=lambda: released.append("control socket"))
+    hooks.close()  # also runs from the task-end sink and at Agent exit, outside run()
+    assert released == ["control socket"]
+    assert hooks.guard is None and hooks.owner is None
