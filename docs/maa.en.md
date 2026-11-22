@@ -7,13 +7,17 @@
 > **0.3.0 is in development.** It no longer walks the menus to pick a quest: you open any
 > quest at the quest counter, the software takes over from there, farms it with the game's
 > own Repeat Quest, and answers 是 (yes) on every tenth-run confirmation so farming goes on.
-> The previous version, 0.2.0-rc.1, passed a real-game acceptance on 2026-11-22; 0.3.0's
-> changes rest on measurements from the same day. What has been verified so far is in
-> [Limits and evidence](#limits-and-evidence).
+> On 2026-11-22 the development version ran 12 runs in a row through MXU against the real
+> game, starting from a quest's details page and crossing the tenth-run dialog with no
+> intervention; the previous version, 0.2.0-rc.1, passed a real-game acceptance the same
+> day. What has been verified so far is in [Limits and evidence](#limits-and-evidence).
 
 The [Chinese guide](maa.md) is authoritative; this is its translation.
 
 ## What it does
+
+It is meant for watching: the game plays run after run in the foreground, and the fastest
+material farming is not the goal.
 
 You open the quest you want to farm at the quest counter. The software accepts it and
 departs. On the first results screen it turns on the game's own Repeat Quest (再次挑战),
@@ -157,6 +161,14 @@ controller is refused. Private quests only.
   - Holding W during battle did not make this quest's battles shorter (6 runs against 5,
     308 s against 299 s on average).
   - The loading screen's AUTO SKIP stayed on across a game restart.
+- 0.3.0's development version against the real game (2026-11-22, through MXU, in a
+  Gamescope that showed nothing on the desktop and played no sound): started on Quakadile's
+  details page with a limit of 12 and finished with no intervention. The software pressed
+  only the eight expected keys: four to depart, 3 on run 1's results to turn Repeat Quest on,
+  Up and Return on run 10's dialog, and 3 on run 12's results to turn it off. After 是, run
+  11 started 72 seconds later without town, the same gap as every other run. It ended in
+  town; the control panel read the quest name "解决沙漠狂徒", and MXU's log showed each count
+  and the finish.
 - 0.2.0-rc.1's real-game acceptance (2026-11-22, through MXU, game window in the
   background): 12 Quakadile runs in a row with no intervention (that version let the
   tenth-run dialog time out and accepted the quest again from town); finish requested
@@ -170,10 +182,14 @@ controller is refused. Private quests only.
   the dialog with the cursor on 是 and on 否; and a frame-by-frame replay of that day's
   failed run and 12-run block through the new recognition.
 
-**Not yet verified:** the whole 0.3.0 loop has not run through MXU against the real game;
-the start from the quest details page has been checked only on measured screenshots. Only
-Quakadile was measured: other quests' battle screens, objective text and battle lengths have
-not been seen. The dialog after run 20, what 否 does, and what pressing 3 (retry) does on a
+**Not yet verified:** against the real game, 0.3.0 has started only from a quest's details
+page; starting from matchmaking settings, the ready room or the ready panel has been checked
+only on measured screenshots. This version has not repeated finish after this run, stop now
+or the refusal of a second controller in the real game, and it has not met a real failure
+(failure handling is tested only against the scripted game). The real-game check ran with
+the game off the desktop; this version has not run with the game window in the foreground.
+Only Quakadile was measured: other quests' battle screens, objective text and battle lengths
+have not been seen. The dialog at run 20, what 否 does, and what pressing 3 (retry) does on a
 failure page are untested. The pre-key check has not yet been seen stopping a held key in
 the real game.
 

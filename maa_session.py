@@ -41,7 +41,7 @@ class Session:
     # screen, because the game keeps the toggle on until it is turned off or reset by
     # the tenth-run dialog; it tells a stopped player whether the game keeps farming.
     left_on: bool = False
-    cap_seen: bool = False  # the tenth-run dialog showed on the current results screen
+    cap_seen: bool = False  # the tenth-run dialog showed here and was not answered with 是
     finish_requested: bool = False
     error: str | None = None
 
