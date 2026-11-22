@@ -11,7 +11,7 @@ import pytest
 import maa_guard
 from maa_guard import NativeGuard, input_conflict, key_codes, key_nodes, validate_controller
 from maa_target import ProbeError
-from test_xtest_input import nested
+from test_xtest_input import KEYMAP, nested
 
 ROOT = Path(__file__).resolve().parents[1]
 THREE = (12, 0x33)  # keycode and keysym of "3" in the fake nested keyboard map
@@ -52,10 +52,18 @@ def test_capture_skips_the_identity_check():
 
 def test_keys_that_would_not_type_as_named_are_refused():
     d, _ = nested()
-    assert key_codes(d, ["3", "w"]) == {"3": THREE, "w": (25, 0x77)}
-    for name in ["Shift_L", "A", "KP_End", "Return"]:  # modifier, shifted, keypad, unmapped
+    assert key_codes(d, {"3": 4, "w": 17}) == {"3": THREE, "w": (25, 0x77)}
+    # modifier, shifted, keypad, unmapped; each given the evdev code of the key it is on
+    for name, evdev in [("Shift_L", 42), ("A", 30), ("KP_End", 79), ("Return", 28)]:
         with pytest.raises(ProbeError):
-            key_codes(d, [name])
+            key_codes(d, {name: evdev})
+
+
+def test_a_key_moved_to_another_keycode_is_refused():
+    """Native input sends the fixed evdev code, so the checks must look at that key."""
+    d, _ = nested(keymap={**KEYMAP, 12: ["4", "dollar"], 13: ["3", "numbersign"]})
+    with pytest.raises(ProbeError, match="not on its usual key"):
+        key_codes(d, {"3": maa_guard.KEYS["3"]})
 
 
 def test_a_clean_nested_keyboard_allows_the_key():

@@ -756,6 +756,7 @@
         "custom_action": "GBFR",
         "custom_action_param": {
           "key": "3",
+          "event": "toggle",
           "budget": 2,
           "on_change": "skip",
           "exhausted": "Repeat Quest could not be turned off after the quest failed; the game may retry it"
@@ -836,7 +837,8 @@
         "custom_action": "GBFR",
         "custom_action_param": {
           "event": "settle",
-          "budget": 1
+          "budget": 3,
+          "exhausted": "The results screen could not be confirmed for counting"
         }
       }
     },
@@ -844,7 +846,8 @@
       "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
       "GBFR_DefeatHold",
-      "GBFR_Counted"
+      "GBFR_Counted",
+      "GBFR_Result"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1018,6 +1021,7 @@
         "custom_action": "GBFR",
         "custom_action_param": {
           "key": "3",
+          "event": "toggle",
           "budget": 2,
           "on_change": "skip",
           "exhausted": "Repeat Quest could not be turned off; the game may run the quest again"
@@ -1069,6 +1073,7 @@
         "custom_action": "GBFR",
         "custom_action_param": {
           "key": "3",
+          "event": "toggle",
           "budget": 2,
           "on_change": "skip",
           "exhausted": "Repeat Quest could not be turned on"
@@ -1445,7 +1450,17 @@
     }
   },
   "GBFR_Counted": {
-    "doc": "Reports the count in the client's log; the Agent rewrites the text after each count.",
+    "doc": "Reports the count in the client's log; the Agent rewrites the text after each count. Only a settled run passes, so a count whose recheck missed goes back to GBFR_Result.",
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "settled"
+        }
+      }
+    ],
     "pre_delay": 0,
     "post_delay": 1000,
     "timeout": 90000,

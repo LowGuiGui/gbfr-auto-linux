@@ -118,6 +118,7 @@ class Hooks:
             "continue": session.should_continue and not session.cap_seen,
             "cap": session.should_continue and session.cap_seen,
             "go_on": session.should_continue,
+            "settled": session.phase == "settled",
             "stop": not session.should_continue,
         }.get(want, False)
 
@@ -239,7 +240,8 @@ class Hooks:
                     raise SessionError("The recognized screen changed before its action")
                 # Combat HUDs drop during camera transitions, and the tenth-run dialog
                 # can cover the results page. Nothing is pressed or counted from the
-                # old frame; the native next list inspects the screen again.
+                # old frame; the native next list inspects the screen again (a missed
+                # count retries GBFR_Result, because GBFR_Counted needs a settled run).
                 self.write_status()
                 return True
         if event == "settle" and self._sees(context, FAILED_PAGE, frame):
@@ -282,6 +284,8 @@ class Hooks:
             self.session.tenth_run()
         elif event == "tenth_yes":
             self.session.answer_yes()
+        elif event == "toggle":
+            self.session.toggle_sent()
         elif event == "finish":
             self.session.finish()
             self.close()

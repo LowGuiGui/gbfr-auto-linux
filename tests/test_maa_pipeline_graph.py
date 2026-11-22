@@ -339,6 +339,60 @@ def test_a_failure_seen_only_on_the_count_recheck_is_not_counted(monkeypatch, tm
     assert "本次已计数" not in outcome.messages and not any("次完成" in m for m in outcome.messages)
 
 
+def test_a_count_whose_recheck_misses_is_retried_not_skipped(monkeypatch, tmp_path):
+    """The results page is recognised, then hidden for every recheck: nothing is counted
+    from the old frame, and the count is taken again once the page shows."""
+    screens = [*menus(), *battle(victory=True),
+               screen("results, first look", "GBFR_See_Results", leave_on="seen:GBFR_See_Results"),
+               screen("results hidden for a moment", leave_on="action:GBFR_Result"),
+               titles(), rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=1)
+    assert_clean_finish(outcome, 1)
+    assert outcome.keys == NAV_KEYS
+    actions = [kind for _, kind in outcome.log if kind == "action:GBFR_Result"]
+    assert len(actions) == 2
+
+
+def test_a_results_page_that_never_confirms_stops_without_counting(monkeypatch, tmp_path):
+    screens = [*menus(), *battle(victory=True),
+               screen("results, first look", "GBFR_See_Results", leave_on="seen:GBFR_See_Results"),
+               screen("results hidden", leave_on="action:GBFR_Result"),
+               screen("results, looked at again", "GBFR_See_Results",
+                      leave_on="seen:GBFR_See_Results"),
+               screen("results hidden again", leave_on="action:GBFR_Result"),
+               screen("results, a third look", "GBFR_See_Results", leave_on="seen:GBFR_See_Results"),
+               screen("results hidden a third time", leave_on="action:GBFR_Result"),
+               titles()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=1)
+    assert_explained_failure(outcome)
+    assert outcome.session["error"] == "The results screen could not be confirmed for counting"
+    assert outcome.session["completed"] == 0
+    assert not any("次完成" in m for m in outcome.messages)
+
+
+@pytest.mark.parametrize("scenario", ["3 on the first results", "是 on the tenth-run dialog"])
+def test_a_stop_before_the_toggle_is_read_back_says_repeat_may_be_on(monkeypatch, tmp_path,
+                                                                     scenario):
+    if scenario == "3 on the first results":
+        screens = [*menus(), *battle(victory=True), titles(), rewards("off", "key:3"),
+                   screen("results: rewards, repeat on, stopped", "GBFR_See_Results",
+                          "GBFR_See_RepeatOn", stop=True)]
+        completed = 1
+    else:
+        screens = first_run_turning_repeat_on()
+        for _ in range(8):
+            screens += repeated_run_keeping_it_on()
+        *tenth, _ = tenth_run_answered_yes()
+        screens += [*tenth, screen("results: rewards, repeat on, stopped", "GBFR_See_Results",
+                                   "GBFR_See_RepeatOn", stop=True)]
+        completed = 10
+    outcome = run(monkeypatch, tmp_path, screens, limit=12)
+    assert outcome.session["phase"] == "stopped"
+    assert outcome.session["completed"] == completed
+    assert outcome.session["left_on"] is None
+    assert "可能开着" in outcome.session["message"]
+
+
 def test_unknown_start_stops_without_input_or_success(monkeypatch, tmp_path):
     outcome = run(monkeypatch, tmp_path, [screen("unknown")])
     assert_explained_failure(outcome)

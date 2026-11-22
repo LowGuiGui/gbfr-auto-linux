@@ -39,8 +39,10 @@ behaviour measured on 2026-11-21 and 2026-11-22: N = 1, 3 and 12 (answering 是 
 tenth-run dialog), until-stopped across three dialogs, the cursor already on 是, 是 the
 game ignores, a cursor that never reaches 是, a dialog left to time out, finishing during
 battle or on the rewards page, a toggle that never changes, a failed quest with Repeat
-Quest on, off or unreadable, a failure first seen by the count's recheck, an unknown
-start, stale results, a game that closes mid-battle, and the client's Stop. Leaves are scripted; composed nodes and the session gate run
+Quest on, off or unreadable, a failure first seen by the count's recheck, a count whose
+recheck misses (retried, and stopped uncounted after three misses), an unknown start,
+stale results, a game that closes mid-battle, and the client's Stop, including a Stop
+after 3 or 是 was sent but before the toggle was read back. Leaves are scripted; composed nodes and the session gate run
 natively. The harness also records the focus messages a client such as MXU logs, so the
 tests check that every count, the finish and every failure reason reach that log. A
 static check pins the assumption behind recording a stop: the only successful end of

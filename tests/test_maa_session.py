@@ -191,8 +191,10 @@ def test_left_on_follows_the_games_toggle_across_results_screens():
     session.tenth_run()
     assert not session.left_on
     session.answer_yes()
-    assert not session.left_on  # believed on only once the results page reads it
+    assert session.left_on is None  # the game turns it on; believed only once a page reads it
     session.repeat_on()
     assert session.left_on
+    session.toggle_sent()
+    assert session.left_on is None  # 3 pressed, the page not read back yet
     session.repeat_off()
-    assert not session.left_on
+    assert session.left_on is False

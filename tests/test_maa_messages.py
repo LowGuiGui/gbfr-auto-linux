@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-from maa_messages import explain
+from maa_messages import explain, stopped
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ("maa_agent.py", "maa_session.py", "maa_guard.py")
@@ -43,3 +43,10 @@ def test_values_are_carried_into_the_message_and_unknown_reasons_are_kept():
     assert "GBFR_RepeatOn" in explain("Screen transition budget exhausted: GBFR_RepeatOn")
     assert explain("Something new") == "已停止：Something new"
     assert explain(None) is None
+
+
+def test_a_stop_reports_the_repeat_toggle_as_known_on_off_or_unread():
+    assert "还开着" in stopped(3, True)
+    assert "没有开着" in stopped(3, False)
+    unread = stopped(3, None)
+    assert "可能开着" in unread and "没有开着" not in unread

@@ -80,15 +80,21 @@ def layout_group(mask):
     return (mask >> 13) & 3
 
 
-def key_codes(display, names):
-    """Map each key name to (keycode, keysym), refusing keys that would not type as named."""
+def key_codes(display, keys):
+    """Map each key name to (keycode, keysym), refusing keys that would not type as named.
+
+    `keys` maps each name to the evdev code that native input sends. X keycodes are
+    evdev codes plus 8, so a name found on any other key would have its checks look at
+    one key while the press goes to another; a remapped keyboard is refused instead."""
     modifiers = modifier_codes(display.get_modifier_mapping())
     result = {}
-    for name in names:
+    for name, evdev in keys.items():
         keysym = XK.string_to_keysym(name)
         keycode = display.keysym_to_keycode(keysym) if keysym else 0
         if not keycode:
             raise ProbeError(f"The nested keyboard map has no {name!r}")
+        if keycode != evdev + 8:
+            raise ProbeError(f"{name!r} is not on its usual key on the nested display")
         if keycode in modifiers:
             raise ProbeError(f"{name!r} is a modifier on the nested display")
         if display.keycode_to_keysym(keycode, 0) != keysym:

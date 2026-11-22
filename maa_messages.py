@@ -44,6 +44,9 @@ MESSAGES = (
      "已计数的次数有效。"),
     (r"cursor could not be moved to 是|是 on the tenth-run dialog was not accepted",
      "第 10 次的确认弹窗里没能选上“是”，已停止。游戏会回到城镇，已计数的次数有效。"),
+    (r"The results screen could not be confirmed for counting",
+     "结算画面几次都没能确认，这一轮没有计数，已停止。请看一眼游戏当前画面；"
+     "“再次挑战”如果开着，游戏会自己继续刷。已计数的次数有效。"),
     (r"The battle exceeded its (\d+) s limit",
      "战斗超过了 {0} 秒上限，已停止。请确认完全辅助模式已开、当前队伍能通关。"),
     (r"Automation was stopped", "已按要求停止。"),
@@ -71,7 +74,8 @@ MESSAGES = (
      "打开要刷的任务（详情页或准备画面）重新开始。"),
     (r"successful-run limit",
      "次数设置无效：请填 1 到 999 的整数，或打开“一直刷”。"),
-    (r"nested keyboard map has no|is a modifier on the nested|needs a modifier on the nested|keypad key",
+    (r"nested keyboard map has no|is a modifier on the nested|needs a modifier on the nested|keypad key|"
+     r"not on its usual key",
      "游戏里的键盘映射不支持需要的按键（可能切换过键盘布局），没有开始。"),
     (r"nested display changed", "游戏的显示在连接时变了（游戏可能刚重启），请等游戏稳定后再开始。"),
     (r"Unsupported key or unbounded input duration", "软件内部错误（不支持的按键），已停止。请报告这个问题。"),
@@ -88,6 +92,9 @@ MESSAGES = (
 def stopped(completed, left_on):
     """The player stopped the automation; the game itself does not pause."""
     message = f"已按要求停止，已计数的 {completed} 次有效。游戏没有暂停。"
+    if left_on is None:
+        return message + ("“再次挑战”刚切换过，还没读到结果，可能开着。开着的话游戏会自己继续刷，"
+                          "最多到第 10 次弹窗后回城；想马上停，请在结算的奖励页看一眼，开着就按 3 关掉。")
     if left_on:
         return message + ("“再次挑战”还开着，游戏会自己继续刷，最多到第 10 次弹窗后回城；"
                           "想马上停，请在结算的奖励页按 3 关掉。")

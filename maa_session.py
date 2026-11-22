@@ -40,7 +40,7 @@ class Session:
     # Repeat Quest was last seen on in the game. Unlike `repeat` it survives a results
     # screen, because the game keeps the toggle on until it is turned off or reset by
     # the tenth-run dialog; it tells a stopped player whether the game keeps farming.
-    left_on: bool = False
+    left_on: bool | None = False  # None: a toggle input was sent, its result not read yet
     cap_seen: bool = False  # the tenth-run dialog showed here and was not answered with 是
     finish_requested: bool = False
     error: str | None = None
@@ -113,6 +113,12 @@ class Session:
             raise SessionError("The tenth-run dialog may only be answered to continue the session")
         self.cap_seen = False
         self.continued += 1
+        self.left_on = None
+
+    def toggle_sent(self):
+        """A key that switches Repeat Quest was sent; until a page reads the toggle back,
+        whether the game will start another run is unknown."""
+        self.left_on = None
 
     def finish(self):
         if self.phase not in {"ready", "settled"} or self.repeat or self.should_continue:
