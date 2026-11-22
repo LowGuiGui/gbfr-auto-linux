@@ -82,3 +82,37 @@ jobs:
 
       - name: reuse lint
         run: reuse lint
+
+  # Not yet a required check in the dev ruleset; the owner adds it there.
+  maa:
+    name: maa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            requirements-maa.txt
+
+      # The pytest job runs without MaaFw, so the native pipeline tests skip there.
+      # This job installs the pinned framework and runs the whole suite with it.
+      - name: Install dependencies
+        run: pip install -r requirements-maa.txt
+
+      # Fail loudly here rather than letting the native tests skip.
+      - name: Check MaaFw loads
+        run: python -c "import maa.tasker"
+
+      # The recognition fixtures need the pinned PaddleOCR model (hash-checked).
+      - name: Fetch the OCR model
+        run: python tools/build_maa.py --ocr-only --output "$RUNNER_TEMP/ocr-model" --cache "$RUNNER_TEMP/downloads"
+
+      - name: pytest with MaaFw
+        env:
+          GBFR_MAA_OCR_MODEL: ${{ runner.temp }}/ocr-model
+        run: pytest -q -rs

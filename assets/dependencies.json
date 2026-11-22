@@ -1,0 +1,42 @@
+{
+  "mxu": "2.11.2",
+  "maafw": "5.16.1",
+  "ocr_revision": "dabcd4681ac990dc4361de26416d986abd80e4aa",
+  "downloads": {
+    "mxu": {
+      "filename": "MXU-linux-x86_64-v2.11.2.tar.gz",
+      "url": "https://github.com/MaaXYZ/MXU/releases/download/v2.11.2/MXU-linux-x86_64-v2.11.2.tar.gz",
+      "sha256": "fad654d297d4f484b9452b292bbbccee14bfaf0cbb1d17f198023cae8d197981"
+    },
+    "maafw": {
+      "filename": "MAA-linux-x86_64-v5.16.1.zip",
+      "url": "https://github.com/MaaXYZ/MaaFramework/releases/download/v5.16.1/MAA-linux-x86_64-v5.16.1.zip",
+      "sha256": "3b9fc1d979cf21dcb81768fdaf06a6e45aaa2c1058dd879d4b5417274fae919c"
+    },
+    "ocr-det.onnx": {
+      "filename": "ppocr-v4-zh-cn-det.onnx",
+      "url": "https://raw.githubusercontent.com/MaaXYZ/MaaCommonAssets/dabcd4681ac990dc4361de26416d986abd80e4aa/OCR/ppocr_v4/zh_cn/det.onnx",
+      "sha256": "767e663dded50813dca0abc9a49859e345e0f74a48b387661188f096a9211d74"
+    },
+    "ocr-rec.onnx": {
+      "filename": "ppocr-v4-zh-cn-rec.onnx",
+      "url": "https://raw.githubusercontent.com/MaaXYZ/MaaCommonAssets/dabcd4681ac990dc4361de26416d986abd80e4aa/OCR/ppocr_v4/zh_cn/rec.onnx",
+      "sha256": "da4815ea386ee8083be319da8d20e70f4fdb0b6404ba0d2da7f675831e1b37fa"
+    },
+    "ocr-keys.txt": {
+      "filename": "ppocr-v4-zh-cn-keys.txt",
+      "url": "https://raw.githubusercontent.com/MaaXYZ/MaaCommonAssets/dabcd4681ac990dc4361de26416d986abd80e4aa/OCR/ppocr_v4/zh_cn/keys.txt",
+      "sha256": "28b2362ad4ab2dc38769aa72feb535e3a9ddb3fd2a7585a05920e6393b1dc7f7"
+    },
+    "MaaCommonAssets-LICENSE": {
+      "filename": "MaaCommonAssets-LICENSE",
+      "url": "https://raw.githubusercontent.com/MaaXYZ/MaaCommonAssets/dabcd4681ac990dc4361de26416d986abd80e4aa/LICENSE",
+      "sha256": "2f8ab70ffd1bd53863a27835be02757a657de693e2a2aef9111dbbfa2c5737f0"
+    },
+    "PaddleOCR-LICENSE": {
+      "filename": "PaddleOCR-LICENSE",
+      "url": "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/release/2.7/LICENSE",
+      "sha256": "ff6311c56c1b22c9209c96cc8afc16da91c24ee55a15e14ebc46fe1960dbd856"
+    }
+  }
+}

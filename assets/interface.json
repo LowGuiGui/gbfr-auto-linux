@@ -1,0 +1,96 @@
+{
+  "interface_version": 2,
+  "name": "GBFRLinux",
+  "label": "GBFR 自动刷取",
+  "version": "0.3.0-dev",
+  "license": "GPL-2.0-or-later",
+  "description": "简体中文界面；私人任务与 AI 队友。在任务柜台打开任意任务，用游戏自带的“再次挑战”连刷，第 10 次确认时选“是”接着刷；可设成功次数或一直刷，可选择本轮后停止。",
+  "controller": [
+    {
+      "name": "GBFR Gamescope",
+      "type": "Linux",
+      "display_short_side": 720,
+      "linux": {
+        "screencap": "PipeWire",
+        "input": "Libei",
+        "pipewire_source": "Gamescope",
+        "use_win32_vk_code": false
+      }
+    }
+  ],
+  "resource": [
+    {
+      "name": "简体中文 720p",
+      "path": [
+        "./resource"
+      ]
+    }
+  ],
+  "agent": {
+    "child_exec": "./.venv/bin/python",
+    "child_args": [
+      "-B",
+      "./agent/maa_agent.py"
+    ]
+  },
+  "task": [
+    {
+      "name": "current-quest",
+      "label": "连刷当前任务",
+      "entry": "GBFR_Start",
+      "description": "连刷你在任务柜台打开的任务，任何任务都可以。\n开始前：在柜台打开要刷的任务，停在任务详情页、匹配设置或准备画面；匹配方式用“私人”；开启完全辅助模式；当前 AI 队伍能稳定通关。\n软件接下这个任务，之后打开游戏自带的“再次挑战”连刷；游戏每 10 次弹出确认时选“是”接着刷。任务失败时这一轮不计数，软件确认“再次挑战”关着后停下。达到次数或你选择本轮后停止时，软件关掉再次挑战，等游戏回到城镇后结束。\n第一次刷某个任务，请先填 1 次，确认队伍能过。",
+      "option": [
+        "UntilStopped"
+      ]
+    }
+  ],
+  "option": {
+    "UntilStopped": {
+      "type": "switch",
+      "label": "一直刷，直到我停止",
+      "default_case": "No",
+      "cases": [
+        {
+          "name": "Yes",
+          "pipeline_override": {
+            "GBFR_UntilStopped": {
+              "enabled": true
+            }
+          }
+        },
+        {
+          "name": "No",
+          "pipeline_override": {
+            "GBFR_UntilStopped": {
+              "enabled": false
+            }
+          },
+          "option": [
+            "Runs"
+          ]
+        }
+      ]
+    },
+    "Runs": {
+      "type": "input",
+      "inputs": [
+        {
+          "name": "Runs",
+          "label": "成功次数",
+          "default": "10",
+          "pipeline_type": "int",
+          "verify": "^[1-9][0-9]{0,2}$",
+          "pattern_msg": "请输入 1 到 999 的整数"
+        }
+      ],
+      "pipeline_override": {
+        "GBFR_RunLimit": {
+          "attach": {
+            "limit": "{Runs}"
+          }
+        }
+      }
+    }
+  },
+  "welcome": "进度和“本轮后停止”在[控制面板](http://127.0.0.1:12792/api/local-file?path=control.html)。"
+}

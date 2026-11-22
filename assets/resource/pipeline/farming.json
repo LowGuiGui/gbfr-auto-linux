@@ -1,0 +1,1493 @@
+{
+  "GBFR_Start": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "timeout": 30000,
+    "next": [
+      "GBFR_ReadyConfirm",
+      "GBFR_ReadyTown",
+      "GBFR_Private",
+      "GBFR_QuestDetails"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "begin"
+        }
+      }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_QuestDetails": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "承接任务",
+        "roi": [
+          1060,
+          645,
+          160,
+          50
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "推荐战力值",
+        "roi": [
+          630,
+          140,
+          150,
+          40
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_Private"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 2
+        }
+      }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_Private": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "匹配设置",
+        "roi": [
+          490,
+          148,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "私人",
+        "roi": [
+          485,
+          195,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "OK",
+        "roi": [
+          615,
+          460,
+          50,
+          35
+        ],
+        "threshold": 0.8,
+        "only_rec": true
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_ReadyTown"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 2
+        }
+      }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_ReadyTown": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "快捷移动",
+        "roi": [
+          880,
+          600,
+          400,
+          120
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "准备完毕",
+        "roi": [
+          980,
+          345,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "next": [
+      "GBFR_ReadyConfirm"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "3",
+          "budget": 2
+        }
+      }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_ReadyConfirm": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "私人匹配",
+        "roi": [
+          795,
+          3,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "准备完毕",
+        "roi": [
+          495,
+          490,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          535,
+          527,
+          210,
+          30
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 100
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_Result",
+      "GBFR_Victory",
+      "GBFR_Battle",
+      "GBFR_Tips"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "event": "admit",
+          "budget": 1
+        }
+      }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_CancelReady": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "私人匹配",
+        "roi": [
+          795,
+          3,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "准备完毕",
+        "roi": [
+          495,
+          490,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          535,
+          527,
+          210,
+          30
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 100
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "next": [
+      "GBFR_Finished"
+    ],
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Escape",
+          "budget": 1
+        }
+      }
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_QuestConfig": {
+    "attach": {
+      "battle_limit": 1800
+    }
+  },
+  "GBFR_RunLimit": {
+    "attach": {
+      "limit": 1
+    }
+  },
+  "GBFR_UnexpectedScreen": {
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "error",
+          "reason": "The screen did not reach a supported transition within its time limit"
+        }
+      }
+    },
+    "pre_delay": 0,
+    "post_delay": 0,
+    "on_error": [
+      "GBFR_Stopped"
+    ]
+  },
+  "GBFR_Stopped": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "halt"
+        }
+      }
+    },
+    "focus": {
+      "Node.Action.Failed": "已停止。原因见控制面板。"
+    }
+  },
+  "GBFR_See_Battle": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "剩余时间",
+        "roi": [
+          980,
+          44,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "^(?!.*返回城镇).*[^\\x00-\\x7f].*$",
+        "roi": [
+          980,
+          50,
+          260,
+          28
+        ],
+        "threshold": 0.8
+      }
+    ]
+  },
+  "GBFR_See_Victory": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "距.*任务结束还有",
+        "roi": [
+          490,
+          44,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "返回城镇",
+        "roi": [
+          980,
+          13,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      }
+    ]
+  },
+  "GBFR_See_Results": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "TemplateMatch",
+        "template": "battle_results.png",
+        "roi": [
+          40,
+          0,
+          550,
+          100
+        ],
+        "threshold": 0.75
+      },
+      {
+        "recognition": "OCR",
+        "expected": "继续",
+        "roi": [
+          980,
+          620,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      }
+    ]
+  },
+  "GBFR_See_RepeatOn": {
+    "recognition": "OCR",
+    "expected": "撤销再次挑战",
+    "roi": [
+      40,
+      632,
+      280,
+      40
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_See_RepeatOff": {
+    "recognition": "OCR",
+    "expected": "^[^撤销]{0,3}再次挑战$",
+    "roi": [
+      40,
+      632,
+      280,
+      40
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_See_TenthRun": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "再次挑战确认",
+        "roi": [
+          440,
+          222,
+          400,
+          50
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "是否继续挑战该任务",
+        "roi": [
+          400,
+          316,
+          480,
+          50
+        ],
+        "threshold": 0.8
+      }
+    ]
+  },
+  "GBFR_See_TenthYes": {
+    "recognition": "ColorMatch",
+    "lower": [
+      0,
+      130,
+      170
+    ],
+    "upper": [
+      180,
+      255,
+      255
+    ],
+    "count": 400,
+    "roi": [
+      540,
+      440,
+      200,
+      22
+    ]
+  },
+  "GBFR_See_TenthNo": {
+    "recognition": "ColorMatch",
+    "lower": [
+      0,
+      130,
+      170
+    ],
+    "upper": [
+      180,
+      255,
+      255
+    ],
+    "count": 400,
+    "roi": [
+      540,
+      474,
+      200,
+      22
+    ]
+  },
+  "GBFR_See_Tips": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "AUTO.*SKIP",
+        "roi": [
+          0,
+          610,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "继续",
+        "roi": [
+          980,
+          610,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      }
+    ]
+  },
+  "GBFR_See_Defeat": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "TemplateMatch",
+        "template": "battle_results.png",
+        "roi": [
+          40,
+          0,
+          550,
+          100
+        ],
+        "threshold": 0.75
+      },
+      {
+        "recognition": "OCR",
+        "expected": "无奖励道具",
+        "roi": [
+          340,
+          200,
+          300,
+          50
+        ],
+        "threshold": 0.8
+      }
+    ]
+  },
+  "GBFR_See_Town": {
+    "recognition": "OCR",
+    "expected": "快捷移动",
+    "roi": [
+      880,
+      600,
+      400,
+      120
+    ],
+    "threshold": 0.8
+  },
+  "GBFR_See_SettlementConfirm": {
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "OCR",
+        "expected": "结算确认",
+        "roi": [
+          495,
+          198,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "OCR",
+        "expected": "是否完成结算确认",
+        "roi": [
+          500,
+          290,
+          300,
+          100
+        ],
+        "threshold": 0.8
+      },
+      {
+        "recognition": "ColorMatch",
+        "roi": [
+          530,
+          436,
+          220,
+          30
+        ],
+        "lower": [
+          0,
+          130,
+          170
+        ],
+        "upper": [
+          180,
+          255,
+          255
+        ],
+        "count": 100
+      }
+    ]
+  },
+  "GBFR_Read_Quest": {
+    "doc": "The quest name beside the results title; read once for the control panel, never matched.",
+    "recognition": "OCR",
+    "roi": [
+      625,
+      50,
+      330,
+      32
+    ],
+    "threshold": 0.5
+  },
+  "GBFR_Tips": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Tips"
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 3
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_Result",
+      "GBFR_Victory",
+      "GBFR_Battle",
+      "GBFR_Tips",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_Battle": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Battle"
+    ],
+    "pre_delay": 0,
+    "post_delay": 2000,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "battle",
+          "budget": 1200
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_Result",
+      "GBFR_Victory",
+      "GBFR_Battle",
+      "GBFR_Tips"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_Victory": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Victory"
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "victory",
+          "budget": 60
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_Result",
+      "GBFR_Victory"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_DefeatRepeatOff": {
+    "doc": "A failed quest with Repeat Quest on would be retried by the game: turn it off first.",
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Defeat",
+      "GBFR_See_RepeatOn"
+    ],
+    "pre_delay": 0,
+    "post_delay": 800,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "3",
+          "event": "toggle",
+          "budget": 2,
+          "on_change": "skip",
+          "exhausted": "Repeat Quest could not be turned off after the quest failed; the game may retry it"
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_Defeat": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Defeat",
+      "GBFR_See_RepeatOff"
+    ],
+    "pre_delay": 0,
+    "post_delay": 0,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "failed",
+          "reason": "The quest failed; Repeat Quest is off and no further run was started"
+        }
+      }
+    },
+    "on_error": [
+      "GBFR_Stopped"
+    ]
+  },
+  "GBFR_DefeatHold": {
+    "doc": "The failure page before its Repeat Quest toggle reads: never count it, wait.",
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Defeat"
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "budget": 15,
+          "exhausted": "The failure page's Repeat Quest toggle could not be read"
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_Result": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Results"
+    ],
+    "pre_delay": 0,
+    "post_delay": 0,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "settle",
+          "budget": 3,
+          "exhausted": "The results screen could not be confirmed for counting"
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_Counted",
+      "GBFR_Result"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_TenthYes": {
+    "doc": "Continue after the tenth run: 是 turns Repeat Quest back on for the following runs.",
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_TenthRun",
+      "GBFR_See_TenthYes",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "go_on"
+        }
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 800,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "event": "tenth_yes",
+          "budget": 2,
+          "on_change": "skip",
+          "exhausted": "是 on the tenth-run dialog was not accepted"
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_TenthUp": {
+    "doc": "Continue after the tenth run: move the dialog's cursor from 否 to 是.",
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_TenthRun",
+      "GBFR_See_TenthNo",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "go_on"
+        }
+      }
+    ],
+    "pre_delay": 1000,
+    "post_delay": 500,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Up",
+          "budget": 3,
+          "on_change": "skip",
+          "exhausted": "The tenth-run dialog's cursor could not be moved to 是"
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_TenthRun": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_TenthRun"
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "tenth_run",
+          "budget": 60
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_RepeatOff": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Results",
+      "GBFR_See_RepeatOn",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "stop"
+        }
+      }
+    ],
+    "pre_delay": 2500,
+    "post_delay": 800,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "3",
+          "event": "toggle",
+          "budget": 2,
+          "on_change": "skip",
+          "exhausted": "Repeat Quest could not be turned off; the game may run the quest again"
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_RepeatOn": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Results",
+      "GBFR_See_RepeatOff",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "continue"
+        }
+      }
+    ],
+    "pre_delay": 2500,
+    "post_delay": 800,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "3",
+          "event": "toggle",
+          "budget": 2,
+          "on_change": "skip",
+          "exhausted": "Repeat Quest could not be turned on"
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_KeepRepeating": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Results",
+      "GBFR_See_RepeatOn",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "continue"
+        }
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "repeat_on",
+          "budget": 60
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_LetItEnd": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Results",
+      "GBFR_See_RepeatOff",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "stop"
+        }
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "repeat_off",
+          "budget": 60
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_CapHold": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Results",
+      "GBFR_See_RepeatOff",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "cap"
+        }
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "budget": 60
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_ResultHold": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Results"
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "budget": 120
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_SettlementConfirm": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_SettlementConfirm"
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "budget": 1
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_Finished": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Town",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "stop"
+        }
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 0,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "finish"
+        }
+      }
+    },
+    "focus": {
+      "Node.Action.Succeeded": "已结束，游戏停在城镇"
+    },
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_TownEarly": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Town",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "go_on"
+        }
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 0,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "error",
+          "reason": "The game returned to town before the session finished"
+        }
+      }
+    },
+    "on_error": [
+      "GBFR_Stopped"
+    ]
+  },
+  "GBFR_Continue": {
+    "doc": "Flag only: the control panel disables it to finish after the current run."
+  },
+  "GBFR_UntilStopped": {
+    "enabled": false,
+    "doc": "Flag only: the \"until I stop it\" switch enables it; the run limit is then ignored."
+  },
+  "GBFR_Key_Return": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          28
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_Escape": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          1
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_Up": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          103
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_3": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          4
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Counted": {
+    "doc": "Reports the count in the client's log; the Agent rewrites the text after each count. Only a settled run passes, so a count whose recheck missed goes back to GBFR_Result.",
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "settled"
+        }
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 1000,
+    "timeout": 90000,
+    "focus": {
+      "Node.Action.Succeeded": "本次已计数"
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  }
+}

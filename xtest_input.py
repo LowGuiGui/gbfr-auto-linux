@@ -139,7 +139,8 @@ class XTestInput:
 
     mode = "xtest"
 
-    def __init__(self, display, window, keys, live=False, sleep=time.sleep, hold=TAP_HOLD_S):
+    def __init__(self, display, window, keys, live=False, sleep=time.sleep, hold=TAP_HOLD_S,
+                 *, announce_dry_run=True):
         """display：连好的嵌套 X（python-xlib 的 Display）。window：游戏窗口。keys：配置里的
         [keys]，比如 {"move": "w", "again": "3", "confirm": "a"}。"""
         self._d = display
@@ -187,7 +188,7 @@ class XTestInput:
         self._first_keycode = info.min_keycode
         self._keycode_count = info.max_keycode - info.min_keycode + 1
         self._ready = True
-        if not self._live:
+        if not self._live and announce_dry_run:
             log.warning("空跑：一个 XTest 事件都不会发，只记日志")
 
     @property

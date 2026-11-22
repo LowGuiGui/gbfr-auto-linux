@@ -1,0 +1,112 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui> -->
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GBFR 刷取状态</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101a27; color: #ecf2f8; }
+  body { max-width: 650px; margin: 8vh auto; padding: 24px; }
+  h1 { font-size: 26px; }
+  .card { border: 1px solid #34465b; border-radius: 16px; padding: 24px; background: #172638; }
+  #count { font-size: 42px; margin: 12px 0; font-variant-numeric: tabular-nums; }
+  #phase, #message { line-height: 1.6; }
+  button { padding: 12px 18px; margin: 8px 8px 0 0; border-radius: 8px; border: 1px solid #71859d;
+           background: #294766; color: white; font: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #stop { background: #57343a; }
+  small { display: block; color: #b2c1d2; line-height: 1.6; margin-top: 18px; }
+  details { margin-top: 16px; overflow-wrap: anywhere; }
+</style>
+<h1>GBFR 刷取状态</h1>
+<div class="card">
+  <div id="quest">等待任务</div>
+  <div id="count">—</div>
+  <div id="phase" role="status">正在连接软件……</div>
+  <button id="finish" disabled>本轮结束后停下</button>
+  <button id="stop" disabled>立即停止操作</button>
+  <p id="message" role="status"></p>
+  <small>“本轮结束后停下”会在结算画面关掉再次挑战，等游戏返回城镇。<br>“立即停止操作”只停止软件输入；如果再次挑战开着，游戏会自己继续刷，最多到下一次第 10 轮的弹窗。</small>
+  <p id="reason" hidden></p>
+  <details id="diagnostic" hidden><summary>技术原因</summary><p id="error"></p></details>
+</div>
+<small>先在游戏的任务柜台打开要刷的任务，再在主窗口勾选“连刷当前任务”、填次数，然后开始。结算画面出现时成功次数加一；之后的轮次由游戏自带的“再次挑战”开始，第 10 轮的确认会选“是”。</small>
+<script>
+  const $ = id => document.getElementById(id);
+  let active = null;
+  let activeKey = null;
+  let busy = false;
+  const phases = {ready: '正在接任务', starting: '正在进入副本', battle: '战斗中',
+                  settled: '已通关，正在结算', finished: '已完成，停在城镇',
+                  stopped: '已按你的要求停止',
+                  error: '操作已停止。请查看游戏当前画面，再从支持的起点重新开始。'};
+  async function request(path, data) {
+    const response = await fetch('/api/' + path, data === undefined ? {cache: 'no-store'} : {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error('软件暂时无法响应，请在主窗口检查任务状态。');
+    return response.json();
+  }
+  async function refresh() {
+    try {
+      const state = await request('maa/state');
+      const running = Object.entries(state.instances).filter(([, item]) => item.is_running);
+      const queue = running.length === 1 ? running[0][1].task_run_state : null;
+      active = queue ? {id: running[0][0],
+        task: queue.pending_task_ids?.[queue.current_task_index ?? 0],
+        singlePreset: queue.pending_task_ids?.length === 1} : null;
+      const nextKey = active ? `${active.id}:${active.task}` : null;
+      if (nextKey !== activeKey) {
+        $('message').textContent = '';
+        activeKey = nextKey;
+      }
+      const result = await request('local-file?path=agent/runtime/session.json');
+      $('quest').textContent = result.quest || (result.phase && result.phase !== 'idle' ? '当前任务（第一次结算后显示任务名）' : '等待任务');
+      const limit = result.limit === null ? '一直刷' : (result.limit ?? '—');
+      $('count').textContent = `${result.completed ?? 0} / ${limit} 次成功`;
+      const note = result.phase === 'settled' && result.repeat ? '（再次挑战已打开）' :
+        result.continued > 0 && !['finished', 'stopped', 'error'].includes(result.phase) ?
+          `（已在第 10 次确认里选“是” ${result.continued} 次）` : '';
+      $('phase').textContent = (phases[result.phase] || '等待任务') + note +
+        (result.finish_requested && active ? ' · 已收到本轮后停止请求' : '') +
+        (result.overrun ? ` · 多完成 ${result.overrun} 次：停止时下一轮已经开始` : '');
+      $('reason').hidden = !(result.message || result.error);
+      $('reason').textContent = result.message || result.error || '';
+      $('diagnostic').hidden = !result.error;
+      $('error').textContent = result.error || '';
+      $('finish').disabled = busy || !active?.task || !active.singlePreset || result.finish_requested;
+      $('stop').disabled = busy || !active;
+      if (active && !active.singlePreset) {
+        $('message').textContent = '本轮后停止只支持队列里有一个任务。当前队列里有多个任务，可以使用立即停止；下次请只放一个。';
+      }
+    } catch (error) {
+      active = null;
+      $('finish').disabled = $('stop').disabled = true;
+      $('phase').textContent = '等待软件和刷取任务。请先在主窗口开始。';
+    }
+  }
+  async function command(kind) {
+    if (!active || busy || (kind === 'finish' && !active.singlePreset)) return;
+    const target = {...active};
+    busy = true;
+    $('finish').disabled = $('stop').disabled = true;
+    try {
+      if (kind === 'finish') {
+        const response = await request(`maa/instances/${encodeURIComponent(target.id)}/tasks/${target.task}/pipeline`,
+          {pipelineOverride: JSON.stringify({GBFR_Continue: {enabled: false}})});
+        if (!response.success) throw new Error('停止请求未被接受，请在主窗口检查任务状态。');
+        $('message').textContent = '已请求本轮后停止，正在等待当前任务结算。';
+      } else {
+        await request(`maa/instances/${encodeURIComponent(target.id)}/tasks/stop`, {});
+        $('message').textContent = '已请求立即停止操作。游戏本身不会暂停。';
+      }
+    } catch (error) { $('message').textContent = error.message; }
+    finally { busy = false; await refresh(); }
+  }
+  $('finish').addEventListener('click', () => command('finish'));
+  $('stop').addEventListener('click', () => command('stop'));
+  refresh();
+  setInterval(refresh, 1500);
+</script>
+</html>

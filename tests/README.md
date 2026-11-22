@@ -5,9 +5,9 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 # tests
 
-Runs on **Linux**, with nothing stubbed. The core modules have no platform
-dependencies, so `conftest.py` only puts the repo root on `sys.path` and provides
-the `log_file` fixture. The probe's tests use small doubles for the X display and for
+Runs on **Linux**, with test doubles for external displays, processes and controller
+callbacks. `conftest.py` puts the repo root on `sys.path` and provides the `log_file`
+fixture. The probe's tests use small doubles for the X display and for
 `subprocess.run`, written against python-xlib's and subprocess's documented signatures;
 `test_gamescope.py` defines the `/proc` and `subprocess.run` doubles, and the probe's tests
 import them from there. `test_xtest_input.py` has its own double for the nested X server,
@@ -23,6 +23,39 @@ Issue numbers here and in the code, such as #12 or #46, predate this repository
 and refer to the archive, [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbfr_auto).
 
 ## What is covered
+
+The Maa path adds target/process identity, native controller configuration, bounded
+input/release, callback-scoped handle rebinding, session ownership and episode
+accounting tests. Negative controls reject helper windows, replaced sources,
+ambiguous targets, stale/blank action frames, duplicate results and unavailable
+session ownership. Catalog checks ensure the client has one task that passes nothing
+quest-specific to the pipeline, that run-limit options reach the Agent's nodes, and that
+no recognition expects a verified quest's name or objective.
+Builder checks cover dependency hash refusal and separate version directories.
+
+The pipeline graph tests (`test_maa_pipeline_graph.py`, harness `maa_graph.py`) run
+the real resource and Agent against a scripted game that follows the Repeat Quest
+behaviour measured on 2026-11-21 and 2026-11-22: N = 1, 3 and 12 (answering 是 on the
+tenth-run dialog), until-stopped across three dialogs, the cursor already on 是, 是 the
+game ignores, a cursor that never reaches 是, a dialog left to time out, finishing during
+battle or on the rewards page, a toggle that never changes, a failed quest with Repeat
+Quest on, off or unreadable, a failure first seen by the count's recheck, a count whose
+recheck misses (retried, and stopped uncounted after three misses), an unknown start,
+stale results, a game that closes mid-battle, and the client's Stop, including a Stop
+after 3 or 是 was sent but before the toggle was read back. Leaves are scripted; composed nodes and the session gate run
+natively. The harness also records the focus messages a client such as MXU logs, so the
+tests check that every count, the finish and every failure reason reach that log. A
+static check pins the assumption behind recording a stop: the only successful end of
+the pipeline is `GBFR_Finished`.
+
+`test_maa_fixtures.py` runs native OCR and template recognition on measured game
+frames in `fixtures/maa/`, masked to the regions recognition reads
+(`tools/maa_fixtures.py`). Each frame lists exactly which leaves hit. It needs the
+pinned OCR model (`GBFR_MAA_OCR_MODEL`, or a bundle under `dist/`) and skips without it;
+CI fetches the model.
+
+These checks do not prove a party's battle performance or the live timing of the
+game. Bounded live acceptance is separate; see [the Maa guide](../docs/maa.md).
 
 | File | Covers |
 |---|---|

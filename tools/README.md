@@ -5,6 +5,22 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 # tools
 
+## Maa candidate tools
+
+The current client/resource path is described in [the Maa guide](../docs/maa.md).
+
+| Tool | Purpose |
+|---|---|
+| `build_maa.py` | Build a new pinned MXU/framework/resource/Agent directory; refuse overwrite and retain hashes for rollback. |
+| `maa_catalog.py` | Generate standard interface tasks from the goal catalog without duplicating the shared flow. |
+| `maa_replay.py` | Run native recognition on saved frames with all input disabled. |
+| `maa_fixtures.py` | Mask a captured frame to the regions the checked leaves read, for committed recognition fixtures. |
+| `maa_headless.py` | Exercise an owned headless stand-in, including capture, bounded input, stop and target loss; this is not game acceptance. |
+| `maa_probe.py` | Native controller measurements and refusal checks; inspect `--help` before live use. |
+
+The historical probe below uses a separate implementation. Its dated measurements
+must not be treated as current native-Maa acceptance.
+
 ## linux_probe.py
 
 Measures capture, input and focus behavior under gamescope. It asks
