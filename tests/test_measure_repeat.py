@@ -80,7 +80,9 @@ def test_loading_tips_wait_then_continue_and_auto_skip_is_pressed_once_on_its_sc
     planner = Planner(Settings(tips_wait=15, auto_skip_at=2))
     first = feed(planner, [(0, "tips", None), (10, "tips", None), (15, "tips", None),
                            (16, "battle", None)])
-    second = feed(planner, [(400, "tips", None), (401, "tips", None), (403, "battle", None)])
+    second = obs_feed(planner, [Observation(400, "tips", auto_skip="off"),
+                                Observation(401, "tips", auto_skip="off"),
+                                Observation(403, "battle")])
     assert first == [(15, "Return")]
     assert second == [(400, "Escape")]
     left = events(planner, "tips_left")
@@ -134,3 +136,92 @@ def test_frames_may_not_be_written_where_git_would_track_them(tmp_path):
     assert private_out(str(tmp_path / "fresh")) == (tmp_path / "fresh").resolve()
     with pytest.raises(argparse.ArgumentTypeError, match="private"):
         private_out(str(ROOT / "tools" / "repeat-frames"))
+
+
+def obs_feed(planner, steps):
+    """steps: Observation values; returns every key pressed, with its time."""
+    pressed = []
+    for obs in steps:
+        for key in planner.observe(obs):
+            pressed.append((obs.time, key))
+    return pressed
+
+
+def test_the_toggle_waits_out_the_reward_reveal():
+    planner = Planner(Settings(reveal=2.5))
+    pressed = feed(planner, [(0, "battle", None), (300, "results", None),
+                             (330, "results", "off"), (331, "results", "off"),
+                             (332.6, "results", "off"), (333, "results", "on")])
+    assert pressed == [(332.6, "3")]
+
+
+def tenth_page(planner):
+    """Settle run 10 and show its rewards page with the toggle reset to off."""
+    planner.runs = 9
+    return [Observation(0, "battle"), Observation(300, "results"),
+            Observation(330, "results", "off"), Observation(332, "results", "off")]
+
+
+def test_the_tenth_run_dialog_is_answered_yes_only_after_the_cursor_is_seen_on_it():
+    planner = Planner(Settings(reveal=2.5, tenth_answer="yes"))
+    steps = tenth_page(planner) + [
+        Observation(332.5, "tenth", choice="no"), Observation(333, "tenth", choice="no"),
+        Observation(333.6, "tenth", choice="no"),  # one second after the dialog: Up
+        Observation(334, "tenth", choice="yes"),   # the cursor moved: Return
+        Observation(335, "results", "on"), Observation(340, "results", "on")]
+    pressed = obs_feed(planner, steps)
+    assert pressed == [(333.6, "Up"), (334, "Return")]
+    assert events(planner, "repeat_state_after_yes")[0]["state"] == "on"
+    assert planner.runs == 10
+
+
+def test_without_an_answer_the_dialog_and_its_page_get_no_input():
+    planner = Planner(Settings(reveal=2.5))
+    steps = tenth_page(planner) + [Observation(332.5, "tenth", choice="no"),
+                                   Observation(340, "tenth", choice="no"),
+                                   Observation(359, "results", "off"), Observation(361, "town")]
+    assert obs_feed(planner, steps) == []
+
+
+def test_a_cursor_that_does_not_move_is_never_confirmed():
+    planner = Planner(Settings(reveal=2.5, tenth_answer="yes"))
+    steps = tenth_page(planner) + [Observation(332.5 + i, "tenth", choice="no") for i in range(12)]
+    pressed = obs_feed(planner, steps)
+    assert [key for _, key in pressed] == ["Up", "Up"]
+    assert events(planner, "tenth_unanswered")
+
+
+def test_w_pulses_go_only_to_the_chosen_runs_battles_and_their_times_are_kept():
+    planner = Planner(Settings(hold_w="even"))
+    pressed = feed(planner, [(0, "battle", None), (5, "battle", None), (300, "results", None),
+                             (330, "results", "on"), (370, "battle", None), (373, "battle", None),
+                             (376, "victory", None), (650, "results", None)])
+    assert pressed == [(370, "w"), (373, "w")]
+    settled = events(planner, "run_settled")
+    assert [e["battle_seconds"] for e in settled] == [300, 280]
+    assert [e["w_pulses"] for e in settled] == [0, 2]
+    assert planner.presses == 0  # pulses have their own budget, not the key budget
+
+
+def test_a_failure_screen_gets_no_input_and_ends_the_run():
+    planner = Planner(Settings())
+    pressed = feed(planner, [(0, "battle", None), (200, "defeat", None), (205, "defeat", None),
+                             (211, "defeat", None)])
+    assert pressed == []
+    assert planner.finished == "failure screen"
+
+
+def test_escape_is_never_pressed_while_auto_skip_reads_on():
+    planner = Planner(Settings(auto_skip_at=1))
+    pressed = obs_feed(planner, [Observation(0, "tips", auto_skip="on"),
+                                 Observation(1, "tips", auto_skip="on")])
+    assert pressed == []
+    assert events(planner, "auto_skip_label")[0]["state"] == "on"
+
+
+def test_escape_waits_for_a_frame_whose_label_reads_off():
+    planner = Planner(Settings(auto_skip_at=1, tips_wait=100))
+    unreadable = obs_feed(planner, [Observation(0, "tips"), Observation(1, "tips")])
+    readable = obs_feed(planner, [Observation(2, "tips", auto_skip="off")])
+    assert unreadable == []
+    assert readable == [(2, "Escape")]
