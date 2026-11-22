@@ -40,6 +40,25 @@ def fetch(cache, item):
     return path
 
 
+OCR_FILES = ("det.onnx", "rec.onnx", "keys.txt")
+
+
+def place_ocr(downloads, model):
+    (model / "ocr").mkdir(parents=True)
+    for name in OCR_FILES:
+        shutil.copy2(downloads["ocr-" + name], model / "ocr" / name)
+    return model
+
+
+def fetch_ocr(output, cache):
+    """Only the pinned OCR model, for the native recognition fixtures (tests, CI)."""
+    if output.exists():
+        raise ValueError("Output already exists")
+    pins = json.loads((ROOT / "assets/dependencies.json").read_text())["downloads"]
+    cache.mkdir(parents=True, exist_ok=True)
+    return place_ocr({"ocr-" + n: fetch(cache, pins["ocr-" + n]) for n in OCR_FILES}, output)
+
+
 def build(output, cache, python):
     if output.exists():
         raise ValueError("Output already exists; choose a new version directory for rollback")
@@ -79,10 +98,7 @@ def build(output, cache, python):
                     raise ValueError("Unsafe archive path")
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(archive.read(name))
-    models = output / "resource/model/ocr"
-    models.mkdir(parents=True)
-    for name in ("det.onnx", "rec.onnx", "keys.txt"):
-        shutil.copy2(downloads["ocr-" + name], models / name)
+    place_ocr(downloads, output / "resource/model")
     for name in ("MaaCommonAssets-LICENSE", "PaddleOCR-LICENSE"):
         shutil.copy2(downloads[name], notices / name)
     (output / "config").mkdir()
@@ -111,8 +127,13 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--cache", type=Path, default=ROOT / "dist/downloads")
     parser.add_argument("--python", default="3.13")
+    parser.add_argument("--ocr-only", action="store_true",
+                        help="Write only the pinned OCR model directory to --output")
     args = parser.parse_args()
-    print(build(args.output.resolve(), args.cache.resolve(), args.python))
+    if args.ocr_only:
+        print(fetch_ocr(args.output.resolve(), args.cache.resolve()))
+    else:
+        print(build(args.output.resolve(), args.cache.resolve(), args.python))
 
 
 if __name__ == "__main__":

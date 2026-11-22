@@ -32,8 +32,21 @@ session ownership. Catalog checks ensure each goal updates every quest-specific
 recognition leaf and that run-limit options cannot replace the chosen quest.
 Builder checks cover dependency hash refusal and separate version directories.
 
-These checks do not prove a game's UI or a party's battle performance. Native frame
-replay and bounded live acceptance are separate; see [the Maa guide](../docs/maa.md).
+The pipeline graph tests (`test_maa_pipeline_graph.py`, harness `maa_graph.py`) run
+the real resource and Agent against a scripted game that follows the Repeat Quest
+behaviour measured on 2026-11-21: N = 1, 3 and 12 (across the tenth-run dialog),
+finishing during battle or on the rewards page, until-stopped, a toggle that never
+changes, a failed quest, an unknown start and stale results. Leaves are scripted;
+composed nodes and the session gate run natively.
+
+`test_maa_fixtures.py` runs native OCR and template recognition on measured game
+frames in `fixtures/maa/`, masked to the regions recognition reads
+(`tools/maa_fixtures.py`). Each frame lists exactly which leaves hit. It needs the
+pinned OCR model (`GBFR_MAA_OCR_MODEL`, or a bundle under `dist/`) and skips without it;
+CI fetches the model.
+
+These checks do not prove a party's battle performance or the live timing of the
+game. Bounded live acceptance is separate; see [the Maa guide](../docs/maa.md).
 
 | File | Covers |
 |---|---|

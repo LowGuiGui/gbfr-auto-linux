@@ -108,5 +108,11 @@ jobs:
       - name: Check MaaFw loads
         run: python -c "import maa.tasker"
 
+      # The recognition fixtures need the pinned PaddleOCR model (hash-checked).
+      - name: Fetch the OCR model
+        run: python tools/build_maa.py --ocr-only --output "$RUNNER_TEMP/ocr-model" --cache "$RUNNER_TEMP/downloads"
+
       - name: pytest with MaaFw
+        env:
+          GBFR_MAA_OCR_MODEL: ${{ runner.temp }}/ocr-model
         run: pytest -q -rs

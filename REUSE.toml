@@ -21,6 +21,13 @@ path = ["template/*.png", "assets/resource/image/*.png"]
 SPDX-FileCopyrightText = "Cygames, Inc."
 SPDX-License-Identifier = "LicenseRef-Cygames-Game-Assets"
 
+# Frames of the game's own screens, captured on 2026-11-21 and blacked out outside the
+# regions recognition reads (tools/maa_fixtures.py). Test fixtures only.
+[[annotations]]
+path = ["tests/fixtures/maa/*.jpg"]
+SPDX-FileCopyrightText = "Cygames, Inc."
+SPDX-License-Identifier = "LicenseRef-Cygames-Game-Assets"
+
 [[annotations]]
 path = ["assets/**/*.json"]
 SPDX-FileCopyrightText = "2026 LowGuiGui <https://github.com/LowGuiGui>"

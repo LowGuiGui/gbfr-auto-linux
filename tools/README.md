@@ -14,6 +14,7 @@ The current client/resource path is described in [the Maa guide](../docs/maa.md)
 | `build_maa.py` | Build a new pinned MXU/framework/resource/Agent directory; refuse overwrite and retain hashes for rollback. |
 | `maa_catalog.py` | Generate standard interface tasks from the goal catalog without duplicating the shared flow. |
 | `maa_replay.py` | Run native recognition on saved frames with all input disabled. |
+| `maa_fixtures.py` | Mask a captured frame to the regions the checked leaves read, for committed recognition fixtures. |
 | `maa_headless.py` | Exercise an owned headless stand-in, including capture, bounded input, stop and target loss; this is not game acceptance. |
 | `maa_probe.py` | Native controller measurements and refusal checks; inspect `--help` before live use. |
 
