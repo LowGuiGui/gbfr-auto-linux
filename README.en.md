@@ -10,18 +10,18 @@ SPDX-License-Identifier: GPL-2.0-or-later
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 > [!IMPORTANT]
-> **The Maa GUI has two live-tested farming presets in local candidate 0.1.0-rc.2.**
+> **Maa 0.2.0 is in development: it now farms with the game's own Repeat Quest, passes the offline tests, and has not yet run end to end in the real game.**
 >
-> It uses the existing MXU client, MaaFramework's native Linux controller and this project's game resources.
-> See the [Maa guide](docs/maa.md) for installation, scope and stop behavior.
+> The last version validated in the real game is 0.1.0-rc.2, which returns to town after every run. It uses the existing MXU client,
+> MaaFramework's native Linux controller and this project's game resources. See the [Maa guide](docs/maa.en.md) for setup, use and stopping.
 
 > [!WARNING]
 > **AI-written code.** This repository was written by AI coding assistants (Claude Code and OpenAI Codex) at the owner's direction and has **not been reviewed line by line by a human**.
 > Review the validation scope below and the [test guide](tests/README.md) before running it.
 
 This is the Linux successor of the archived Windows version, [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbfr_auto).
-Select a material preset and successful-run limit; the software selects the quest, settles rewards and returns to town.
-Combat depends on the current AI party, and support is validated per quest.
+Select a material preset and a number of successful runs: the software takes the first run, then farms and counts with the game's own Repeat Quest, and ends in town.
+Combat depends on the game's Full Assist mode and the current AI party, and support is validated per quest.
 
 This file is a translation of the [Chinese README](README.md), which is canonical.
 
@@ -33,9 +33,9 @@ This project maintains game screens, farming presets and small accounting/stop h
 | Component | Current scope |
 |---|---|
 | Client/runtime | Pinned MXU 2.11.2 and MaaFramework 5.16.1; separate version directories preserve rollback |
-| Real-game validation | Chinese 2.0.6, 16:9, Seedhollow town; Quakadile passed 1/1 and five consecutive runs; Blizzadile passed 1/1. A finish request during battle five stopped after settlement in town |
+| Real-game validation | 0.1.0-rc.2: Chinese 2.0.6, 16:9, Seedhollow town; Quakadile passed 1/1 and five consecutive runs; Blizzadile passed 1/1. The game's Repeat Quest behaviour was measured (12 Quakadile runs); the 0.2.0 loop has not yet run in the real game |
 | Goal catalog | Quakadile and Blizzadile material presets, with individual evidence in [catalog.json](assets/catalog.json) |
-| Stop behavior | Successful-run limits, immediate automation stop and finish-current-run; the latter requires one preset per Start |
+| Stop behavior | A number of successful runs (1-999) or until stopped; finish after the current run (one preset per Start); immediate automation stop |
 | Outside current support | Automatic title continuation, arbitrary battle/result adoption, equipment/spending automation, all progression and DLC quests |
 
 A small success sample does not establish reliability for every party or extended unattended use.
@@ -46,15 +46,15 @@ Normal game rewards and experience still apply. Unknown screens, defeat and time
 With Python 3.13 and `uv` available:
 
 ```sh
-python3 tools/build_maa.py --output dist/maa-candidate
+python3 tools/build_maa.py --output dist/maa-0.2.0
 ```
 
-Start the game through Steam in a compatible Gamescope session and enter Seedhollow town or a supported quest menu.
-Run `./mxu` from the built directory. Select the GBFR device, Chinese resource, **one** material preset and a successful-run limit.
-Start with one run to check the current party. The progress/stop link shows the success count and both stop controls.
-Keep the game's automatic-repeat toggle off.
+Start the game through Steam, stop in town or on the ready screen of the quest to farm, and click once inside the game window.
+Run `./start.sh` from the built directory, tick **one** material preset, enter a number of runs or choose "until I stop it", and start.
+Use one run the first time to check the current party. The control panel (the link in the welcome message) shows the count and
+offers "finish after this run" and "stop now".
 
-The [Maa guide](docs/maa.md) defines environment requirements, accepted starts, error recovery and upgrades.
+The [Maa guide](docs/maa.en.md) covers prerequisites, what to do on errors and updating.
 Stopping the software does not pause or close the game; exit through the game's own menu.
 
 ## Legacy command-line implementation
@@ -94,7 +94,7 @@ the repository.
 |---|---|
 | `assets/catalog.json`, `assets/interface.json` | Material goals, prerequisites and standard client options |
 | `assets/resource/` | Shared native Maa recognition and quest flow |
-| `maa_agent.py`, `maa_guard.py`, `maa_session.py`, `maa_target.py` | Target/input checks, ownership, successful-run accounting and stop semantics |
+| `maa_agent.py`, `maa_guard.py`, `maa_session.py`, `maa_target.py`, `maa_messages.py` | Target/input checks, ownership, successful-run accounting, stop semantics and Chinese stop explanations |
 | `tools/build_maa.py`, `assets/control.html` | Independent client bundle and a progress/stop panel on the existing client's server |
 | `opencv.py` | template matching, and the guard against blank frames |
 | `pages.py` | the engine that works out which screen is showing, from an ordered rule tree |
@@ -128,7 +128,7 @@ Issue numbers in the older commit messages read `gbfr_auto#NN`, and those in cod
 - **Review**: **no human line-by-line review.** The owner sets the project direction.
 - **Verification**:
   - Automated tests on Linux, with Ruff and REUSE checks. See [tests/README.md](tests/README.md) for the current coverage and live-game limitations.
-  - Real-game acceptance of the Maa candidate is recorded separately from automated checks; see [Direction and status](#direction-and-status) and the [Maa guide](docs/maa.md). It does not establish acceptance of the legacy loop.
+  - Real-game acceptance of the Maa candidate is recorded separately from automated checks; see [Direction and status](#direction-and-status) and the [Maa guide](docs/maa.en.md). It does not establish acceptance of the legacy loop.
 - **Risk**: the bot sends input to the game. The GPL provides no warranty (GPL-2.0 sections 11 and 12).
 - **Copyright**: whether AI-generated output is protected by copyright is legally unsettled. To the extent it is, the licence in [COPYRIGHT](COPYRIGHT) applies. AI output may also resemble its training data.
 - **Please do not** submit this code to projects that ban AI-generated contributions (for example Gentoo, NetBSD, QEMU).

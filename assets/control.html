@@ -28,7 +28,8 @@
   <button id="stop" disabled>立即停止操作</button>
   <p id="message" role="status"></p>
   <small>“本轮结束后停下”会在结算画面关掉再次挑战，等游戏返回城镇。<br>“立即停止操作”只停止软件输入；如果再次挑战开着，游戏会自己继续刷，最多到第 10 次弹窗。</small>
-  <details id="diagnostic" hidden><summary>诊断信息</summary><p id="error"></p></details>
+  <p id="reason" hidden></p>
+  <details id="diagnostic" hidden><summary>技术原因</summary><p id="error"></p></details>
 </div>
 <small>在主窗口选择刷取预设和次数，然后开始。结算画面出现时成功次数加一；之后的轮次由游戏自带的“再次挑战”开始。</small>
 <script>
@@ -68,6 +69,8 @@
       $('phase').textContent = (phases[result.phase] || '等待任务') + note +
         (result.finish_requested && active ? ' · 已收到本轮后停止请求' : '') +
         (result.overrun ? ` · 多完成 ${result.overrun} 次：停止时下一轮已经开始` : '');
+      $('reason').hidden = !result.error;
+      $('reason').textContent = result.message || result.error || '';
       $('diagnostic').hidden = !result.error;
       $('error').textContent = result.error || '';
       $('finish').disabled = busy || !active?.task || !active.singlePreset || result.finish_requested;

@@ -16,6 +16,7 @@ import time
 
 from control import Controls, ControlServer, socket_path
 from maa_guard import FrameUnavailable, NativeGuard
+from maa_messages import explain
 from maa_session import Session, SessionError
 
 # Events whose screen is rechecked on a fresh frame before the session believes it.
@@ -39,7 +40,8 @@ class Hooks:
 
     def status(self):
         result = self.session.snapshot() if self.session else {"phase": "idle"}
-        return dict(result, node=self.last_node, task_id=self.task_id)
+        message = explain(result.get("error"))
+        return dict(result, message=message, node=self.last_node, task_id=self.task_id)
 
     def progress(self):
         session = self.session

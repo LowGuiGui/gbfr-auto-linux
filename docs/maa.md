@@ -1,150 +1,142 @@
 <!-- SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui> -->
 <!-- SPDX-License-Identifier: GPL-2.0-or-later -->
 
-# Native Maa resource candidate 0.1.0-rc.2
+# GBFR 自动刷取（Maa 版）使用说明
 
-This candidate uses MXU's existing interface and MaaFramework's native Linux
-controller. It is separate from the legacy `gbfr_auto.py` command-line loop.
-Neither a complete progression guide nor a general combat bot is included.
+> [!IMPORTANT]
+> **0.2.0 开发中。** 新的循环用游戏自带的“再次挑战”连刷。它通过了全部离线测试，
+> 但还没有用 MXU 在真实游戏里完整跑过。上一个在真实游戏里验证过的版本是
+> 0.1.0-rc.2，它每轮回城重新接任务。详见[限制与证据](#限制与证据)。
 
-## Compatibility
+本说明为准，[英文版](maa.en.md)是它的翻译。
 
-The pinned pair is MXU 2.11.2 and MaaFramework 5.16.1 on Linux x86-64. The current
-screen profile is simplified Chinese, 16:9, normalized to 1280×720. Native capture
-uses Gamescope's PipeWire source; input uses its libei socket with Linux key codes.
-The Agent refuses a controller connected to a different game, display, input
-convention or replaced capture source.
+## 它做什么
 
-Gamescope needs working PipeWire support. Version 3.16.20 has an upstream loop-lock
-bug with newer PipeWire; the fix is included from 3.16.22. An unmodified 3.16.31
-build passed both isolated controller checks and the game trials below. The game
-trials used a silent headless 2560×1440 Gamescope session, normalized to 1280×720.
-The normal Wayland window profile passed a separate capture/input fixture. Other
-compositor versions, languages, aspect ratios and gameplay modifications need
-their own checks.
+软件替你接第一次任务，然后打开游戏自带的“再次挑战”，让游戏自己一轮接一轮地刷。
+每次结算画面出现，软件计一次数。达到次数，或者你选择“本轮后停止”时，软件在结算画面
+关掉再次挑战，等游戏回到城镇后结束。
 
-The two catalog entries are MANIAC Quakadile and Blizzadile material quests.
-Their evidence fields distinguish candidates from accepted routes. The current
-strategy uses the game's Full Assist setting and AI teammates, without automation
-combat input. Recommended quest power does not guarantee
-that a particular party can win without player input.
+游戏每连刷 10 次会弹出确认框。软件不回答它，等它自己结束、游戏回到城镇，再重新接任务继续。
+战斗交给游戏的完全辅助模式和 AI 队友，软件在战斗中不按任何键。
 
-Full Assist must be enabled before starting this profile. Older guides limit it to
-Extreme; the [current official systems page](https://relink-ragnarok.granbluefantasy.com/en/systems/)
-extends it to Maniac, Proud and quests through the expansion story. This does not
-establish support for every mechanic or arena. See [progression scope](progression.md)
-for the distinction between useful growth goals and implemented presets.
+## 第一次使用前
 
-## Validation scope
+**在游戏里：**
 
-Checked on 2026-11-21 with the pinned client/runtime pair and game 2.0.6:
+- 任务已经解锁。目前有两个预设，都是 MANIAC 难度：巨爪岩鳄素材（任务“解决沙漠狂徒”）和
+  巨爪霜鳄素材（任务“我要打造冰冷的铠甲”）。
+- 开启完全辅助模式（战斗托管模式）。
+- 当前的 AI 队伍能稳定通关这个任务。第一次请把次数设为 1，先确认一次。
+- 游戏语言是简体中文，画面比例 16:9。
+- 可选：在加载提示画面按一次 Esc，打开 AUTO SKIP。打开后加载完会自动继续；
+  不打开也可以，软件会替你按“继续”。
 
-| Behavior | Evidence and limit |
-|---|---|
-| Quakadile, 解决沙漠狂徒 | An exact 1/1 run and five consecutive completed runs without menu intervention. The five-run trial took about 37 minutes. |
-| Blizzadile, 我要打造冰冷的铠甲 | One exact 1/1 run from town through settlement and back to town, without menu intervention. |
-| Finish after this run | The GUI request arrived during battle five of a limit-10 session; exactly five runs settled in town and no sixth run began. |
-| Entry screens | Town is the end-to-end tested start. Counter and difficulty/quest-list nodes were exercised in navigation and checked on saved frames. Unknown starts stop with a bounded explanation. |
-| Ownership and errors | A second controller was refused. Unknown-screen and immediate-stop trials ended with zero completions. Saved-frame checks reject mismatched quest names. |
-| Input release | Native fixture checks covered ordinary release, stop with capture pending and target loss. They do not establish recovery from an indefinitely wedged compositor or arbitrary client crash. |
-| Defeat | Accounting/failure behavior is checked in automated tests; a real defeat was not deliberately induced. |
-
-The standard client was exercised on a private X11 display and through its web
-interface. The tests did not open a window on the working desktop.
-
-The tested strategy uses Full Assist with an existing high-level AI party. These
-trials do not measure material drop rates, prove an optimal leveling route, or
-guarantee that a weaker party can clear either quest. Do not send physical input
-to the controlled game during a task; overlapping manual control is not a
-supported operating mode.
-
-## Build and run
-
-Use Python 3.13 and `uv`. From the repository:
+**在电脑上**，构建一个版本目录。需要 Python 3.13 和 `uv`：
 
 ```sh
-python3 tools/build_maa.py --output dist/maa-candidate
+python3 tools/build_maa.py --output dist/maa-0.2.0
 ```
 
-The builder verifies downloaded archives/models against `assets/dependencies.json`,
-creates a runtime-only environment, and copies the resource, Agent and licenses.
-It refuses to overwrite an existing version directory. System packages and Steam
-configuration are not changed. The output records its source revision, dirty state
-and payload hashes in `bundle.json`; build from a clean signed checkpoint for a
-reproducible candidate. The Python environment uses a managed interpreter and is
-intended for local installation, not relocation to an arbitrary computer.
+构建会按固定版本下载 MXU、MaaFramework 和文字识别模型，逐个核对哈希，不改动系统和 Steam 设置。
+已经存在的目录不会被覆盖，所以旧版本可以一直留着用来回滚。
 
-Start GBFR through Steam in a compatible Gamescope session, then run `./mxu` from
-the bundle directory. Select GBFR's Gamescope device and the Chinese resource.
-Choose one material preset and a successful-run limit. The task must already be
-unlocked, and the AI party must be able to clear it. Start from Seedhollow town,
-the quest counter, or a supported difficulty/quest-list menu. Automatic title-screen
-continuation and arbitrary battle/result recovery are outside this candidate.
+可选：把版本目录里的 `gbfr-auto.desktop` 复制到 `~/.local/share/applications/`，
+应用菜单里就会出现“GBFR 自动刷取”。它记的是这个目录的绝对路径，目录挪动后要重新复制。
 
-If an unstarted quest is already accepted in town, choosing a preset can replace
-that reservation. The flow recognizes the game's specific replacement confirmation
-after selecting the requested quest, then selects it again. Stopping before
-departure leaves the accepted quest in town; it does not count as a completed run.
+## 开始刷
 
-The welcome link opens the progress/stop panel using MXU's existing loopback server.
-The default local port is 12792. Only one game and one controlling session are
-supported. A second Agent or the legacy loop cannot acquire the same session lock.
-The finish-current-run panel requires exactly one queued preset; it disables that
-button for multiple queued tasks because MXU's per-task override does not cancel
-later queued presets. Immediate stop remains available.
+1. 通过 Steam 启动游戏，停在城镇，或者停在要刷的任务的准备画面。
+   **游戏启动后，在游戏窗口里点一下。** 每次启动只需要一次，之后窗口在后台也能收到按键。
+2. 打开 MXU：从应用菜单打开“GBFR 自动刷取”，或者运行版本目录里的 `./start.sh`。
+   实例“GBFR 自动刷取”已经选好控制器和资源；确认设备是 GBFR 的 Gamescope。
+3. 只勾选一个预设。填成功次数（默认 10），或者打开“一直刷，直到我停止”。
+4. 点“开始”。
 
-## What completion means
+之后不要操作游戏。MXU 的日志里会显示“第 k/N 次完成”。
 
-One success requires the session's own ready confirmation, an observed battle,
-victory, reward settlement and return to town. A previous results screen cannot
-create a success. Repeated victory/result frames cannot add another count.
+## 一轮是怎么跑的
 
-The flow uses private matching. It waits through the game's results countdown and
-does not enable the in-game repeat toggle; keep that toggle off. The software starts
-each new run from town. It stops on defeat, an unsupported screen or a bounded
-transition/battle timeout. The current two routes have a ten-minute wall-clock
-battle budget, starting when their battle HUD is first observed; cinematics count
-toward that budget. It does not change equipment, spend materials or advance
-the story. Repeated battles still grant the game's normal rewards and experience.
+| 阶段 | 软件做什么 |
+|---|---|
+| 第一轮 | 从城镇走到任务柜台，接任务，选私人匹配，出发 |
+| 战斗 | 只看不按。一轮战斗超过 10 分钟就停下 |
+| 结算 | 结算画面出现时计一次数。到了奖励页：要继续，就打开“再次挑战”；要停，就关掉它。软件等奖励展示完再按 3，按完读回开关状态，没变就再按一次 |
+| 之后每轮 | 游戏自己开始下一轮。再次挑战开着时，游戏会跳过宝箱阶段 |
+| 第 10 轮 | 游戏把再次挑战重置为关，并弹出“是否继续挑战该任务？”。软件不回答，等它超时回城，再重新接任务。每 10 轮多花约 80 秒 |
 
-“Finish this run” waits for rewards and town, then prevents another admission.
-“Stop operations now” stops automation; it does not pause or close the game.
-If the game is already fighting, its AI and timers continue. Leave the game using
-its own menu when finished.
+在测试队伍下实测（2026-11-21，巨爪岩鳄），开着再次挑战时每轮约 6 分钟，其中战斗约 4 分半。
 
-## Recovery and updates
+## 停止
 
-If recognition stops, inspect the game and the client's error screenshot/log.
-Return to a supported starting screen before starting a new session. Never
-interpret an uncertain battle as a successful completion. A stopped client may
-display its last cached screenshot; request live screenshots before acting.
+- **达到次数**：自动停下，游戏回到城镇后结束。
+- **本轮后停止**：打开控制面板（MXU 欢迎信息里的链接），点“本轮结束后停下”。
+  软件在当前这一轮的结算画面关掉再次挑战，游戏回城后结束。目前只支持一次运行一个预设。
+- **立即停止**：MXU 的“停止”，或控制面板的“立即停止操作”。它只停止软件的输入，游戏不会暂停。
+  如果再次挑战开着，游戏会自己继续刷，最多刷到第 10 次弹窗，然后回城。想马上停，
+  请在结算的奖励页按 3，关掉再次挑战。
+- **退出游戏**：用游戏自己的菜单退出。不要强行结束游戏、Wine/Proton 或 Gamescope 进程，
+  那样可能损坏存档。
 
-Keep the previous version directory intact. Build an update into a new directory,
-stop the old task, then exit the old client before opening the new one. For the same
-pinned MXU version, copy `config/mxu-GBFRLinux.json` into the new bundle while both
-clients are closed; retain the original beside the old client. For a different
-client version, check its configuration compatibility and use MXU's export/import
-controls as appropriate. Do not overwrite an old environment or copy live runtime
-locks/status files. Rollback means reopening the preserved old client with its
-preserved configuration. Do not update components during a task.
+## 出错时
 
-After an Agent failure, use the client's normal Stop action first; native Maa tracks
-the bounded keys registered by the pipeline. Check the game before resuming. A full
-client/compositor crash is not a verified automatic-release condition. Do not run
-the legacy command's broad release operation against an active Maa session, force
-focus or kill the game as a recovery shortcut. Recover through the game's own menu
-and reconnect only when the game responds normally.
+软件停下时，控制面板会写出停下的原因和该怎么做；技术原因折叠在下面。常见情况：
 
-## Development boundary
+| 面板上说 | 怎么办 |
+|---|---|
+| 画面在限定时间内没有变成预期的样子 | 看一眼游戏。回到城镇或准备画面再开始。常见原因：起点不对、有弹窗、游戏语言不是简体中文、游戏启动后没点过窗口 |
+| MXU 连接的不是 GBFR 的 Gamescope | 在 MXU 的设备里选 GBFR 的 Gamescope，并确认游戏是从 Steam 启动的 |
+| 战斗超过了 600 秒上限 | 确认完全辅助模式开着，队伍能通关 |
+| 按了两次 3，“再次挑战”仍然没有打开 | 看游戏是否卡住；回到城镇后重新开始 |
+| 游戏画面里有别的窗口或覆盖层；检测到 Ctrl、Shift、Alt 之类的键按着 | 关掉覆盖层、松开按键，再重新开始 |
+| 任务失败 | 换更强的队伍，或者先用 1 次确认能通关 |
 
-`assets/catalog.json` defines goals, visible quest names and prerequisites.
-`tools/maa_catalog.py` generates standard task/option overrides. Shared screen
-recognition and navigation live in `assets/resource/pipeline/farming.json`.
-`maa_agent.py` owns only target/input checks, session accounting and stop semantics;
-native Maa owns capture, recognition, input delivery and pipeline scheduling.
-`assets/control.html` is a small status/stop view served by the existing MXU server.
+游戏启动后如果没在窗口里点过，按键可能完全不生效，结果通常是第一条。点一下游戏窗口再开始。
 
-Run the repository health checks:
+## 更新与回滚
+
+1. 把新版本构建到一个新目录，旧目录不要动。
+2. 停止旧版本的任务，关闭旧的 MXU，再打开新的。
+3. 想沿用旧设置：MXU 版本相同时，在两个 MXU 都关着的情况下，把旧目录的
+   `config/mxu-GBFRLinux.json` 复制到新目录；旧的那份留在原处。MXU 版本不同时，
+   用 MXU 自己的导出、导入。
+
+回滚就是关掉新版本，重新打开旧目录里的 `./start.sh`（0.1.0-rc.2 目录里运行 `./mxu`）。
+不要在任务运行时更新任何部分。
+
+## 限制与证据
+
+**支持范围。** MXU 2.11.2 和 MaaFramework 5.16.1，Linux x86-64。游戏 2.0.6，简体中文，
+16:9，识别时缩放到 1280×720。截图走 Gamescope 的 PipeWire 输出，输入走它的 libei 接口；
+需要 Gamescope 3.16.22 或更新（3.16.20 的 PipeWire 截图会卡住）。一次只控制一个游戏、
+一个会话，第二个控制者会被拒绝。
+
+**已经验证的（2026-11-21）：**
+
+- 游戏自身的行为：用一个测量脚本在真实游戏里刷了 12 轮巨爪岩鳄。结算有两页，各 30 秒倒计时；
+  再次挑战的开关在第二页（奖励页）。开着再次挑战时游戏跳过宝箱阶段。第 10 轮游戏重置开关并弹窗，
+  不操作就回城。奖励页刚出现的约 2 秒里按键无效。游戏启动后点过一次窗口，之后约 80 分钟里，
+  窗口在后台时按键仍然有效。
+- 新循环的离线测试：17 个按实测行为编写的脚本化游戏场景；13 张实测截图的识别用例（只保留识别区域）；
+  在 3406 张实测截图上逐张回放识别，没有误认。
+- 菜单导航（城镇到出发）沿用 0.1.0-rc.2，已经在真实游戏里验证过：岩鳄 1 次和连续 5 次，霜鳄 1 次。
+
+**还没有验证的：** 新循环在真实游戏里完整跑一遍；弹窗里选“是”的效果；霜鳄的再次挑战循环；
+战斗失败时游戏的行为；AUTO SKIP 在重启游戏后是否保留；MXU 是否显示软件写的进度日志。
+
+**不做的事：** 自动启动游戏、从标题画面继续、配装、消耗素材、推进剧情、战斗中的输入；
+其他语言、分辨率和画面比例。完全辅助模式和 AI 队友能否通关，取决于你的队伍。
+有用的成长目标和已实现的预设有什么区别，见[成长范围](progression.md)。
+
+## 开发
+
+- 任务、文案、战斗上限和验证状态在 `assets/catalog.json`；`tools/maa_catalog.py` 由它生成
+  `assets/interface.json`。
+- 识别和流程在 `assets/resource/pipeline/farming.json`：`GBFR_See_*` 是“看到了什么”，
+  动作节点把它们和 Agent 的 `GBFRSession` 判断组合起来。
+- `maa_agent.py` 负责计数和停止判断，`maa_session.py` 是计数规则，`maa_guard.py` 做目标和按键检查，
+  `maa_messages.py` 把停止原因翻译成上面那些中文提示。
+
+健康检查：
 
 ```sh
 .venv/bin/pytest
@@ -152,10 +144,7 @@ Run the repository health checks:
 .venv/bin/reuse lint
 ```
 
-`tools/maa_replay.py RESOURCE IMAGE NODE...` checks native recognition on saved
-images with all input disabled. Check each intended screen and unrelated negative
-frames. Supply `--override PRESET.json` with a task's `pipeline_override` to check a
-different catalog goal against both its own images and images from another quest.
-Keep private full-screen captures/logs outside version control. A supported
-release additionally needs real consecutive quest completions, exact-count and
-delayed-stop trials, failure/ownership controls and independent-bundle validation.
+识别用例需要 OCR 模型：把 `GBFR_MAA_OCR_MODEL` 指向一个 `model` 目录，或者先用
+`python3 tools/build_maa.py --ocr-only --output <目录>` 下载。`tools/maa_replay.py` 在截图上
+离线跑识别，`tools/maa_fixtures.py` 把一张截图处理成可提交的用例。测试的覆盖范围见
+[测试说明](../tests/README.md)。

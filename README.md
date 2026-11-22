@@ -10,17 +10,17 @@ SPDX-License-Identifier: GPL-2.0-or-later
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 > [!IMPORTANT]
-> **Maa 图形客户端已有两个实测刷取预设，首个本地候选版本为 0.1.0-rc.2。**
+> **Maa 版 0.2.0 开发中：改用游戏自带的“再次挑战”连刷，离线测试已通过，尚未在真实游戏里完整跑过。**
 >
-> 使用现有 MXU 客户端、MaaFramework 原生 Linux 控制器和本项目的游戏资源。
-> 安装、支持范围及停止方式见 [Maa 使用说明](docs/maa.md)。
+> 上一个真实游戏验证过的版本是 0.1.0-rc.2（每轮回城重新接任务）。使用现有 MXU 客户端、
+> MaaFramework 原生 Linux 控制器和本项目的游戏资源。安装、使用和停止方式见 [Maa 使用说明](docs/maa.md)。
 
 > [!WARNING]
 > **AI 编写声明。** 本仓库由 AI 编程助手（Claude Code 和 OpenAI Codex）在仓库所有者的指示下编写，**没有经过人工逐行审查**。
 > 验证范围见下表与[测试说明](tests/README.md)，运行前请自行审阅。
 
 这是 Windows 版 [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbfr_auto) 的 Linux 后继项目；Windows 版已归档。
-本项目让用户选择素材预设和成功次数，自动选本、结算并返回城镇。战斗依靠当前 AI 队伍，支持范围按副本逐一验证。
+本项目让用户选择素材预设和成功次数：软件接第一次任务，之后用游戏自带的“再次挑战”连刷并计数，结束时回到城镇。战斗依靠游戏的完全辅助模式和当前 AI 队伍，支持范围按副本逐一验证。
 
 本中文说明为准，[英文版](README.en.md)是它的翻译。
 
@@ -31,9 +31,9 @@ Maa 提供识别、流程调度、截图和输入，MXU 提供已有界面。本
 | 部分 | 当前范围 |
 |---|---|
 | 客户端与运行时 | 固定 MXU 2.11.2、MaaFramework 5.16.1；独立目录构建，保留旧版本用于回滚 |
-| 真实游戏验证 | 简体中文 2.0.6、16:9、希德霍姆城镇起点；岩鳄完成 1/1 与连续五轮，霜鳄完成 1/1；第五轮战斗中请求停止后正确结算回城 |
+| 真实游戏验证 | 0.1.0-rc.2：简体中文 2.0.6、16:9、希德霍姆城镇起点；岩鳄完成 1/1 与连续五轮，霜鳄完成 1/1。游戏自带再次挑战的行为已实测（岩鳄 12 轮）；0.2.0 的新循环尚未在真实游戏里跑过 |
 | 目标目录 | 巨爪岩鳄、巨爪霜鳄素材两个预设；各自验证状态记录在 [catalog.json](assets/catalog.json) |
-| 停止 | 成功次数限制、立即停止操作，以及当前轮结算后停止；后者要求每次只选一个预设 |
+| 停止 | 成功次数（1–999）或一直刷；当前轮结算后停止（要求每次只选一个预设）；立即停止操作 |
 | 尚不支持 | 自动从标题画面继续、任意战斗/结果画面接管、自动配装和消耗素材、全成长路线与所有 DLC 副本 |
 
 少量成功样本不能证明任意队伍或长期挂机都可靠。游戏正常重复奖励和经验仍会到账；未知画面、失败或超时会结束自动操作。
@@ -43,14 +43,14 @@ Maa 提供识别、流程调度、截图和输入，MXU 提供已有界面。本
 在 Python 3.13 和 `uv` 可用的环境中构建：
 
 ```sh
-python3 tools/build_maa.py --output dist/maa-candidate
+python3 tools/build_maa.py --output dist/maa-0.2.0
 ```
 
-通过 Steam 在兼容的 Gamescope 中启动游戏，进入希德霍姆城镇或支持的任务菜单，再从构建目录启动 `./mxu`。
-选择 GBFR 设备、简体中文资源、**一个**素材预设及成功次数；先以 1 次确认当前队伍能完成。
-“查看进度和停止”链接提供成功计数和两种停止方式。游戏内的自动重复开关应保持关闭。
+通过 Steam 启动游戏，停在城镇或要刷的任务的准备画面，在游戏窗口里点一下。运行构建目录里的 `./start.sh`，
+勾选**一个**素材预设，填成功次数或选“一直刷”，然后开始；第一次请先用 1 次确认当前队伍能通关。
+控制面板（欢迎信息里的链接）显示成功次数，提供“本轮后停止”和“立即停止”。
 
-完整的环境要求、确认过的起点、错误恢复和更新方法见 [Maa 使用说明](docs/maa.md)。
+前提条件、出错时怎么办和更新方法见 [Maa 使用说明](docs/maa.md)。
 停止软件不会暂停或关闭游戏；结束游戏请使用游戏自己的菜单。
 
 ## 旧命令行方案
@@ -88,7 +88,7 @@ Maa 路径在表格前四项；旧命令行循环和复用的检查工具也保�
 |---|---|
 | `assets/catalog.json`、`assets/interface.json` | 素材目标、前提条件与标准客户端选项 |
 | `assets/resource/` | Maa 的共享识别与任务流程 |
-| `maa_agent.py`、`maa_guard.py`、`maa_session.py`、`maa_target.py` | 目标和输入检查、单会话管理、通关计数与停止语义 |
+| `maa_agent.py`、`maa_guard.py`、`maa_session.py`、`maa_target.py`、`maa_messages.py` | 目标和输入检查、单会话管理、通关计数与停止语义、停止原因的中文说明 |
 | `tools/build_maa.py`、`assets/control.html` | 独立客户端构建，以及现有客户端服务上的进度/停止面板 |
 | `opencv.py` | 模板匹配，以及对空白帧的防护 |
 | `pages.py` | 按有序规则树判断当前是哪个画面的引擎 |

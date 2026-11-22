@@ -15,8 +15,8 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-AGENT_FILES = ("maa_agent.py", "maa_guard.py", "maa_session.py", "maa_target.py",
-               "gamescope.py", "control.py", "applog.py")
+AGENT_FILES = ("maa_agent.py", "maa_guard.py", "maa_messages.py", "maa_session.py",
+               "maa_target.py", "gamescope.py", "control.py", "applog.py")
 
 
 def digest(path):
@@ -59,6 +59,44 @@ def fetch_ocr(output, cache):
     return place_ocr({"ocr-" + n: fetch(cache, pins["ocr-" + n]) for n in OCR_FILES}, output)
 
 
+def mxu_config(interface, catalog):
+    """A ready MXU instance: GBFR's controller and resource, one preset ticked.
+
+    Field names follow the config MXU 2.11.2 itself writes. Options are left to the
+    interface defaults. The device is picked in MXU, because it is discovered live.
+    """
+    controller = interface["controller"][0]["name"]
+    tasks = [{"id": quest["id"], "taskName": quest["id"], "enabled": index == 0,
+              "enabledByController": {controller: True}, "expanded": index == 0,
+              "optionValues": {}}
+             for index, quest in enumerate(catalog["quests"])]
+    return {
+        "version": "1.0",
+        "instances": [{"id": "gbfr", "name": "GBFR 自动刷取", "controllerName": controller,
+                       "resourceName": interface["resource"][0]["name"], "savedDevice": {},
+                       "tasks": tasks}],
+        "lastActiveInstanceId": "gbfr",
+        # One source for the panel port: the welcome link is rendered from the same value.
+        "settings": {"webServerEnabled": True,
+                     "webServerPort": catalog["profile"]["control_panel_port"],
+                     "allowLanAccess": False, "checkUpdateOnStart": False,
+                     "minimizeToTray": False, "helpImproveSoftware": False},
+    }
+
+
+def launcher_files(output):
+    """A start script that works from anywhere, and a desktop entry pointing at it.
+
+    The desktop entry needs this bundle's absolute path; it is not installed
+    anywhere. Copy it to ~/.local/share/applications to get a menu entry.
+    """
+    script = "#!/bin/sh\n# Open this bundle's MXU from its own directory.\ncd \"$(dirname \"$0\")\" && exec ./mxu \"$@\"\n"
+    entry = ("[Desktop Entry]\nType=Application\nName=GBFR 自动刷取\n"
+             "Comment=用游戏自带的再次挑战连刷素材\n"
+             f"Exec=\"{output / 'start.sh'}\"\nTerminal=false\nCategories=Game;\n")
+    return {"start.sh": (script, 0o755), "gbfr-auto.desktop": (entry, 0o644)}
+
+
 def build(output, cache, python):
     if output.exists():
         raise ValueError("Output already exists; choose a new version directory for rollback")
@@ -74,7 +112,10 @@ def build(output, cache, python):
         shutil.copy2(ROOT / name, output / "agent" / name)
     shutil.copytree(ROOT / "LICENSES", output / "LICENSES")
     shutil.copy2(ROOT / "COPYRIGHT", output / "COPYRIGHT")
-    shutil.copy2(ROOT / "docs/maa.md", output / "README.md")
+    # README.md is the Chinese guide; the guides also keep their own names so
+    # their links to each other work inside the bundle.
+    for source, name in (("maa.md", "README.md"), ("maa.md", "maa.md"), ("maa.en.md", "maa.en.md")):
+        shutil.copy2(ROOT / "docs" / source, output / name)
     shutil.copy2(ROOT / "docs/progression.md", output / "progression.md")
     notices = output / "third-party"
     notices.mkdir()
@@ -102,12 +143,13 @@ def build(output, cache, python):
     for name in ("MaaCommonAssets-LICENSE", "PaddleOCR-LICENSE"):
         shutil.copy2(downloads[name], notices / name)
     (output / "config").mkdir()
-    # One source for the panel port: the welcome link is rendered from the same value.
-    port = json.loads((ROOT / "assets/catalog.json").read_text())["profile"]["control_panel_port"]
-    (output / "config/mxu-GBFRLinux.json").write_text(json.dumps({
-        "version": "1.0", "instances": [], "settings": {
-            "webServerEnabled": True, "webServerPort": port, "allowLanAccess": False,
-            "checkUpdateOnStart": False, "minimizeToTray": False}}, indent=2) + "\n")
+    config = mxu_config(json.loads((ROOT / "assets/interface.json").read_text()),
+                        json.loads((ROOT / "assets/catalog.json").read_text()))
+    (output / "config/mxu-GBFRLinux.json").write_text(
+        json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+    for name, (text, mode) in launcher_files(output).items():
+        (output / name).write_text(text)
+        (output / name).chmod(mode)
     lock = output / "requirements.lock"
     shutil.copy2(ROOT / "requirements-maa-runtime.lock", lock)
     subprocess.run(["uv", "venv", "--python", python, str(output / ".venv")], check=True)
