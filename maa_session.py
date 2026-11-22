@@ -4,10 +4,12 @@
 """Run accounting for a session built on the game's own Repeat Quest.
 
 Independent of screenshots and the Maa runtime. The first run of a session starts
-from the quest menus (`admit`); later runs start because the game repeats the quest
-after the session turned Repeat Quest on (`repeat_on`). A run counts once, on its
-results screen, and only after a battle of that run was observed. With repeat on the
-game skips the victory screen, so victory is not part of the boundary.
+from the quest the player opened at the counter (`admit`); every later run starts
+because the game repeats the quest after the session turned Repeat Quest on
+(`repeat_on`), including after 是 on the game's tenth-run dialog (`answer_yes`). A run
+counts once, on its results screen, and only after a battle of that run was observed.
+With repeat on the game skips the victory screen, so victory is not part of the
+boundary.
 
 A session ends in one of three ways: `finished` (the run limit or a finish request
 was reached and the game is back in town), `stopped` (the player stopped the
@@ -27,11 +29,12 @@ class SessionError(RuntimeError):
 
 @dataclass
 class Session:
-    quest: str
+    quest: str | None = None  # the quest's name as read on its results page, for display
     limit: int | None = 1  # None: until the player stops it
     completed: int = 0
-    episode: int = 0  # runs started, from the menus or by the game's repeat
-    admissions: int = 0  # runs started from the quest menus
+    episode: int = 0  # runs started, from the quest menus or by the game's repeat
+    admissions: int = 0  # runs started from the quest menus (one per session)
+    continued: int = 0  # tenth-run dialogs answered 是
     phase: str = "ready"
     repeat: bool = False  # Repeat Quest was verified on after the last settled run
     # Repeat Quest was last seen on in the game. Unlike `repeat` it survives a results
@@ -43,8 +46,6 @@ class Session:
     error: str | None = None
 
     def __post_init__(self):
-        if not self.quest:
-            raise SessionError("Choose a quest")
         if self.limit is not None and (type(self.limit) is not int or not 1 <= self.limit <= 999):
             raise SessionError("Choose a successful-run limit from 1 to 999, or run until stopped")
 
@@ -104,12 +105,14 @@ class Session:
         self.repeat = self.left_on = False
         self.cap_seen = True
 
-    def town(self):
-        """Back in town after a results screen without finishing: start from the menus."""
-        if self.phase != "settled" or self.repeat or not self.should_continue:
-            raise SessionError("The session cannot restart from town in its current state")
-        self.phase = "ready"
+    def answer_yes(self):
+        """是 on the tenth-run dialog: the game turns Repeat Quest back on and goes on.
+
+        Repeat is believed on only once the results page reads it (`repeat_on`)."""
+        if self.phase != "settled" or not self.should_continue:
+            raise SessionError("The tenth-run dialog may only be answered to continue the session")
         self.cap_seen = False
+        self.continued += 1
 
     def finish(self):
         if self.phase not in {"ready", "settled"} or self.repeat or self.should_continue:

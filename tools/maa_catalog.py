@@ -2,37 +2,28 @@
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Render standard Project Interface tasks from the versioned quest catalog.
+"""Render the standard Project Interface task from the versioned catalog.
 
-The catalog holds the quests, their limits and every user-facing string; this
-script only arranges them into `interface.json`.
+The catalog holds the task's label and every user-facing string; this script only
+arranges them into `interface.json`. There is one task: the loop works on whatever
+quest the player opened at the counter, so no quest name reaches the pipeline.
+`verified_quests` records which quests have been run and with what evidence.
 """
 
 import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-NAME_FIELDS = ("NameList", "NameDetails", "NameReady", "NameConfirm", "NameResult")
-OBJECTIVE_FIELDS = ("ObjectiveDetails", "ObjectiveBattle")
-
-
-def quest_override(quest):
-    result = {"GBFR_Catalog_" + name: {"expected": quest["name"]} for name in NAME_FIELDS}
-    result.update({"GBFR_Catalog_" + name: {"expected": quest["objective"]}
-                   for name in OBJECTIVE_FIELDS})
-    result["GBFR_QuestConfig"] = {"attach": {"quest": quest["name"],
-                                             "battle_limit": quest["battle_limit"]}}
-    return result
 
 
 def render(interface, catalog):
     text = catalog["text"]
+    task = catalog["task"]
     interface = dict(interface)
     interface["task"] = [{
-        "name": quest["id"], "label": quest["label"], "entry": "GBFR_Start",
-        "description": text["task"].format(**quest),
-        "option": ["UntilStopped"], "pipeline_override": quest_override(quest),
-    } for quest in catalog["quests"]]
+        "name": task["id"], "label": task["label"], "entry": "GBFR_Start",
+        "description": text["task"], "option": ["UntilStopped"],
+    }]
     interface["option"] = {
         "UntilStopped": {
             "type": "switch", "label": text["until_stopped_label"], "default_case": "No",

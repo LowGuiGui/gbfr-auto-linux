@@ -16,10 +16,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = ROOT / "assets/resource/pipeline/farming.json"
-# The leaves the fixtures check. The defeat and settlement-dialog leaves read large
-# central regions and have no measured frames yet, so they are left out to keep
-# fixtures small.
+# The leaves the fixtures check. The settlement-dialog leaf has no measured frame
+# yet, so it is left out.
 LEAVES = ("GBFR_See_Results", "GBFR_See_RepeatOff", "GBFR_See_RepeatOn", "GBFR_See_TenthRun",
+          "GBFR_See_TenthYes", "GBFR_See_TenthNo", "GBFR_See_Defeat",
           "GBFR_See_Battle", "GBFR_See_Victory", "GBFR_See_Town", "GBFR_See_Tips")
 
 

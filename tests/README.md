@@ -28,16 +28,19 @@ The Maa path adds target/process identity, native controller configuration, boun
 input/release, callback-scoped handle rebinding, session ownership and episode
 accounting tests. Negative controls reject helper windows, replaced sources,
 ambiguous targets, stale/blank action frames, duplicate results and unavailable
-session ownership. Catalog checks ensure each goal updates every quest-specific
-recognition leaf and that run-limit options cannot replace the chosen quest.
+session ownership. Catalog checks ensure the client has one task that passes nothing
+quest-specific to the pipeline, that run-limit options reach the Agent's nodes, and that
+no recognition expects a verified quest's name or objective.
 Builder checks cover dependency hash refusal and separate version directories.
 
 The pipeline graph tests (`test_maa_pipeline_graph.py`, harness `maa_graph.py`) run
 the real resource and Agent against a scripted game that follows the Repeat Quest
-behaviour measured on 2026-11-21: N = 1, 3 and 12 (across the tenth-run dialog),
-finishing during battle or on the rewards page, until-stopped, a toggle that never
-changes, a failed quest, an unknown start, stale results, a game that closes mid-battle,
-and the client's Stop. Leaves are scripted; composed nodes and the session gate run
+behaviour measured on 2026-11-21 and 2026-11-22: N = 1, 3 and 12 (answering 是 on the
+tenth-run dialog), until-stopped across three dialogs, the cursor already on 是, 是 the
+game ignores, a cursor that never reaches 是, a dialog left to time out, finishing during
+battle or on the rewards page, a toggle that never changes, a failed quest with Repeat
+Quest on, off or unreadable, a failure first seen by the count's recheck, an unknown
+start, stale results, a game that closes mid-battle, and the client's Stop. Leaves are scripted; composed nodes and the session gate run
 natively. The harness also records the focus messages a client such as MXU logs, so the
 tests check that every count, the finish and every failure reason reach that log. A
 static check pins the assumption behind recording a stop: the only successful end of

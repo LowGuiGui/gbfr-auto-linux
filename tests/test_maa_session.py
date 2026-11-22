@@ -39,7 +39,7 @@ def test_a_results_screen_counts_only_once():
 
 
 @pytest.mark.parametrize("event", ["battle", "settle", "repeat_on", "repeat_off", "tenth_run",
-                                   "town", "finish"])
+                                   "answer_yes", "finish"])
 def test_nothing_from_before_the_session_is_adopted(event):
     session = Session("boss", 3)
     with pytest.raises(SessionError):
@@ -90,7 +90,7 @@ def test_a_stop_after_repeat_was_left_on_counts_the_started_run_as_overrun():
     assert session.overrun == 1
 
 
-def test_the_tenth_run_dialog_resets_repeat_and_the_session_restarts_from_town():
+def test_yes_on_the_tenth_run_dialog_continues_without_another_admission():
     session = Session("boss", 12)
     first_run(session)
     for _ in range(9):
@@ -98,13 +98,35 @@ def test_the_tenth_run_dialog_resets_repeat_and_the_session_restarts_from_town()
     session.tenth_run()
     assert session.cap_seen and not session.repeat
     with pytest.raises(SessionError):
-        session.battle()
-    session.town()
-    first_run(session)
+        session.battle()  # the dialog reset the toggle: not yet believed on
+    session.answer_yes()
+    assert not session.cap_seen and not session.repeat
+    repeated_run(session)  # the results page reads repeat on again
     repeated_run(session)
     assert session.completed == session.episode == 12
-    assert session.admissions == 2
-    assert not session.cap_seen
+    assert session.admissions == 1
+    assert session.continued == 1
+
+
+@pytest.mark.parametrize("stop", ["limit", "finish", "stopped"])
+def test_the_dialog_is_not_answered_when_the_session_should_stop(stop):
+    session = Session("boss", 10 if stop == "limit" else 20)
+    first_run(session)
+    for _ in range(9):
+        repeated_run(session)
+    session.tenth_run()
+    session.finish_requested = stop == "finish"
+    if stop == "stopped":
+        session.stop()
+    with pytest.raises(SessionError):
+        session.answer_yes()
+    assert session.continued == 0
+
+
+def test_a_session_needs_no_quest_name():
+    session = Session(None, 3)
+    first_run(session)
+    assert session.quest is None and session.completed == 1
 
 
 def test_until_stopped_never_reaches_a_limit():
@@ -168,10 +190,9 @@ def test_left_on_follows_the_games_toggle_across_results_screens():
     assert session.left_on and not session.repeat
     session.tenth_run()
     assert not session.left_on
-    session.town()
-    session.admit()
-    session.battle()
-    session.settle()
+    session.answer_yes()
+    assert not session.left_on  # believed on only once the results page reads it
     session.repeat_on()
+    assert session.left_on
     session.repeat_off()
     assert not session.left_on

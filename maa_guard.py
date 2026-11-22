@@ -26,9 +26,9 @@ from maa_target import (
     ProbeError, check_target, discover_target, process_stamp, read_node, select_game_window,
 )
 
-KEYS = {"Return": 28, "Escape": 1, "Up": 103, "Down": 108, "Left": 105,
-        "Right": 106, "w": 17, "a": 30, "f": 33, "r": 19, "3": 4,
-        "q": 16, "e": 18}
+# Only the keys the loop presses: confirm, cancel before departure, the tenth-run
+# dialog's cursor, and the results page's Repeat Quest toggle.
+KEYS = {"Return": 28, "Escape": 1, "Up": 103, "3": 4}
 DEFAULT_HOLD_MS = 100
 # Lit locks are not "held modifiers": Caps Lock only changes letters, Num Lock only keypad keys.
 LOCK_KEYSYMS = {XK.XK_Caps_Lock, XK.XK_Num_Lock}

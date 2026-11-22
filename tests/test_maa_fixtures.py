@@ -3,8 +3,8 @@
 
 """Native recognition of every checked leaf on measured game frames.
 
-Each fixture is a frame captured from the game on 2026-11-21 (Maniac Quakadile,
-simplified Chinese, 1280x720), blacked out outside the leaf regions by
+Each fixture is a frame captured from the game on 2026-11-21 or 2026-11-22 (Maniac
+Quakadile, simplified Chinese, 1280x720), blacked out outside the leaf regions by
 `tools/maa_fixtures.py`. Every fixture states the exact set of leaves that must hit,
 so each one is a positive case for its own leaves and a confusable negative for the
 rest (the other toggle state, the other results page, the dialog over the page).
@@ -34,7 +34,17 @@ CASES = {
     "results-rewards-repeat-on": {"GBFR_See_Results", "GBFR_See_RepeatOn"},
     "results-rewards-repeat-on-later-run": {"GBFR_See_Results", "GBFR_See_RepeatOn"},
     # The dialog blurs the page behind it: neither the page nor its toggle is read.
-    "tenth-run-dialog": {"GBFR_See_TenthRun"},
+    # It opens with the cursor on 否; one Up moves the glow to 是.
+    "tenth-run-dialog": {"GBFR_See_TenthRun", "GBFR_See_TenthNo"},
+    "tenth-run-dialog-cursor-on-yes": {"GBFR_See_TenthRun", "GBFR_See_TenthYes"},
+    # 是 turned repeat back on, on the same rewards page: a success page, not a failure.
+    "results-rewards-repeat-on-after-yes": {"GBFR_See_Results", "GBFR_See_RepeatOn"},
+    # A failed quest: one results page with no completion reward. It also reads as a
+    # results page, which is why the failure nodes come first and the count rechecks.
+    "failed-results": {"GBFR_See_Results", "GBFR_See_RepeatOff", "GBFR_See_Defeat"},
+    "failed-results-with-drops": {"GBFR_See_Results", "GBFR_See_RepeatOff", "GBFR_See_Defeat"},
+    # The QUEST FAILED banner over the field, before that page: nothing acts on it.
+    "failed-banner": set(),
     "results-rewards-off-after-dialog": {"GBFR_See_Results", "GBFR_See_RepeatOff"},
     # With repeat on, the field after the kill shows loot and "return to town": no leaf.
     "field-after-kill-repeat-on": set(),

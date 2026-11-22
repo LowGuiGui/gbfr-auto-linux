@@ -10,9 +10,9 @@ SPDX-License-Identifier: GPL-2.0-or-later
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 > [!IMPORTANT]
-> **Maa 0.2.0 is a release candidate: it farms with the game's own Repeat Quest. 0.2.0-rc.1 passed its first real-game acceptance (12 Quakadile runs in a row, finish after this run, stop now).**
+> **Maa 0.3.0 is in development: open any quest at the quest counter, and the software farms it with the game's own Repeat Quest, answering 是 (yes) on every tenth-run confirmation. The previous version, 0.2.0-rc.1, passed its first real-game acceptance (12 Quakadile runs in a row, finish after this run, stop now).**
 >
-> The previous version, kept for rollback, is 0.1.0-rc.2, which returns to town after every run. It uses the existing MXU client,
+> Kept for rollback are 0.2.0-rc.1 (two material presets, walks the menus to accept the quest) and 0.1.0-rc.2 (returns to town after every run). It uses the existing MXU client,
 > MaaFramework's native Linux controller and this project's game resources. See the [Maa guide](docs/maa.en.md) for setup, use and stopping.
 
 > [!WARNING]
@@ -20,23 +20,23 @@ SPDX-License-Identifier: GPL-2.0-or-later
 > Review the validation scope below and the [test guide](tests/README.md) before running it.
 
 This is the Linux successor of the archived Windows version, [LowGuiGui/gbfr_auto](https://github.com/LowGuiGui/gbfr_auto).
-Select a material preset and a number of successful runs: the software takes the first run, then farms and counts with the game's own Repeat Quest, and ends in town.
-Combat depends on the game's Full Assist mode and the current AI party, and support is validated per quest.
+Open the quest to farm at the quest counter and choose a number of successful runs or no limit: the software accepts the quest, then farms and counts with the game's own Repeat Quest, answers 是 on every tenth-run confirmation, and ends in town.
+Combat depends on the game's Full Assist mode and the current AI party; the quests measured so far are recorded in [catalog.json](assets/catalog.json).
 
 This file is a translation of the [Chinese README](README.md), which is canonical.
 
 ## Direction and status
 
 Maa provides recognition, scheduling, capture and input; MXU provides the existing interface.
-This project maintains game screens, farming presets and small accounting/stop hooks rather than another automation engine.
+This project maintains game-screen recognition, the farming flow and small accounting/stop hooks rather than another automation engine.
 
 | Component | Current scope |
 |---|---|
 | Client/runtime | Pinned MXU 2.11.2 and MaaFramework 5.16.1; separate version directories preserve rollback |
-| Real-game validation | 0.2.0-rc.1 (2026-11-22): 12 Quakadile runs in a row with no intervention (across the tenth-run dialog), finish after this run and stop now all passed; the new loop is not yet validated for Blizzadile. 0.1.0-rc.2: Chinese 2.0.6, 16:9, Seedhollow town; Quakadile passed 1/1 and five consecutive runs; Blizzadile passed 1/1 |
-| Goal catalog | Quakadile and Blizzadile material presets, with individual evidence in [catalog.json](assets/catalog.json) |
-| Stop behavior | A number of successful runs (1-999) or until stopped; finish after the current run (one preset per Start); immediate automation stop |
-| Outside current support | Automatic title continuation, arbitrary battle/result adoption, equipment/spending automation, all progression and DLC quests |
+| Real-game validation | 0.3.0: not yet run through MXU against the real game; the game behaviour it relies on (是 on the tenth run continues, a failure page returns to town by itself) was measured with a script on 2026-11-22. 0.2.0-rc.1 (2026-11-22): 12 Quakadile runs in a row with no intervention (across the tenth-run dialog), finish after this run and stop now all passed; the new loop is not yet validated for Blizzadile. 0.1.0-rc.2: Chinese 2.0.6, 16:9, Seedhollow town; Quakadile passed 1/1 and five consecutive runs; Blizzadile passed 1/1 |
+| Quest scope | Any private quest, starting from the quest opened at the counter; no recognition depends on a quest name. Only Quakadile has been measured, recorded in [catalog.json](assets/catalog.json) |
+| Stop behavior | A number of successful runs (1-999) or until stopped; finish after the current run; immediate automation stop; a failed quest is not counted and stops the session |
+| Outside current support | Automatic title continuation, walking to the counter and picking a quest, taking over mid-battle or on a results screen, equipment/spending automation, battle input |
 
 A small success sample does not establish reliability for every party or extended unattended use.
 Normal game rewards and experience still apply. Unknown screens, defeat and timeouts stop automation.
@@ -46,12 +46,12 @@ Normal game rewards and experience still apply. Unknown screens, defeat and time
 With Python 3.13 and `uv` available:
 
 ```sh
-python3 tools/build_maa.py --output dist/maa-0.2.0
+python3 tools/build_maa.py --output dist/maa-0.3.0
 ```
 
-Start the game through Steam, stop in town or on the ready screen of the quest to farm, and click once inside the game window.
-Run `./start.sh` from the built directory, tick **one** material preset, enter a number of runs or choose "until I stop it", and start.
-Use one run the first time to check the current party. The control panel (the link in the welcome message) shows the count and
+Start the game through Steam, open the quest to farm at the quest counter (stay on its details page or the ready room), and click once inside the game window.
+Run `./start.sh` from the built directory, tick "连刷当前任务" (farm the current quest), enter a number of runs or choose "until I stop it", and start.
+Use one run the first time you farm a quest to check the current party. The control panel (the link in the welcome message) shows the count and
 offers "finish after this run" and "stop now".
 
 The [Maa guide](docs/maa.en.md) covers prerequisites, what to do on errors and updating.

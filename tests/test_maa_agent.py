@@ -154,18 +154,101 @@ def test_battle_limit_comes_from_the_quest(tmp_path):
     assert hooks.session.error == "The battle exceeded its 0 s limit"
 
 
+def results_page(failed=False, name="解决沙漠狂徒"):
+    """run_recognition on a fresh results frame: the page itself, the failure leaf, the name."""
+    def recognise(node, image):
+        if node == "GBFR_See_Defeat":
+            return SimpleNamespace(hit=failed)
+        if node == "GBFR_Read_Quest":
+            return SimpleNamespace(hit=bool(name), best_result=SimpleNamespace(text=f" {name} "))
+        return SimpleNamespace(hit=True)
+    return recognise
+
+
+SETTLE = SimpleNamespace(custom_action_param='{"event": "settle", "budget": 1}', node_name="GBFR_Result")
+
+
 def test_each_count_rewrites_the_progress_message(tmp_path):
     hooks, context = prepared(tmp_path)
     hooks.session.admit()
     hooks.session.battle()
     overrides = []
     context.override_pipeline = lambda value: overrides.append(value) or True
-    context.run_recognition = lambda name, image: SimpleNamespace(hit=True)
-    args = SimpleNamespace(custom_action_param='{"event": "settle", "budget": 1}', node_name="GBFR_Result")
-    assert hooks.run(context, args)
+    context.run_recognition = results_page()
+    assert hooks.run(context, SETTLE)
     assert overrides == [{"GBFR_Counted": {"focus": {"Node.Action.Succeeded": "第 1/3 次完成"}}}]
     hooks.session.limit = None
     assert hooks.progress() == "已完成 1 次（一直刷，等你停止）"
+
+
+def test_the_quest_name_is_read_once_from_the_first_results_page(tmp_path):
+    hooks, context = prepared(tmp_path)
+    hooks.session.quest = None
+    hooks.session.admit()
+    hooks.session.battle()
+    context.run_recognition = results_page()
+    assert hooks.run(context, SETTLE)
+    assert hooks.session.quest == "解决沙漠狂徒"
+    hooks.session.repeat_on()
+    hooks.session.battle()
+    context.run_recognition = results_page(name="misread")
+    assert hooks.run(context, SETTLE)
+    assert hooks.session.quest == "解决沙漠狂徒" and hooks.session.completed == 2
+
+
+def test_an_unreadable_quest_name_never_stops_the_count(tmp_path):
+    hooks, context = prepared(tmp_path)
+    hooks.session.quest = None
+    hooks.session.admit()
+    hooks.session.battle()
+    recognise = results_page()
+
+    def broken(node, image):
+        if node == "GBFR_Read_Quest":
+            raise RuntimeError("OCR failed")
+        return recognise(node, image)
+    context.run_recognition = broken
+    assert hooks.run(context, SETTLE)
+    assert hooks.session.completed == 1 and hooks.session.quest is None
+
+
+def test_a_failed_quests_results_page_is_never_counted(tmp_path):
+    hooks, context = prepared(tmp_path)
+    hooks.session.admit()
+    hooks.session.battle()
+    overrides = []
+    context.override_pipeline = lambda value: overrides.append(value) or True
+    context.run_recognition = results_page(failed=True)
+    assert hooks.run(context, SETTLE)  # the next list's failure nodes take the page
+    assert hooks.session.completed == 0 and hooks.session.phase == "battle"
+    assert overrides == [{"GBFR_Counted": {"focus": {"Node.Action.Succeeded": ""}}}]
+
+
+def test_a_failed_quest_ends_with_repeat_known_off(tmp_path):
+    hooks, context = prepared(tmp_path)
+    hooks.session.admit()
+    hooks.session.battle()
+    hooks.session.left_on = True  # an earlier run had turned it on
+    args = SimpleNamespace(custom_action_param=json.dumps(
+        {"event": "failed", "reason": "The quest failed; Repeat Quest is off"}), node_name="GBFR_Defeat")
+    assert not hooks.run(context, args)
+    assert hooks.session.phase == "error" and not hooks.session.left_on
+    assert hooks.session.completed == 0
+
+
+def test_yes_on_the_tenth_run_dialog_is_recorded_after_its_key(tmp_path):
+    hooks, context = prepared(tmp_path)
+    pressed = []
+    hooks.guard.press = lambda context, key, duration=100: pressed.append(key)
+    first = hooks.session
+    for step in (first.admit, first.battle, first.settle, first.tenth_run):
+        step()
+    context.run_recognition = lambda name, image: SimpleNamespace(hit=True)
+    args = SimpleNamespace(custom_action_param=json.dumps(
+        {"key": "Return", "event": "tenth_yes", "budget": 2, "on_change": "skip"}), node_name="GBFR_TenthYes")
+    assert hooks.run(context, args)
+    assert pressed == ["Return"]
+    assert hooks.session.continued == 1 and not hooks.session.cap_seen
 
 
 def failing_capture():
@@ -261,7 +344,7 @@ def test_a_task_end_after_the_finish_changes_nothing(tmp_path):
 def test_a_failure_before_the_session_exists_is_still_reported(tmp_path):
     hooks = Hooks(tmp_path / "status.json")
     hooks.session = Session("old", 1)  # left over from an earlier task
-    data = {"GBFR_QuestConfig": {"attach": {"quest": "boss"}},
+    data = {"GBFR_QuestConfig": {"attach": {"battle_limit": 1800}},
             "GBFR_RunLimit": {"attach": {"limit": 0}}}
     context = SimpleNamespace(get_node_data=lambda name: data.get(name),
                               override_pipeline=lambda value: True)

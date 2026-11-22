@@ -3,7 +3,7 @@
 
 """Run the real GBFR pipeline against a scripted game, offline.
 
-Leaf recognitions (`GBFR_See_*`, what is visible) and the menu-navigation nodes are
+Leaf recognitions (`GBFR_See_*`, what is visible) and the quest-menu nodes are
 replaced by a Custom recognition that asks a scripted game whether they are showing.
 Nodes composed from leaves and the Agent's `GBFRSession` gate stay native, so the
 Tasker exercises the real `And` logic, `next` / `on_error` ordering, the Agent's
@@ -152,8 +152,6 @@ def _speed_overrides(resource, timeout_ms):
     """Script leaves and menu nodes, keep composed nodes native, shorten every wait."""
     overrides = {}
     for name in resource.node_list:
-        if name.startswith("GBFR_Catalog_"):
-            continue  # only ever evaluated inside a scripted node
         data = resource.get_node_data(name) or {}
         node: dict = {"pre_delay": 0, "post_delay": 0, "rate_limit": 20}
         if "timeout" in data:
@@ -167,7 +165,7 @@ def _speed_overrides(resource, timeout_ms):
     return overrides
 
 
-def run(monkeypatch, tmp_path, screens, *, quest="解决沙漠狂徒", limit=1, until_stopped=False,
+def run(monkeypatch, tmp_path, screens, *, limit=1, until_stopped=False,
         resource_path=RESOURCE, timeout_ms=400):
     from maa.context import ContextEventSink
     from maa.controller import CustomController
@@ -268,7 +266,6 @@ def run(monkeypatch, tmp_path, screens, *, quest="解决沙漠狂徒", limit=1, 
     tasker.add_context_sink(Messages())
     tasker.add_sink(maa_agent.task_sink(hooks))
     overrides = _speed_overrides(resource, timeout_ms)
-    overrides["GBFR_QuestConfig"] = {"attach": {"quest": quest}}
     overrides["GBFR_RunLimit"] = {"attach": {"limit": limit}}
     overrides["GBFR_UntilStopped"] = {"enabled": until_stopped}
     try:

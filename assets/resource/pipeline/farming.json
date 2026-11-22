@@ -4,17 +4,10 @@
     "post_delay": 0,
     "timeout": 30000,
     "next": [
+      "GBFR_ReadyConfirm",
       "GBFR_ReadyTown",
-      "GBFR_NearCounter",
-      "GBFR_CounterSelected",
-      "GBFR_CounterReset",
-      "GBFR_Town",
-      "GBFR_QuestSelected",
-      "GBFR_ProudTab",
-      "GBFR_ScrollQuest",
-      "GBFR_HeroSelected",
-      "GBFR_HeroSelect",
-      "GBFR_DifficultySelect"
+      "GBFR_Private",
+      "GBFR_QuestDetails"
     ],
     "action": {
       "type": "Custom",
@@ -29,717 +22,36 @@
       "GBFR_UnexpectedScreen"
     ]
   },
-  "GBFR_Town": {
-    "recognition": "OCR",
-    "expected": "快捷移动",
-    "roi": [
-      880,
-      600,
-      400,
-      120
-    ],
-    "threshold": 0.8,
-    "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 30000,
-    "next": [
-      "GBFR_TravelCounter"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "r",
-          "budget": 2
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_TravelCounter": {
-    "recognition": "And",
-    "all_of": [
-      {
-        "recognition": "OCR",
-        "expected": "选择目的地",
-        "roi": [
-          495,
-          163,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      },
-      {
-        "recognition": "OCR",
-        "expected": "任务中心",
-        "roi": [
-          498,
-          230,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      },
-      {
-        "recognition": "ColorMatch",
-        "roi": [
-          510,
-          268,
-          260,
-          28
-        ],
-        "lower": [
-          0,
-          130,
-          170
-        ],
-        "upper": [
-          180,
-          255,
-          255
-        ],
-        "count": 200
-      }
-    ],
-    "pre_delay": 0,
-    "post_delay": 2000,
-    "timeout": 30000,
-    "next": [
-      "GBFR_NearCounter",
-      "GBFR_Approach"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "Return",
-          "budget": 2
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_Approach": {
-    "recognition": "OCR",
-    "expected": "快捷移动",
-    "roi": [
-      880,
-      600,
-      400,
-      120
-    ],
-    "threshold": 0.8,
-    "pre_delay": 0,
-    "post_delay": 400,
-    "timeout": 30000,
-    "next": [
-      "GBFR_NearCounter",
-      "GBFR_Approach"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "w",
-          "duration": 250,
-          "budget": 8
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_NearCounter": {
-    "recognition": "OCR",
-    "pre_delay": 0,
-    "post_delay": 1500,
-    "timeout": 30000,
-    "next": [
-      "GBFR_CounterSelected",
-      "GBFR_CounterReset"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "f",
-          "budget": 2
-        }
-      }
-    },
-    "expected": "任务中心",
-    "roi": [
-      607,
-      233,
-      90,
-      36
-    ],
-    "threshold": 0.8,
-    "only_rec": true,
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_CounterSelected": {
-    "recognition": "And",
-    "all_of": [
-      {
-        "recognition": "OCR",
-        "expected": "任务中心",
-        "roi": [
-          40,
-          0,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      },
-      {
-        "recognition": "OCR",
-        "expected": "任务承接",
-        "roi": [
-          25,
-          55,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      },
-      {
-        "recognition": "ColorMatch",
-        "roi": [
-          80,
-          88,
-          300,
-          32
-        ],
-        "lower": [
-          0,
-          130,
-          170
-        ],
-        "upper": [
-          180,
-          255,
-          255
-        ],
-        "count": 400
-      }
-    ],
-    "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 30000,
-    "next": [
-      "GBFR_QuestSelected",
-      "GBFR_ProudTab",
-      "GBFR_ScrollQuest",
-      "GBFR_HeroSelected",
-      "GBFR_HeroSelect",
-      "GBFR_DifficultySelect"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "Return",
-          "budget": 2
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_CounterReset": {
-    "recognition": "And",
-    "all_of": [
-      {
-        "recognition": "OCR",
-        "expected": "任务中心",
-        "roi": [
-          40,
-          0,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      },
-      {
-        "recognition": "OCR",
-        "expected": "任务承接",
-        "roi": [
-          25,
-          55,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      }
-    ],
-    "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 30000,
-    "next": [
-      "GBFR_CounterSelected",
-      "GBFR_CounterReset"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "Up",
-          "budget": 6
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_DifficultySelect": {
-    "recognition": "And",
-    "all_of": [
-      {
-        "recognition": "OCR",
-        "expected": "任务选择",
-        "roi": [
-          75,
-          18,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      },
-      {
-        "recognition": "OCR",
-        "expected": "按岛屿选择|按类别选择",
-        "roi": [
-          370,
-          70,
-          540,
-          100
-        ],
-        "threshold": 0.8
-      }
-    ],
-    "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 30000,
-    "next": [
-      "GBFR_QuestSelected",
-      "GBFR_ProudTab",
-      "GBFR_ScrollQuest",
-      "GBFR_HeroSelected",
-      "GBFR_HeroSelect",
-      "GBFR_DifficultySelect"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "e",
-          "budget": 3
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_HeroSelected": {
-    "recognition": "And",
-    "all_of": [
-      {
-        "recognition": "OCR",
-        "expected": "任务选择",
-        "roi": [
-          75,
-          18,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      },
-      {
-        "recognition": "OCR",
-        "expected": "泽卡的英雄",
-        "roi": [
-          750,
-          188,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      },
-      {
-        "recognition": "ColorMatch",
-        "roi": [
-          780,
-          220,
-          210,
-          40
-        ],
-        "lower": [
-          0,
-          130,
-          170
-        ],
-        "upper": [
-          180,
-          255,
-          255
-        ],
-        "count": 600
-      }
-    ],
-    "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 30000,
-    "next": [
-      "GBFR_QuestSelected",
-      "GBFR_ProudTab",
-      "GBFR_ScrollQuest",
-      "GBFR_HeroSelected",
-      "GBFR_HeroSelect",
-      "GBFR_DifficultySelect"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "Return",
-          "budget": 2
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_HeroSelect": {
-    "recognition": "And",
-    "all_of": [
-      {
-        "recognition": "OCR",
-        "expected": "任务选择",
-        "roi": [
-          75,
-          18,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      },
-      {
-        "recognition": "OCR",
-        "expected": "泽卡的英雄",
-        "roi": [
-          750,
-          188,
-          300,
-          100
-        ],
-        "threshold": 0.8
-      }
-    ],
-    "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 30000,
-    "next": [
-      "GBFR_QuestSelected",
-      "GBFR_ProudTab",
-      "GBFR_ScrollQuest",
-      "GBFR_HeroSelected",
-      "GBFR_HeroSelect",
-      "GBFR_DifficultySelect"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "Right",
-          "budget": 3
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_ProudTab": {
-    "recognition": "And",
-    "all_of": [
-      {
-        "recognition": "And",
-        "all_of": [
-          {
-            "recognition": "OCR",
-            "expected": "任务选择",
-            "roi": [
-              75,
-              18,
-              300,
-              100
-            ],
-            "threshold": 0.8
-          },
-          {
-            "recognition": "OCR",
-            "expected": "MANIAC",
-            "roi": [
-              148,
-              80,
-              300,
-              100
-            ],
-            "threshold": 0.8
-          },
-          {
-            "recognition": "OCR",
-            "expected": "PROUD",
-            "roi": [
-              293,
-              80,
-              300,
-              100
-            ],
-            "threshold": 0.8
-          }
-        ]
-      },
-      {
-        "recognition": "ColorMatch",
-        "roi": [
-          380,
-          120,
-          110,
-          20
-        ],
-        "lower": [
-          0,
-          130,
-          170
-        ],
-        "upper": [
-          180,
-          255,
-          255
-        ],
-        "count": 300
-      }
-    ],
-    "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 30000,
-    "next": [
-      "GBFR_QuestSelected",
-      "GBFR_ProudTab",
-      "GBFR_ScrollQuest",
-      "GBFR_HeroSelected",
-      "GBFR_HeroSelect",
-      "GBFR_DifficultySelect"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "q",
-          "budget": 2
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_QuestSelected": {
-    "recognition": "And",
-    "all_of": [
-      {
-        "recognition": "And",
-        "all_of": [
-          {
-            "recognition": "OCR",
-            "expected": "任务选择",
-            "roi": [
-              75,
-              18,
-              300,
-              100
-            ],
-            "threshold": 0.8
-          },
-          {
-            "recognition": "OCR",
-            "expected": "MANIAC",
-            "roi": [
-              148,
-              80,
-              300,
-              100
-            ],
-            "threshold": 0.8
-          },
-          {
-            "recognition": "OCR",
-            "expected": "PROUD",
-            "roi": [
-              293,
-              80,
-              300,
-              100
-            ],
-            "threshold": 0.8
-          }
-        ]
-      },
-      "GBFR_Catalog_NameList"
-    ],
-    "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 30000,
-    "next": [
-      "GBFR_QuestDetails"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "Return",
-          "budget": 2
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
-  "GBFR_ScrollQuest": {
-    "recognition": "And",
-    "all_of": [
-      {
-        "recognition": "And",
-        "all_of": [
-          {
-            "recognition": "OCR",
-            "expected": "任务选择",
-            "roi": [
-              75,
-              18,
-              300,
-              100
-            ],
-            "threshold": 0.8
-          },
-          {
-            "recognition": "OCR",
-            "expected": "MANIAC",
-            "roi": [
-              148,
-              80,
-              300,
-              100
-            ],
-            "threshold": 0.8
-          },
-          {
-            "recognition": "OCR",
-            "expected": "PROUD",
-            "roi": [
-              293,
-              80,
-              300,
-              100
-            ],
-            "threshold": 0.8
-          }
-        ]
-      },
-      {
-        "recognition": "ColorMatch",
-        "roi": [
-          245,
-          120,
-          110,
-          20
-        ],
-        "lower": [
-          0,
-          130,
-          170
-        ],
-        "upper": [
-          180,
-          255,
-          255
-        ],
-        "count": 300
-      }
-    ],
-    "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 30000,
-    "next": [
-      "GBFR_QuestSelected",
-      "GBFR_ProudTab",
-      "GBFR_ScrollQuest",
-      "GBFR_HeroSelected",
-      "GBFR_HeroSelect",
-      "GBFR_DifficultySelect"
-    ],
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "Down",
-          "budget": 60
-        }
-      }
-    },
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
   "GBFR_QuestDetails": {
     "recognition": "And",
     "all_of": [
-      "GBFR_Catalog_NameDetails",
       {
         "recognition": "OCR",
-        "expected": "BOSS讨伐",
+        "expected": "承接任务",
         "roi": [
-          55,
-          145,
-          300,
-          100
+          1060,
+          645,
+          160,
+          50
         ],
         "threshold": 0.8
       },
-      "GBFR_Catalog_ObjectiveDetails"
+      {
+        "recognition": "OCR",
+        "expected": "推荐战力值",
+        "roi": [
+          630,
+          140,
+          150,
+          40
+        ],
+        "threshold": 0.8
+      }
     ],
     "pre_delay": 0,
     "post_delay": 1000,
     "timeout": 30000,
     "next": [
-      "GBFR_ReplaceAcceptedQuest",
       "GBFR_Private"
     ],
     "action": {
@@ -828,7 +140,6 @@
         ],
         "threshold": 0.8
       },
-      "GBFR_Catalog_NameReady",
       {
         "recognition": "OCR",
         "expected": "准备完毕",
@@ -864,7 +175,6 @@
   "GBFR_ReadyConfirm": {
     "recognition": "And",
     "all_of": [
-      "GBFR_Catalog_NameConfirm",
       {
         "recognition": "OCR",
         "expected": "私人匹配",
@@ -912,7 +222,9 @@
     "post_delay": 1000,
     "timeout": 90000,
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
       "GBFR_Result",
       "GBFR_Victory",
       "GBFR_Battle",
@@ -936,7 +248,6 @@
   "GBFR_CancelReady": {
     "recognition": "And",
     "all_of": [
-      "GBFR_Catalog_NameConfirm",
       {
         "recognition": "OCR",
         "expected": "私人匹配",
@@ -1000,86 +311,9 @@
       "GBFR_UnexpectedScreen"
     ]
   },
-  "GBFR_Catalog_NameList": {
-    "recognition": "OCR",
-    "expected": "解决沙漠狂徒",
-    "roi": [
-      650,
-      422,
-      520,
-      100
-    ],
-    "threshold": 0.8
-  },
-  "GBFR_Catalog_NameDetails": {
-    "recognition": "OCR",
-    "expected": "解决沙漠狂徒",
-    "roi": [
-      440,
-      23,
-      400,
-      100
-    ],
-    "threshold": 0.8
-  },
-  "GBFR_Catalog_ObjectiveDetails": {
-    "recognition": "OCR",
-    "expected": "讨伐巨爪岩鳄",
-    "roi": [
-      135,
-      100,
-      460,
-      100
-    ],
-    "threshold": 0.8
-  },
-  "GBFR_Catalog_NameReady": {
-    "recognition": "OCR",
-    "expected": "解决沙漠狂徒",
-    "roi": [
-      960,
-      264,
-      300,
-      100
-    ],
-    "threshold": 0.8
-  },
-  "GBFR_Catalog_NameConfirm": {
-    "recognition": "OCR",
-    "expected": "解决沙漠狂徒",
-    "roi": [
-      565,
-      33,
-      320,
-      100
-    ],
-    "threshold": 0.8
-  },
-  "GBFR_Catalog_ObjectiveBattle": {
-    "recognition": "OCR",
-    "expected": "讨伐巨爪岩鳄",
-    "roi": [
-      980,
-      12,
-      300,
-      100
-    ],
-    "threshold": 0.8
-  },
-  "GBFR_Catalog_NameResult": {
-    "recognition": "OCR",
-    "expected": "解决沙漠狂徒",
-    "roi": [
-      595,
-      15,
-      300,
-      100
-    ],
-    "threshold": 0.8
-  },
   "GBFR_QuestConfig": {
     "attach": {
-      "quest": "解决沙漠狂徒"
+      "battle_limit": 1800
     }
   },
   "GBFR_RunLimit": {
@@ -1120,62 +354,6 @@
       "Node.Action.Failed": "已停止。原因见控制面板。"
     }
   },
-  "GBFR_ReplaceAcceptedQuest": {
-    "recognition": "And",
-    "all_of": [
-      {
-        "recognition": "OCR",
-        "expected": "确定要放弃已承接的任务吗",
-        "roi": [
-          400,
-          265,
-          500,
-          90
-        ],
-        "threshold": 0.8
-      },
-      {
-        "recognition": "ColorMatch",
-        "roi": [
-          535,
-          410,
-          210,
-          25
-        ],
-        "lower": [
-          0,
-          130,
-          170
-        ],
-        "upper": [
-          180,
-          255,
-          255
-        ],
-        "count": 100
-      }
-    ],
-    "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 30000,
-    "action": {
-      "type": "Custom",
-      "param": {
-        "custom_action": "GBFR",
-        "custom_action_param": {
-          "key": "Return",
-          "budget": 1
-        }
-      }
-    },
-    "next": [
-      "GBFR_QuestSelected",
-      "GBFR_ScrollQuest"
-    ],
-    "on_error": [
-      "GBFR_UnexpectedScreen"
-    ]
-  },
   "GBFR_See_Battle": {
     "recognition": "And",
     "all_of": [
@@ -1190,7 +368,17 @@
         ],
         "threshold": 0.8
       },
-      "GBFR_Catalog_ObjectiveBattle"
+      {
+        "recognition": "OCR",
+        "expected": "^(?!.*返回城镇).*[^\\x00-\\x7f].*$",
+        "roi": [
+          980,
+          50,
+          260,
+          28
+        ],
+        "threshold": 0.8
+      }
     ]
   },
   "GBFR_See_Victory": {
@@ -1234,7 +422,6 @@
         ],
         "threshold": 0.75
       },
-      "GBFR_Catalog_NameResult",
       {
         "recognition": "OCR",
         "expected": "继续",
@@ -1297,6 +484,46 @@
       }
     ]
   },
+  "GBFR_See_TenthYes": {
+    "recognition": "ColorMatch",
+    "lower": [
+      0,
+      130,
+      170
+    ],
+    "upper": [
+      180,
+      255,
+      255
+    ],
+    "count": 400,
+    "roi": [
+      540,
+      440,
+      200,
+      22
+    ]
+  },
+  "GBFR_See_TenthNo": {
+    "recognition": "ColorMatch",
+    "lower": [
+      0,
+      130,
+      170
+    ],
+    "upper": [
+      180,
+      255,
+      255
+    ],
+    "count": 400,
+    "roi": [
+      540,
+      474,
+      200,
+      22
+    ]
+  },
   "GBFR_See_Tips": {
     "recognition": "And",
     "all_of": [
@@ -1325,15 +552,31 @@
     ]
   },
   "GBFR_See_Defeat": {
-    "recognition": "OCR",
-    "expected": "QUEST FAILED|任务失败",
-    "roi": [
-      300,
-      180,
-      700,
-      350
-    ],
-    "threshold": 0.8
+    "recognition": "And",
+    "all_of": [
+      {
+        "recognition": "TemplateMatch",
+        "template": "battle_results.png",
+        "roi": [
+          40,
+          0,
+          550,
+          100
+        ],
+        "threshold": 0.75
+      },
+      {
+        "recognition": "OCR",
+        "expected": "无奖励道具",
+        "roi": [
+          340,
+          200,
+          300,
+          50
+        ],
+        "threshold": 0.8
+      }
+    ]
   },
   "GBFR_See_Town": {
     "recognition": "OCR",
@@ -1393,6 +636,17 @@
       }
     ]
   },
+  "GBFR_Read_Quest": {
+    "doc": "The quest name beside the results title; read once for the control panel, never matched.",
+    "recognition": "OCR",
+    "roi": [
+      625,
+      50,
+      330,
+      32
+    ],
+    "threshold": 0.5
+  },
   "GBFR_Tips": {
     "recognition": "And",
     "all_of": [
@@ -1412,13 +666,15 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
       "GBFR_Result",
       "GBFR_Victory",
       "GBFR_Battle",
       "GBFR_Tips",
       "GBFR_Finished",
-      "GBFR_TownRestart"
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1438,12 +694,14 @@
         "custom_action": "GBFR",
         "custom_action_param": {
           "event": "battle",
-          "budget": 400
+          "budget": 1200
         }
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
       "GBFR_Result",
       "GBFR_Victory",
       "GBFR_Battle",
@@ -1472,7 +730,9 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
       "GBFR_Result",
       "GBFR_Victory"
     ],
@@ -1480,7 +740,62 @@
       "GBFR_UnexpectedScreen"
     ]
   },
+  "GBFR_DefeatRepeatOff": {
+    "doc": "A failed quest with Repeat Quest on would be retried by the game: turn it off first.",
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Defeat",
+      "GBFR_See_RepeatOn"
+    ],
+    "pre_delay": 0,
+    "post_delay": 800,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "3",
+          "budget": 2,
+          "on_change": "skip",
+          "exhausted": "Repeat Quest could not be turned off after the quest failed; the game may retry it"
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
   "GBFR_Defeat": {
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_Defeat",
+      "GBFR_See_RepeatOff"
+    ],
+    "pre_delay": 0,
+    "post_delay": 0,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "event": "failed",
+          "reason": "The quest failed; Repeat Quest is off and no further run was started"
+        }
+      }
+    },
+    "on_error": [
+      "GBFR_Stopped"
+    ]
+  },
+  "GBFR_DefeatHold": {
+    "doc": "The failure page before its Repeat Quest toggle reads: never count it, wait.",
     "recognition": "And",
     "all_of": [
       "GBFR_See_Defeat"
@@ -1493,13 +808,18 @@
       "param": {
         "custom_action": "GBFR",
         "custom_action_param": {
-          "event": "error",
-          "reason": "The quest failed; no further run was started"
+          "budget": 15,
+          "exhausted": "The failure page's Repeat Quest toggle could not be read"
         }
       }
     },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold"
+    ],
     "on_error": [
-      "GBFR_Stopped"
+      "GBFR_UnexpectedScreen"
     ]
   },
   "GBFR_Result": {
@@ -1521,7 +841,115 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
       "GBFR_Counted"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_TenthYes": {
+    "doc": "Continue after the tenth run: 是 turns Repeat Quest back on for the following runs.",
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_TenthRun",
+      "GBFR_See_TenthYes",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "go_on"
+        }
+      }
+    ],
+    "pre_delay": 0,
+    "post_delay": 800,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Return",
+          "event": "tenth_yes",
+          "budget": 2,
+          "on_change": "skip",
+          "exhausted": "是 on the tenth-run dialog was not accepted"
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
+    ],
+    "on_error": [
+      "GBFR_UnexpectedScreen"
+    ]
+  },
+  "GBFR_TenthUp": {
+    "doc": "Continue after the tenth run: move the dialog's cursor from 否 to 是.",
+    "recognition": "And",
+    "all_of": [
+      "GBFR_See_TenthRun",
+      "GBFR_See_TenthNo",
+      {
+        "recognition": "Custom",
+        "custom_recognition": "GBFRSession",
+        "custom_recognition_param": {
+          "want": "go_on"
+        }
+      }
+    ],
+    "pre_delay": 1000,
+    "post_delay": 500,
+    "timeout": 30000,
+    "action": {
+      "type": "Custom",
+      "param": {
+        "custom_action": "GBFR",
+        "custom_action_param": {
+          "key": "Up",
+          "budget": 3,
+          "on_change": "skip",
+          "exhausted": "The tenth-run dialog's cursor could not be moved to 是"
+        }
+      }
+    },
+    "next": [
+      "GBFR_DefeatRepeatOff",
+      "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
+      "GBFR_TenthRun",
+      "GBFR_RepeatOff",
+      "GBFR_RepeatOn",
+      "GBFR_KeepRepeating",
+      "GBFR_LetItEnd",
+      "GBFR_CapHold",
+      "GBFR_ResultHold",
+      "GBFR_SettlementConfirm",
+      "GBFR_Tips",
+      "GBFR_Battle",
+      "GBFR_Finished",
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1546,7 +974,11 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
       "GBFR_TenthRun",
       "GBFR_RepeatOff",
       "GBFR_RepeatOn",
@@ -1558,7 +990,7 @@
       "GBFR_Tips",
       "GBFR_Battle",
       "GBFR_Finished",
-      "GBFR_TownRestart"
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1593,7 +1025,11 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
       "GBFR_TenthRun",
       "GBFR_RepeatOff",
       "GBFR_RepeatOn",
@@ -1605,7 +1041,7 @@
       "GBFR_Tips",
       "GBFR_Battle",
       "GBFR_Finished",
-      "GBFR_TownRestart"
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1640,7 +1076,11 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
       "GBFR_TenthRun",
       "GBFR_RepeatOff",
       "GBFR_RepeatOn",
@@ -1652,7 +1092,7 @@
       "GBFR_Tips",
       "GBFR_Battle",
       "GBFR_Finished",
-      "GBFR_TownRestart"
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1685,7 +1125,11 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
       "GBFR_TenthRun",
       "GBFR_RepeatOff",
       "GBFR_RepeatOn",
@@ -1697,7 +1141,7 @@
       "GBFR_Tips",
       "GBFR_Battle",
       "GBFR_Finished",
-      "GBFR_TownRestart"
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1730,7 +1174,11 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
       "GBFR_TenthRun",
       "GBFR_RepeatOff",
       "GBFR_RepeatOn",
@@ -1742,7 +1190,7 @@
       "GBFR_Tips",
       "GBFR_Battle",
       "GBFR_Finished",
-      "GBFR_TownRestart"
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1774,7 +1222,11 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
       "GBFR_TenthRun",
       "GBFR_RepeatOff",
       "GBFR_RepeatOn",
@@ -1786,7 +1238,7 @@
       "GBFR_Tips",
       "GBFR_Battle",
       "GBFR_Finished",
-      "GBFR_TownRestart"
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1810,7 +1262,11 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
       "GBFR_TenthRun",
       "GBFR_RepeatOff",
       "GBFR_RepeatOn",
@@ -1822,7 +1278,7 @@
       "GBFR_Tips",
       "GBFR_Battle",
       "GBFR_Finished",
-      "GBFR_TownRestart"
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1847,7 +1303,11 @@
       }
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
       "GBFR_TenthRun",
       "GBFR_RepeatOff",
       "GBFR_RepeatOn",
@@ -1859,7 +1319,7 @@
       "GBFR_Tips",
       "GBFR_Battle",
       "GBFR_Finished",
-      "GBFR_TownRestart"
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"
@@ -1896,7 +1356,7 @@
       "GBFR_UnexpectedScreen"
     ]
   },
-  "GBFR_TownRestart": {
+  "GBFR_TownEarly": {
     "recognition": "And",
     "all_of": [
       "GBFR_See_Town",
@@ -1909,37 +1369,21 @@
       }
     ],
     "pre_delay": 0,
-    "post_delay": 1000,
-    "timeout": 90000,
+    "post_delay": 0,
+    "timeout": 30000,
     "action": {
       "type": "Custom",
       "param": {
         "custom_action": "GBFR",
         "custom_action_param": {
-          "event": "town",
-          "budget": 1
+          "event": "error",
+          "reason": "The game returned to town before the session finished"
         }
       }
     },
-    "next": [
-      "GBFR_ReadyTown",
-      "GBFR_NearCounter",
-      "GBFR_CounterSelected",
-      "GBFR_CounterReset",
-      "GBFR_Town",
-      "GBFR_QuestSelected",
-      "GBFR_ProudTab",
-      "GBFR_ScrollQuest",
-      "GBFR_HeroSelected",
-      "GBFR_HeroSelect",
-      "GBFR_DifficultySelect"
-    ],
     "on_error": [
-      "GBFR_UnexpectedScreen"
-    ],
-    "focus": {
-      "Node.Action.Succeeded": "游戏回到了城镇，重新接任务"
-    }
+      "GBFR_Stopped"
+    ]
   },
   "GBFR_Continue": {
     "doc": "Flag only: the control panel disables it to finish after the current run."
@@ -1987,97 +1431,6 @@
       }
     }
   },
-  "GBFR_Key_Down": {
-    "pre_delay": 0,
-    "post_delay": 0,
-    "action": {
-      "type": "LongPressKey",
-      "param": {
-        "key": [
-          108
-        ],
-        "duration": 100
-      }
-    }
-  },
-  "GBFR_Key_Left": {
-    "pre_delay": 0,
-    "post_delay": 0,
-    "action": {
-      "type": "LongPressKey",
-      "param": {
-        "key": [
-          105
-        ],
-        "duration": 100
-      }
-    }
-  },
-  "GBFR_Key_Right": {
-    "pre_delay": 0,
-    "post_delay": 0,
-    "action": {
-      "type": "LongPressKey",
-      "param": {
-        "key": [
-          106
-        ],
-        "duration": 100
-      }
-    }
-  },
-  "GBFR_Key_w": {
-    "pre_delay": 0,
-    "post_delay": 0,
-    "action": {
-      "type": "LongPressKey",
-      "param": {
-        "key": [
-          17
-        ],
-        "duration": 100
-      }
-    }
-  },
-  "GBFR_Key_a": {
-    "pre_delay": 0,
-    "post_delay": 0,
-    "action": {
-      "type": "LongPressKey",
-      "param": {
-        "key": [
-          30
-        ],
-        "duration": 100
-      }
-    }
-  },
-  "GBFR_Key_f": {
-    "pre_delay": 0,
-    "post_delay": 0,
-    "action": {
-      "type": "LongPressKey",
-      "param": {
-        "key": [
-          33
-        ],
-        "duration": 100
-      }
-    }
-  },
-  "GBFR_Key_r": {
-    "pre_delay": 0,
-    "post_delay": 0,
-    "action": {
-      "type": "LongPressKey",
-      "param": {
-        "key": [
-          19
-        ],
-        "duration": 100
-      }
-    }
-  },
   "GBFR_Key_3": {
     "pre_delay": 0,
     "post_delay": 0,
@@ -2086,32 +1439,6 @@
       "param": {
         "key": [
           4
-        ],
-        "duration": 100
-      }
-    }
-  },
-  "GBFR_Key_q": {
-    "pre_delay": 0,
-    "post_delay": 0,
-    "action": {
-      "type": "LongPressKey",
-      "param": {
-        "key": [
-          16
-        ],
-        "duration": 100
-      }
-    }
-  },
-  "GBFR_Key_e": {
-    "pre_delay": 0,
-    "post_delay": 0,
-    "action": {
-      "type": "LongPressKey",
-      "param": {
-        "key": [
-          18
         ],
         "duration": 100
       }
@@ -2126,7 +1453,11 @@
       "Node.Action.Succeeded": "本次已计数"
     },
     "next": [
+      "GBFR_DefeatRepeatOff",
       "GBFR_Defeat",
+      "GBFR_DefeatHold",
+      "GBFR_TenthYes",
+      "GBFR_TenthUp",
       "GBFR_TenthRun",
       "GBFR_RepeatOff",
       "GBFR_RepeatOn",
@@ -2138,7 +1469,7 @@
       "GBFR_Tips",
       "GBFR_Battle",
       "GBFR_Finished",
-      "GBFR_TownRestart"
+      "GBFR_TownEarly"
     ],
     "on_error": [
       "GBFR_UnexpectedScreen"

@@ -27,11 +27,11 @@
   <button id="finish" disabled>本轮结束后停下</button>
   <button id="stop" disabled>立即停止操作</button>
   <p id="message" role="status"></p>
-  <small>“本轮结束后停下”会在结算画面关掉再次挑战，等游戏返回城镇。<br>“立即停止操作”只停止软件输入；如果再次挑战开着，游戏会自己继续刷，最多到第 10 次弹窗。</small>
+  <small>“本轮结束后停下”会在结算画面关掉再次挑战，等游戏返回城镇。<br>“立即停止操作”只停止软件输入；如果再次挑战开着，游戏会自己继续刷，最多到下一次第 10 轮的弹窗。</small>
   <p id="reason" hidden></p>
   <details id="diagnostic" hidden><summary>技术原因</summary><p id="error"></p></details>
 </div>
-<small>在主窗口选择刷取预设和次数，然后开始。结算画面出现时成功次数加一；之后的轮次由游戏自带的“再次挑战”开始。</small>
+<small>先在游戏的任务柜台打开要刷的任务，再在主窗口勾选“连刷当前任务”、填次数，然后开始。结算画面出现时成功次数加一；之后的轮次由游戏自带的“再次挑战”开始，第 10 轮的确认会选“是”。</small>
 <script>
   const $ = id => document.getElementById(id);
   let active = null;
@@ -62,11 +62,12 @@
         activeKey = nextKey;
       }
       const result = await request('local-file?path=agent/runtime/session.json');
-      $('quest').textContent = result.quest || '等待任务';
+      $('quest').textContent = result.quest || (result.phase && result.phase !== 'idle' ? '当前任务（第一次结算后显示任务名）' : '等待任务');
       const limit = result.limit === null ? '一直刷' : (result.limit ?? '—');
       $('count').textContent = `${result.completed ?? 0} / ${limit} 次成功`;
-      const note = result.phase === 'ready' && result.completed > 0 ? '（第 10 次后回城重新接任务）' :
-        result.phase === 'settled' && result.repeat ? '（再次挑战已打开）' : '';
+      const note = result.phase === 'settled' && result.repeat ? '（再次挑战已打开）' :
+        result.continued > 0 && !['finished', 'stopped', 'error'].includes(result.phase) ?
+          `（已在第 10 次确认里选“是” ${result.continued} 次）` : '';
       $('phase').textContent = (phases[result.phase] || '等待任务') + note +
         (result.finish_requested && active ? ' · 已收到本轮后停止请求' : '') +
         (result.overrun ? ` · 多完成 ${result.overrun} 次：停止时下一轮已经开始` : '');
@@ -77,7 +78,7 @@
       $('finish').disabled = busy || !active?.task || !active.singlePreset || result.finish_requested;
       $('stop').disabled = busy || !active;
       if (active && !active.singlePreset) {
-        $('message').textContent = '本轮后停止目前支持一次运行一个预设。当前选了多个预设，可以使用立即停止；下次请只勾选一个。';
+        $('message').textContent = '本轮后停止只支持队列里有一个任务。当前队列里有多个任务，可以使用立即停止；下次请只放一个。';
       }
     } catch (error) {
       active = null;

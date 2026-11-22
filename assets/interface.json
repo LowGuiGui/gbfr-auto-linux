@@ -2,9 +2,9 @@
   "interface_version": 2,
   "name": "GBFRLinux",
   "label": "GBFR 自动刷取",
-  "version": "0.2.0-dev",
+  "version": "0.3.0-dev",
   "license": "GPL-2.0-or-later",
-  "description": "简体中文界面；单人任务与 AI 队友。用游戏自带的“再次挑战”连刷，两个素材预设；可设成功次数或一直刷，可选择本轮后停止。",
+  "description": "简体中文界面；私人任务与 AI 队友。在任务柜台打开任意任务，用游戏自带的“再次挑战”连刷，第 10 次确认时选“是”接着刷；可设成功次数或一直刷，可选择本轮后停止。",
   "controller": [
     {
       "name": "GBFR Gamescope",
@@ -35,80 +35,13 @@
   },
   "task": [
     {
-      "name": "quakadile-materials",
-      "label": "巨爪岩鳄素材",
+      "name": "current-quest",
+      "label": "连刷当前任务",
       "entry": "GBFR_Start",
-      "description": "任务：解决沙漠狂徒（MANIAC，推荐战力 7200）。\n需要：任务已解锁；开启完全辅助模式；当前 AI 队伍能稳定通关。\n从城镇或这个任务的准备画面开始。软件接第一次任务，之后打开游戏自带的“再次挑战”连刷；游戏每 10 次弹出确认时，软件回城重新接任务。达到次数或你选择本轮后停止时，软件关掉再次挑战，等游戏回到城镇后结束。\n第一次使用请先填 1 次，确认队伍能过。一次只勾选一个预设。",
+      "description": "连刷你在任务柜台打开的任务，任何任务都可以。\n开始前：在柜台打开要刷的任务，停在任务详情页、匹配设置或准备画面；匹配方式用“私人”；开启完全辅助模式；当前 AI 队伍能稳定通关。\n软件接下这个任务，之后打开游戏自带的“再次挑战”连刷；游戏每 10 次弹出确认时选“是”接着刷。任务失败时这一轮不计数，软件确认“再次挑战”关着后停下。达到次数或你选择本轮后停止时，软件关掉再次挑战，等游戏回到城镇后结束。\n第一次刷某个任务，请先填 1 次，确认队伍能过。",
       "option": [
         "UntilStopped"
-      ],
-      "pipeline_override": {
-        "GBFR_Catalog_NameList": {
-          "expected": "解决沙漠狂徒"
-        },
-        "GBFR_Catalog_NameDetails": {
-          "expected": "解决沙漠狂徒"
-        },
-        "GBFR_Catalog_NameReady": {
-          "expected": "解决沙漠狂徒"
-        },
-        "GBFR_Catalog_NameConfirm": {
-          "expected": "解决沙漠狂徒"
-        },
-        "GBFR_Catalog_NameResult": {
-          "expected": "解决沙漠狂徒"
-        },
-        "GBFR_Catalog_ObjectiveDetails": {
-          "expected": "讨伐巨爪岩鳄"
-        },
-        "GBFR_Catalog_ObjectiveBattle": {
-          "expected": "讨伐巨爪岩鳄"
-        },
-        "GBFR_QuestConfig": {
-          "attach": {
-            "quest": "解决沙漠狂徒",
-            "battle_limit": 600
-          }
-        }
-      }
-    },
-    {
-      "name": "frost-quakadile-materials",
-      "label": "巨爪霜鳄素材",
-      "entry": "GBFR_Start",
-      "description": "任务：我要打造冰冷的铠甲（MANIAC，推荐战力 7200）。\n需要：任务已解锁；开启完全辅助模式；当前 AI 队伍能稳定通关。\n从城镇或这个任务的准备画面开始。软件接第一次任务，之后打开游戏自带的“再次挑战”连刷；游戏每 10 次弹出确认时，软件回城重新接任务。达到次数或你选择本轮后停止时，软件关掉再次挑战，等游戏回到城镇后结束。\n第一次使用请先填 1 次，确认队伍能过。一次只勾选一个预设。",
-      "option": [
-        "UntilStopped"
-      ],
-      "pipeline_override": {
-        "GBFR_Catalog_NameList": {
-          "expected": "我要打造冰冷的铠甲"
-        },
-        "GBFR_Catalog_NameDetails": {
-          "expected": "我要打造冰冷的铠甲"
-        },
-        "GBFR_Catalog_NameReady": {
-          "expected": "我要打造冰冷的铠甲"
-        },
-        "GBFR_Catalog_NameConfirm": {
-          "expected": "我要打造冰冷的铠甲"
-        },
-        "GBFR_Catalog_NameResult": {
-          "expected": "我要打造冰冷的铠甲"
-        },
-        "GBFR_Catalog_ObjectiveDetails": {
-          "expected": "讨伐巨爪霜鳄"
-        },
-        "GBFR_Catalog_ObjectiveBattle": {
-          "expected": "讨伐巨爪霜鳄"
-        },
-        "GBFR_QuestConfig": {
-          "attach": {
-            "quest": "我要打造冰冷的铠甲",
-            "battle_limit": 600
-          }
-        }
-      }
+      ]
     }
   ],
   "option": {

@@ -60,16 +60,16 @@ def fetch_ocr(output, cache):
 
 
 def mxu_config(interface, catalog):
-    """A ready MXU instance: GBFR's controller and resource, one preset ticked.
+    """A ready MXU instance: GBFR's controller and resource, its task ticked.
 
     Field names follow the config MXU 2.11.2 itself writes. Options are left to the
     interface defaults. The device is picked in MXU, because it is discovered live.
     """
     controller = interface["controller"][0]["name"]
-    tasks = [{"id": quest["id"], "taskName": quest["id"], "enabled": index == 0,
+    tasks = [{"id": task["name"], "taskName": task["name"], "enabled": index == 0,
               "enabledByController": {controller: True}, "expanded": index == 0,
               "optionValues": {}}
-             for index, quest in enumerate(catalog["quests"])]
+             for index, task in enumerate(interface["task"])]
     return {
         "version": "1.0",
         "instances": [{"id": "gbfr", "name": "GBFR 自动刷取", "controllerName": controller,

@@ -5,8 +5,8 @@
 """Official Maa Agent hooks for bounded input, ownership and run accounting.
 
 Recognition, navigation and scheduling stay in the native resource pipeline. The
-Agent answers one question for it (`GBFRSession`: should the session go on, stop, or
-wait out the game's tenth-run dialog?) and records what the pipeline observed.
+Agent answers one question for it (`GBFRSession`: should the session go on or stop?)
+and records what the pipeline observed.
 """
 
 import json
@@ -23,7 +23,10 @@ from maa_session import ENDED, Session, SessionError
 # Events whose screen is rechecked on a fresh frame before the session believes it.
 OBSERVED = {"battle", "settle"}
 # Events that also re-verify the game process and capture source (R4: not per key).
-IDENTITY = {"admit", "settle", "town"}
+IDENTITY = {"admit", "settle"}
+# Reads only: a failed quest's results page, and the quest name beside the title.
+FAILED_PAGE = "GBFR_See_Defeat"
+QUEST_NAME = "GBFR_Read_Quest"
 # Every failure ends the task through this node; MXU's log shows its focus message.
 STOPPED_NODE = "GBFR_Stopped"
 
@@ -82,14 +85,14 @@ class Hooks:
         self.close()
         self.session = None
         self.startup_error = None
-        quest = context.get_node_data("GBFR_QuestConfig")["attach"]
+        config = context.get_node_data("GBFR_QuestConfig")["attach"]
         limit = context.get_node_data("GBFR_RunLimit")["attach"]["limit"]
         if type(limit) is str and limit.isdecimal():
             limit = int(limit)  # the client's int input may arrive as a string
         # A flag node, like GBFR_Continue: the "until I stop it" switch enables it.
         until_stopped = (context.get_node_data("GBFR_UntilStopped") or {}).get("enabled") is True
-        self.session = Session(params.get("quest", quest["quest"]), None if until_stopped else limit)
-        self.battle_limit = quest.get("battle_limit", 600)
+        self.session = Session(None, None if until_stopped else limit)
+        self.battle_limit = config.get("battle_limit", 1800)
         self.calls = {}
         self.battle_started = None
         self.controls = Controls()
@@ -119,18 +122,36 @@ class Hooks:
         }.get(want, False)
 
     def _recheck(self, context, node):
-        # Recheck the *same native recognition* on a newly captured frame. A
-        # screenshot from an earlier transition never authorizes input or a count.
+        """The newly captured frame on which the node's own recognition hit again, or None.
+
+        A screenshot from an earlier transition never authorizes input or a count."""
         for attempt in range(3):
             try:
-                recognition = context.run_recognition(node, self.guard.capture())
+                frame = self.guard.capture()
+                recognition = context.run_recognition(node, frame)
             except FrameUnavailable:
                 recognition = None
             if recognition is not None and recognition.hit:
-                return True
+                return frame
             if attempt < 2:
                 time.sleep(.2)
-        return False
+        return None
+
+    @staticmethod
+    def _sees(context, node, frame):
+        recognition = context.run_recognition(node, frame)
+        return recognition is not None and recognition.hit
+
+    def _read_quest(self, context, frame):
+        """The quest's name for the control panel, read once; a failed read changes nothing."""
+        if self.session.quest:
+            return
+        try:
+            recognition = context.run_recognition(QUEST_NAME, frame)
+            text = recognition.best_result.text.strip() if recognition and recognition.hit else ""
+        except Exception:
+            text = ""
+        self.session.quest = text or None
 
     def run(self, context, argv):
         """One custom action. Never raises: MaaFw reported an exception that escaped
@@ -197,7 +218,7 @@ class Hooks:
             self.write_status()
             return True
         if self.guard is None or self.session is None:
-            raise SessionError("Start a new session from town or the quest's ready room")
+            raise SessionError("Start a new session from the quest's details page or ready room")
         # Agent proxy handles belong to the current callback context.
         # Keep process/socket identity across callbacks, never its proxy.
         self.guard.controller = context.tasker.controller
@@ -210,12 +231,22 @@ class Hooks:
                                           "Screen transition budget exhausted: " + argv.node_name))
         if self.controls.stop_requested or self.controls.paused or context.tasker.stopping:
             raise Stopped("Automation was stopped")
-        if ("key" in params or event in OBSERVED) and not self._recheck(context, argv.node_name):
-            if "key" in params and params.get("on_change") != "skip":
-                raise SessionError("The recognized screen changed before its action")
-            # Combat HUDs drop during camera transitions, and the tenth-run dialog
-            # can cover the results page. Nothing is pressed or counted from the
-            # old frame; the native next list inspects the screen again.
+        frame = None
+        if "key" in params or event in OBSERVED:
+            frame = self._recheck(context, argv.node_name)
+            if frame is None:
+                if "key" in params and params.get("on_change") != "skip":
+                    raise SessionError("The recognized screen changed before its action")
+                # Combat HUDs drop during camera transitions, and the tenth-run dialog
+                # can cover the results page. Nothing is pressed or counted from the
+                # old frame; the native next list inspects the screen again.
+                self.write_status()
+                return True
+        if event == "settle" and self._sees(context, FAILED_PAGE, frame):
+            # A failed quest's page also shows the results title. MaaFw's And ignores
+            # `inverse` on a referenced node, so the results node cannot exclude it;
+            # it is never counted, and the next list's failure nodes take the page.
+            context.override_pipeline({"GBFR_Counted": {"focus": {"Node.Action.Succeeded": ""}}})
             self.write_status()
             return True
         if event == "admit":
@@ -239,6 +270,7 @@ class Hooks:
             self.session.settle()
             self.calls = {}
             self.battle_started = None
+            self._read_quest(context, frame)
             # Shown in the client's log as the pipeline passes GBFR_Counted.
             context.override_pipeline({"GBFR_Counted": {"focus": {
                 "Node.Action.Succeeded": self.progress()}}})
@@ -248,12 +280,15 @@ class Hooks:
             self.session.repeat_off()
         elif event == "tenth_run":
             self.session.tenth_run()
-        elif event == "town":
-            self.session.town()
-            self.calls = {}
+        elif event == "tenth_yes":
+            self.session.answer_yes()
         elif event == "finish":
             self.session.finish()
             self.close()
+        elif event == "failed":
+            # GBFR_Defeat matched only with the failure page's toggle reading off.
+            self.session.left_on = False
+            raise SessionError(params["reason"])
         elif event == "error":
             raise SessionError(params["reason"])
         self.write_status()

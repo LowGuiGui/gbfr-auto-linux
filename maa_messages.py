@@ -16,22 +16,34 @@ MESSAGES = (
     (r"closed during the session",
      "游戏或它的 Gamescope 在运行中关闭了，已停止，没有再按键。已计数的次数有效。"
      "请通过 Steam 重新启动游戏，等画面稳定后再开始。"),
-    (r"Start a new session from town", "请从城镇或这个任务的准备画面开始。"),
+    (r"Start a new session from the quest", "请先在任务柜台打开要刷的任务（详情页或准备画面），再开始。"),
     (r"did not reach a supported transition",
-     "画面在限定时间内没有变成预期的样子，已停止。请看一眼游戏：回到城镇或该任务的准备画面，"
-     "再重新开始。"),
+     "画面在限定时间内没有变成预期的样子，已停止。请看一眼游戏：打开要刷的任务"
+     "（详情页或准备画面），再重新开始。"),
     (r"Select GBFR's native Gamescope",
      "MXU 连接的不是 GBFR 的 Gamescope。请在设备里选择“GBFR Gamescope”，并确认游戏是通过 Steam 启动的。"),
     (r"requires a usable 1280x720 capture",
      "截图不可用或尺寸不对：需要 16:9 的游戏画面。请检查游戏的分辨率设置。"),
     (r"Repeat Quest could not be turned on",
      "按了两次 3，“再次挑战”仍然没有打开，已停止。游戏会照常回到城镇。"),
+    (r"Repeat Quest could not be turned off after the quest failed",
+     "任务失败了，按了两次 3，“再次挑战”仍然开着，已停止。游戏可能会重试这个任务；"
+     "请在结算页按 3 关掉。"),
     (r"Repeat Quest could not be turned off",
      "按了两次 3，“再次挑战”仍然开着，已停止。游戏可能继续刷，最多到第 10 次；"
      "想马上停，请在结算的奖励页按 3 关掉。"),
     (r"Repeat Quest was off, yet the game started another run",
      "游戏开始了新一轮，但软件没有确认“再次挑战”是开着的，已停止。这一轮不计数。"),
-    (r"The quest failed", "任务失败，已停止，没有开始下一轮。请确认队伍能稳定通关。"),
+    (r"The quest failed",
+     "任务失败，这一轮不计数，已停止。“再次挑战”已确认关着，游戏会自己回到城镇。"
+     "已计数的次数有效。请确认队伍能稳定通关。"),
+    (r"failure page's Repeat Quest toggle could not be read",
+     "任务失败了，但读不到结算页上“再次挑战”的状态，已停止。请在结算页确认它是关着的。"),
+    (r"The game returned to town before the session finished",
+     "会话还没结束，游戏就回到了城镇（可能是第 10 次的确认没有选上“是”），已停止。"
+     "已计数的次数有效。"),
+    (r"cursor could not be moved to 是|是 on the tenth-run dialog was not accepted",
+     "第 10 次的确认弹窗里没能选上“是”，已停止。游戏会回到城镇，已计数的次数有效。"),
     (r"The battle exceeded its (\d+) s limit",
      "战斗超过了 {0} 秒上限，已停止。请确认完全辅助模式已开、当前队伍能通关。"),
     (r"Automation was stopped", "已按要求停止。"),
@@ -51,13 +63,13 @@ MESSAGES = (
     (r"The recognized screen changed before its action",
      "准备按键时画面变了，为安全没有按键，已停止。"),
     (r"unrelated battle",
-     "画面上的战斗不是这次会话开始的，已停止，没有计数。请从城镇或准备画面重新开始。"),
+     "画面上的战斗不是这次会话开始的，已停止，没有计数。请打开要刷的任务（详情页或准备画面）重新开始。"),
     (r"cannot start in the current session state|requires a battle observed|"
      r"victory screen appeared without|may only be turned on|can only be turned off|"
-     r"cannot restart from town|did not reach its settlement boundary|outside a results screen",
+     r"may only be answered|did not reach its settlement boundary|outside a results screen",
      "软件记录的进度和画面对不上，已停止，没有多计数。请看一眼游戏当前画面，"
-     "从城镇或准备画面重新开始。"),
-    (r"Choose a quest|successful-run limit",
+     "打开要刷的任务（详情页或准备画面）重新开始。"),
+    (r"successful-run limit",
      "次数设置无效：请填 1 到 999 的整数，或打开“一直刷”。"),
     (r"nested keyboard map has no|is a modifier on the nested|needs a modifier on the nested|keypad key",
      "游戏里的键盘映射不支持需要的按键（可能切换过键盘布局），没有开始。"),

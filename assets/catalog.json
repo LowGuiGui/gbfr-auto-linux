@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "profile": {
     "game": "2.0.6",
     "language": "zh-CN",
@@ -7,69 +7,51 @@
       1280,
       720
     ],
-    "mode": "private quests with AI teammates",
+    "mode": "private quests with AI teammates, any quest the player opens",
     "starts": [
-      "Seedhollow town",
-      "quest counter",
-      "difficulty/quest list",
-      "the quest's ready room"
+      "the quest's details page at the counter",
+      "its matching settings",
+      "the ready room with the quest accepted",
+      "the ready panel"
     ],
     "finish": "town",
-    "loop": "First run from the quest menus; later runs by the game's own Repeat Quest, started again from the menus after each tenth-run dialog",
+    "loop": "First run from the opened quest; every later run by the game's own Repeat Quest, answering 是 on each tenth-run dialog",
     "control_panel_port": 12792
   },
-  "quests": [
+  "task": {
+    "id": "current-quest",
+    "label": "连刷当前任务"
+  },
+  "verified_quests": [
     {
-      "id": "quakadile-materials",
-      "label": "巨爪岩鳄素材",
       "name": "解决沙漠狂徒",
       "objective": "讨伐巨爪岩鳄",
       "difficulty": "MANIAC",
       "recommended_power": 7200,
-      "purpose": "Materials for equipment upgrades; experience and mastery points are secondary rewards.",
-      "requirements": [
-        "Quest unlocked",
-        "Full Assist enabled",
-        "A party able to clear this boss with AI teammates"
-      ],
-      "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
-      "evidence": "live-validated: one exact-limit run and five consecutive runs, with finish requested during battle five. Repeat loop: 0.2.0-rc.1 passed a real-game acceptance on 2026-11-22: 12 consecutive runs across the tenth-run dialog, finish requested in run 2, immediate stop in run 1",
       "target_rewards": [
         "Landbeast Plate",
         "Landbeast Horn"
       ],
       "reward_source": "https://origin.ludo.guide/guide/granblue-fantasy-relink/quests-maniac",
-      "validation_date": "2026-11-21",
-      "battle_limit": 600,
-      "status": "candidate"
+      "evidence": "live-validated: one exact-limit run and five consecutive runs, with finish requested during battle five. Repeat loop: 0.2.0-rc.1 passed a real-game acceptance on 2026-11-22: 12 consecutive runs across the tenth-run dialog, finish requested in run 2, immediate stop in run 1. 2026-11-22 (headless, scripted measurement): 是 on the tenth-run dialog turned Repeat Quest back on and run 11 started without town; a solo party failed it, and the failure page timed out into town with no input",
+      "validation_date": "2026-11-21"
     },
     {
-      "id": "frost-quakadile-materials",
-      "label": "巨爪霜鳄素材",
       "name": "我要打造冰冷的铠甲",
       "objective": "讨伐巨爪霜鳄",
       "difficulty": "MANIAC",
       "recommended_power": 7200,
-      "purpose": "Blizzadile materials for equipment upgrades.",
-      "requirements": [
-        "Quest unlocked",
-        "Full Assist enabled",
-        "A party able to clear this boss with AI teammates"
-      ],
-      "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
-      "evidence": "live-validated: one exact-limit run from town to settlement and town. Repeat loop: game behaviour measured 2026-11-21 (scripted, Quakadile); the repeat loop not yet run against this quest",
       "target_rewards": [
         "Frostbeast Plate",
         "Frostbeast Horn"
       ],
       "reward_source": "https://origin.ludo.guide/guide/granblue-fantasy-relink/quests-maniac",
-      "validation_date": "2026-11-21",
-      "battle_limit": 600,
-      "status": "candidate"
+      "evidence": "live-validated: one exact-limit run from town to settlement and town. Repeat loop: game behaviour measured 2026-11-21 (scripted, Quakadile); the repeat loop not yet run against this quest",
+      "validation_date": "2026-11-21"
     }
   ],
   "text": {
-    "task": "任务：{name}（{difficulty}，推荐战力 {recommended_power}）。\n需要：任务已解锁；开启完全辅助模式；当前 AI 队伍能稳定通关。\n从城镇或这个任务的准备画面开始。软件接第一次任务，之后打开游戏自带的“再次挑战”连刷；游戏每 10 次弹出确认时，软件回城重新接任务。达到次数或你选择本轮后停止时，软件关掉再次挑战，等游戏回到城镇后结束。\n第一次使用请先填 1 次，确认队伍能过。一次只勾选一个预设。",
+    "task": "连刷你在任务柜台打开的任务，任何任务都可以。\n开始前：在柜台打开要刷的任务，停在任务详情页、匹配设置或准备画面；匹配方式用“私人”；开启完全辅助模式；当前 AI 队伍能稳定通关。\n软件接下这个任务，之后打开游戏自带的“再次挑战”连刷；游戏每 10 次弹出确认时选“是”接着刷。任务失败时这一轮不计数，软件确认“再次挑战”关着后停下。达到次数或你选择本轮后停止时，软件关掉再次挑战，等游戏回到城镇后结束。\n第一次刷某个任务，请先填 1 次，确认队伍能过。",
     "runs_label": "成功次数",
     "runs_pattern": "请输入 1 到 999 的整数",
     "until_stopped_label": "一直刷，直到我停止",
