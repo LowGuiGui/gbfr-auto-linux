@@ -1,7 +1,13 @@
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""The real pipeline and Agent against a scripted game (see maa_graph.py)."""
+"""The real pipeline and Agent against a scripted game (see maa_graph.py).
+
+The scripts follow what the game was measured to do on 2026-11-21: two results
+pages, `③再次挑战` / `③撤销再次挑战` on the rewards page, no victory screen once
+Repeat Quest is on, and on the tenth run a reset toggle plus a dialog that, left
+alone, ends in town.
+"""
 
 import pytest
 
@@ -9,31 +15,199 @@ pytest.importorskip("maa.tasker", reason="MaaFw is not installed")
 
 from maa_graph import run, screen  # noqa: E402
 
+NAV_KEYS = ["Return", "Return", "Return", "3", "Return"]
 
-def one_run_from_quest_list():
+
+def menus():
     return [
         screen("quest list", "GBFR_QuestSelected", leave_on="key:Return"),
         screen("quest details", "GBFR_QuestDetails", leave_on="key:Return"),
         screen("matching", "GBFR_Private", leave_on="key:Return"),
-        screen("ready room", "GBFR_ReadyTown", leave_on="key:3"),
-        screen("ready confirm", "GBFR_ReadyConfirm", leave_on="key:Return"),
-        screen("battle", "GBFR_Battle", leave_on="action:GBFR_Battle", after=3),
-        screen("victory", "GBFR_Victory", leave_on="action:GBFR_Victory"),
-        screen("results", "GBFR_Result", leave_on="action:GBFR_Result", after=2),
-        screen("settlement", "GBFR_SettlementConfirm", leave_on="key:Return"),
-        screen("town", "GBFR_SettledTown", "GBFR_Finished", "GBFR_Town"),
+        screen("ready room", "GBFR_ReadyTown", "GBFR_See_Town", leave_on="key:3"),
+        screen("ready confirm", "GBFR_ReadyConfirm", "GBFR_CancelReady", leave_on="key:Return"),
     ]
 
 
-def test_one_run_counts_once_and_finishes_in_town(monkeypatch, tmp_path):
-    outcome = run(monkeypatch, tmp_path, one_run_from_quest_list(), limit=1)
-    assert outcome.succeeded
-    assert outcome.session["completed"] == outcome.session["episode"] == 1
+def battle(*, victory, finish=False):
+    result = [screen("battle", "GBFR_See_Battle", leave_on="action:GBFR_Battle", after=2,
+                     finish=finish)]
+    if victory:
+        result.append(screen("victory", "GBFR_See_Victory", leave_on="action:GBFR_Victory"))
+    return result
+
+
+def titles():
+    return screen("results: titles", "GBFR_See_Results", leave_on="action:GBFR_ResultHold", after=2)
+
+
+def rewards(label, leave_on, after=1, finish=False):
+    toggle = {"on": "GBFR_See_RepeatOn", "off": "GBFR_See_RepeatOff"}[label]
+    return screen(f"results: rewards, repeat {label}", "GBFR_See_Results", toggle,
+                  leave_on=leave_on, after=after, finish=finish)
+
+
+def first_run_turning_repeat_on():
+    return [*menus(), *battle(victory=True), titles(),
+            rewards("off", "key:3"), rewards("on", "action:GBFR_KeepRepeating", after=2)]
+
+
+def repeated_run_keeping_it_on():
+    return [*battle(victory=False), titles(), rewards("on", "action:GBFR_KeepRepeating", after=2)]
+
+
+def last_run_turning_it_off(*, victory=False):
+    return [*battle(victory=victory), titles(), rewards("on", "key:3"),
+            rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+
+
+def town():
+    return screen("town", "GBFR_See_Town", "GBFR_Town")
+
+
+def assert_clean_finish(outcome, completed):
+    assert outcome.succeeded, outcome.session
     assert outcome.session["phase"] == "finished"
     assert outcome.session["error"] is None
-    assert outcome.keys == ["Return", "Return", "Return", "3", "Return", "Return"]
+    assert outcome.session["completed"] == outcome.session["episode"] == completed
     assert outcome.final_screen == "town"
     assert all(kind != "native-input" for _, kind in outcome.log)
+
+
+def test_one_run_leaves_repeat_off_and_finishes_in_town(monkeypatch, tmp_path):
+    screens = [*menus(), *battle(victory=True), titles(),
+               rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=1)
+    assert_clean_finish(outcome, 1)
+    assert outcome.keys == NAV_KEYS
+    assert outcome.session["admissions"] == 1
+
+
+def test_three_runs_use_the_games_repeat_after_the_first(monkeypatch, tmp_path):
+    screens = [*first_run_turning_repeat_on(), *repeated_run_keeping_it_on(),
+               *last_run_turning_it_off()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=3)
+    assert_clean_finish(outcome, 3)
+    assert outcome.session["admissions"] == 1
+    # Menus once, then only the toggle: on after run 1, off after run 3.
+    assert outcome.keys == NAV_KEYS + ["3", "3"]
+
+
+def test_twelve_runs_cross_the_tenth_run_dialog_by_starting_again_from_town(monkeypatch, tmp_path):
+    screens = first_run_turning_repeat_on()
+    for _ in range(8):
+        screens += repeated_run_keeping_it_on()
+    screens += [*battle(victory=False), titles(),
+                # The game reset the toggle; its dialog covers the page before the
+                # delayed press is rechecked, so nothing is pressed.
+                rewards("off", "seen:GBFR_See_RepeatOff"),
+                screen("tenth-run dialog", "GBFR_See_TenthRun", leave_on="action:GBFR_TenthRun", after=3),
+                rewards("off", "action:GBFR_CapHold", after=2),
+                screen("town after the dialog", "GBFR_See_Town", "GBFR_Town",
+                       leave_on="action:GBFR_TownRestart"),
+                *first_run_turning_repeat_on(), *last_run_turning_it_off()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=12)
+    assert_clean_finish(outcome, 12)
+    assert outcome.session["admissions"] == 2
+    assert outcome.keys == NAV_KEYS + ["3"] + NAV_KEYS + ["3", "3"]
+
+
+def test_a_dialog_opened_by_the_press_is_handled_the_same_way(monkeypatch, tmp_path):
+    screens = [*first_run_turning_repeat_on(), *battle(victory=False), titles(),
+               rewards("off", "key:3"),
+               screen("tenth-run dialog", "GBFR_See_TenthRun", leave_on="action:GBFR_TenthRun", after=2),
+               rewards("off", "action:GBFR_CapHold", after=2),
+               screen("town after the dialog", "GBFR_See_Town", "GBFR_Town",
+                      leave_on="action:GBFR_TownRestart"),
+               *menus(), *battle(victory=True), titles(),
+               rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=3)
+    assert_clean_finish(outcome, 3)
+    assert outcome.keys == NAV_KEYS + ["3", "3"] + NAV_KEYS
+
+
+def test_finish_requested_during_battle_ends_after_that_run(monkeypatch, tmp_path):
+    screens = [*first_run_turning_repeat_on(), *battle(victory=False, finish=True), titles(),
+               rewards("on", "key:3"), rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=10)
+    assert_clean_finish(outcome, 2)
+    assert outcome.session["finish_requested"]
+    assert outcome.session["overrun"] == 0
+    assert outcome.keys == NAV_KEYS + ["3", "3"]
+
+
+def test_finish_requested_on_the_rewards_page_turns_repeat_back_off(monkeypatch, tmp_path):
+    screens = [*first_run_turning_repeat_on()[:-1],
+               rewards("on", "action:GBFR_KeepRepeating"),
+               rewards("on", "key:3", finish=True),
+               rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=10)
+    assert_clean_finish(outcome, 1)
+    assert outcome.keys == NAV_KEYS + ["3", "3"]
+
+
+def test_until_stopped_ignores_the_limit(monkeypatch, tmp_path):
+    screens = [*first_run_turning_repeat_on(), *repeated_run_keeping_it_on(),
+               *battle(victory=False, finish=True), titles(), rewards("on", "key:3"),
+               rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=1, until_stopped=True)
+    assert_clean_finish(outcome, 3)
+    assert outcome.session["limit"] is None
+
+
+def test_repeat_left_on_by_the_player_is_kept_without_a_press(monkeypatch, tmp_path):
+    screens = [*menus(), *battle(victory=True), titles(),
+               rewards("on", "action:GBFR_KeepRepeating", after=2), *last_run_turning_it_off()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=2)
+    assert_clean_finish(outcome, 2)
+    assert outcome.keys == NAV_KEYS + ["3"]
+
+
+def test_starting_from_the_ready_room(monkeypatch, tmp_path):
+    screens = [*menus()[3:], *battle(victory=True), titles(),
+               rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=1)
+    assert_clean_finish(outcome, 1)
+    assert outcome.keys == ["3", "Return"]
+
+
+def test_finish_requested_before_departure_cancels_without_a_run(monkeypatch, tmp_path):
+    screens = [*menus()[:-1],
+               screen("ready confirm", "GBFR_ReadyConfirm", "GBFR_CancelReady",
+                      leave_on="key:Escape", finish=True),
+               town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=3)
+    assert outcome.succeeded, outcome.session
+    assert outcome.session["phase"] == "finished"
+    assert outcome.session["completed"] == outcome.session["episode"] == 0
+    assert outcome.keys == ["Return", "Return", "Return", "3", "Escape"]
+
+
+def test_a_toggle_that_never_changes_stops_after_two_presses(monkeypatch, tmp_path):
+    screens = [*menus(), *battle(victory=True), titles(), rewards("off", None)]
+    outcome = run(monkeypatch, tmp_path, screens, limit=3)
+    assert not outcome.succeeded
+    assert outcome.session["phase"] == "error"
+    assert outcome.session["error"] == "Repeat Quest could not be turned on"
+    assert outcome.session["completed"] == 1
+    assert outcome.keys == NAV_KEYS + ["3", "3"]
+
+
+def test_a_new_run_after_repeat_was_turned_off_is_refused(monkeypatch, tmp_path):
+    screens = [*menus(), *battle(victory=True), titles(),
+               rewards("off", "action:GBFR_LetItEnd", after=2), *battle(victory=False)]
+    outcome = run(monkeypatch, tmp_path, screens, limit=1)
+    assert not outcome.succeeded
+    assert "Repeat Quest was off" in outcome.session["error"]
+    assert outcome.session["completed"] == 1
+
+
+def test_a_failed_quest_stops_without_counting(monkeypatch, tmp_path):
+    screens = [*menus(), *battle(victory=False), screen("failed", "GBFR_See_Defeat")]
+    outcome = run(monkeypatch, tmp_path, screens, limit=3)
+    assert not outcome.succeeded
+    assert outcome.session["completed"] == 0
+    assert "failed" in outcome.session["error"]
+    assert outcome.keys == NAV_KEYS
 
 
 def test_unknown_start_stops_without_input_or_success(monkeypatch, tmp_path):
@@ -45,10 +219,25 @@ def test_unknown_start_stops_without_input_or_success(monkeypatch, tmp_path):
     assert outcome.keys == []
 
 
-def test_a_results_screen_left_from_before_is_never_counted(monkeypatch, tmp_path):
-    stale = [screen("old results", "GBFR_Victory", "GBFR_Result", "GBFR_SettlementConfirm")]
+@pytest.mark.parametrize("label", ["on", "off"])
+def test_a_results_screen_left_from_before_is_never_counted(monkeypatch, tmp_path, label):
+    stale = [rewards(label, None)]
     outcome = run(monkeypatch, tmp_path, stale)
     assert not outcome.succeeded
     assert outcome.session["completed"] == 0
     assert outcome.session["phase"] == "error"
     assert outcome.keys == []
+
+
+def test_a_limit_of_ten_lets_the_tenth_run_dialog_time_out_into_town(monkeypatch, tmp_path):
+    screens = first_run_turning_repeat_on()
+    for _ in range(8):
+        screens += repeated_run_keeping_it_on()
+    screens += [*battle(victory=False), titles(),
+                rewards("off", "action:GBFR_LetItEnd"),
+                screen("tenth-run dialog", "GBFR_See_TenthRun", leave_on="action:GBFR_TenthRun", after=3),
+                rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=10)
+    assert_clean_finish(outcome, 10)
+    assert outcome.session["admissions"] == 1
+    assert outcome.keys == NAV_KEYS + ["3"]  # nothing pressed on the dialog

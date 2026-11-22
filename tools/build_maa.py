@@ -86,9 +86,11 @@ def build(output, cache, python):
     for name in ("MaaCommonAssets-LICENSE", "PaddleOCR-LICENSE"):
         shutil.copy2(downloads[name], notices / name)
     (output / "config").mkdir()
+    # One source for the panel port: the welcome link is rendered from the same value.
+    port = json.loads((ROOT / "assets/catalog.json").read_text())["profile"]["control_panel_port"]
     (output / "config/mxu-GBFRLinux.json").write_text(json.dumps({
         "version": "1.0", "instances": [], "settings": {
-            "webServerEnabled": True, "webServerPort": 12792, "allowLanAccess": False,
+            "webServerEnabled": True, "webServerPort": port, "allowLanAccess": False,
             "checkUpdateOnStart": False, "minimizeToTray": False}}, indent=2) + "\n")
     lock = output / "requirements.lock"
     shutil.copy2(ROOT / "requirements-maa-runtime.lock", lock)

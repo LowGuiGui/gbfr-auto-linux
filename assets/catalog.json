@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "profile": {
     "game": "2.0.6",
     "language": "zh-CN",
@@ -11,9 +11,12 @@
     "starts": [
       "Seedhollow town",
       "quest counter",
-      "difficulty/quest list"
+      "difficulty/quest list",
+      "the quest's ready room"
     ],
-    "finish": "town"
+    "finish": "town",
+    "loop": "First run from the quest menus; later runs by the game's own Repeat Quest, started again from the menus after each tenth-run dialog",
+    "control_panel_port": 12792
   },
   "quests": [
     {
@@ -27,17 +30,18 @@
       "requirements": [
         "Quest unlocked",
         "Full Assist enabled",
-        "A party able to clear this boss with AI teammates",
-        "In-game automatic repeat disabled"
+        "A party able to clear this boss with AI teammates"
       ],
       "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
-      "evidence": "live-validated: one exact-limit run and five consecutive runs, with finish requested during battle five",
+      "evidence": "live-validated: one exact-limit run and five consecutive runs, with finish requested during battle five. Repeat loop: game behaviour measured 2026-11-21 (scripted, Quakadile); this pipeline not yet run against the game",
       "target_rewards": [
         "Landbeast Plate",
         "Landbeast Horn"
       ],
       "reward_source": "https://origin.ludo.guide/guide/granblue-fantasy-relink/quests-maniac",
-      "validation_date": "2026-11-21"
+      "validation_date": "2026-11-21",
+      "battle_limit": 600,
+      "status": "candidate"
     },
     {
       "id": "frost-quakadile-materials",
@@ -50,17 +54,25 @@
       "requirements": [
         "Quest unlocked",
         "Full Assist enabled",
-        "A party able to clear this boss with AI teammates",
-        "In-game automatic repeat disabled"
+        "A party able to clear this boss with AI teammates"
       ],
       "strategy": "Full Assist and AI teammates from the initial arena position; no automation combat input",
-      "evidence": "live-validated: one exact-limit run from town to settlement and town",
+      "evidence": "live-validated: one exact-limit run from town to settlement and town. Repeat loop: game behaviour measured 2026-11-21 (scripted, Quakadile); this pipeline not yet run against the game",
       "target_rewards": [
         "Frostbeast Plate",
         "Frostbeast Horn"
       ],
       "reward_source": "https://origin.ludo.guide/guide/granblue-fantasy-relink/quests-maniac",
-      "validation_date": "2026-11-21"
+      "validation_date": "2026-11-21",
+      "battle_limit": 600,
+      "status": "candidate"
     }
-  ]
+  ],
+  "text": {
+    "task": "任务：{name}（{difficulty}，推荐战力 {recommended_power}）。\n需要：任务已解锁；开启完全辅助模式；当前 AI 队伍能稳定通关。\n从城镇或这个任务的准备画面开始。软件接第一次任务，之后打开游戏自带的“再次挑战”连刷；游戏每 10 次弹出确认时，软件回城重新接任务。达到次数或你选择本轮后停止时，软件关掉再次挑战，等游戏回到城镇后结束。\n第一次使用请先填 1 次，确认队伍能过。一次只勾选一个预设。",
+    "runs_label": "成功次数",
+    "runs_pattern": "请输入 1 到 999 的整数",
+    "until_stopped_label": "一直刷，直到我停止",
+    "welcome": "进度和“本轮后停止”在[控制面板](http://127.0.0.1:{port}/api/local-file?path=control.html)。"
+  }
 }

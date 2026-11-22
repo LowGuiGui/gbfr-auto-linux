@@ -27,17 +27,17 @@
   <button id="finish" disabled>本轮结束后停下</button>
   <button id="stop" disabled>立即停止操作</button>
   <p id="message" role="status"></p>
-  <small>“本轮结束后停下”会结算奖励并返回城镇。<br>“立即停止操作”会停止软件输入；游戏本身仍会继续运行。</small>
+  <small>“本轮结束后停下”会在结算画面关掉再次挑战，等游戏返回城镇。<br>“立即停止操作”只停止软件输入；如果再次挑战开着，游戏会自己继续刷，最多到第 10 次弹窗。</small>
   <details id="diagnostic" hidden><summary>诊断信息</summary><p id="error"></p></details>
 </div>
-<small>在主窗口选择刷取预设和次数，然后开始。成功次数在奖励结算并返回城镇后增加。</small>
+<small>在主窗口选择刷取预设和次数，然后开始。结算画面出现时成功次数加一；之后的轮次由游戏自带的“再次挑战”开始。</small>
 <script>
   const $ = id => document.getElementById(id);
   let active = null;
   let activeKey = null;
   let busy = false;
-  const phases = {ready: '正在准备副本', starting: '正在进入副本', battle: '战斗中',
-                  settling: '已通关，正在结算奖励', finished: '已完成，停在城镇',
+  const phases = {ready: '正在接任务', starting: '正在进入副本', battle: '战斗中',
+                  settled: '已通关，正在结算', finished: '已完成，停在城镇',
                   error: '操作已停止。请查看游戏当前画面，再从支持的起点重新开始。'};
   async function request(path, data) {
     const response = await fetch('/api/' + path, data === undefined ? {cache: 'no-store'} : {
@@ -61,9 +61,13 @@
       }
       const result = await request('local-file?path=agent/runtime/session.json');
       $('quest').textContent = result.quest || '等待任务';
-      $('count').textContent = `${result.completed ?? 0} / ${result.limit ?? '—'} 次成功`;
-      $('phase').textContent = (phases[result.phase] || '等待任务') +
-        (result.finish_requested && active ? ' · 已收到本轮后停止请求' : '');
+      const limit = result.limit === null ? '一直刷' : (result.limit ?? '—');
+      $('count').textContent = `${result.completed ?? 0} / ${limit} 次成功`;
+      const note = result.phase === 'ready' && result.completed > 0 ? '（第 10 次后回城重新接任务）' :
+        result.phase === 'settled' && result.repeat ? '（再次挑战已打开）' : '';
+      $('phase').textContent = (phases[result.phase] || '等待任务') + note +
+        (result.finish_requested && active ? ' · 已收到本轮后停止请求' : '') +
+        (result.overrun ? ` · 多完成 ${result.overrun} 次：停止时下一轮已经开始` : '');
       $('diagnostic').hidden = !result.error;
       $('error').textContent = result.error || '';
       $('finish').disabled = busy || !active?.task || !active.singlePreset || result.finish_requested;

@@ -3,11 +3,12 @@
 
 """Run the real GBFR pipeline against a scripted game, offline.
 
-Every recognition in the resource is replaced by a Custom recognition that asks a
-scripted game whether that node's screen is showing, and every key goes to the
-script instead of a controller. The native Tasker then exercises the pipeline's
-`next` / `on_error` ordering together with the Agent's accounting and stop logic.
-Recognition accuracy is not tested here; the screenshot replay checks do that.
+Leaf recognitions (`GBFR_See_*`, what is visible) and the menu-navigation nodes are
+replaced by a Custom recognition that asks a scripted game whether they are showing.
+Nodes composed from leaves and the Agent's `GBFRSession` gate stay native, so the
+Tasker exercises the real `And` logic, `next` / `on_error` ordering, the Agent's
+accounting and its stop decisions. Every key goes to the script instead of a
+controller. Recognition accuracy is not tested here; the screenshot replay checks do.
 """
 
 from dataclasses import dataclass
@@ -25,19 +26,23 @@ FRAME = np.full((720, 1280, 3), 96, dtype=np.uint8)
 class Screen:
     """One game screen: the nodes that recognise it and the event that leaves it.
 
-    `leave_on` is "key:<name>" for a key the automation presses, or
-    "action:<node>" for a node's action finishing. `after` counts how many such
-    events the screen needs before it changes. A screen without `leave_on` stays.
+    `leave_on` is "key:<name>" for a key the automation presses, "action:<node>"
+    for a node's action finishing, or "seen:<node>" for a scripted recognition of
+    that node succeeding (a screen that changes by itself while being looked at).
+    `after` counts how many such events the screen needs before it changes. A
+    screen without `leave_on` stays. `finish` asks the session to finish after the
+    current run as the screen appears, as the control panel would.
     """
 
     name: str
     hits: frozenset
     leave_on: str | None = None
     after: int = 1
+    finish: bool = False
 
 
-def screen(name, *hits, leave_on=None, after=1):
-    return Screen(name, frozenset(hits), leave_on, after)
+def screen(name, *hits, leave_on=None, after=1, finish=False):
+    return Screen(name, frozenset(hits), leave_on, after, finish)
 
 
 class ScriptedGame:
@@ -46,6 +51,7 @@ class ScriptedGame:
         self.index = 0
         self.count = 0
         self.log = []
+        self.on_enter = None
 
     @property
     def current(self):
@@ -61,6 +67,8 @@ class ScriptedGame:
             if self.count >= self.current.after:
                 self.index += 1
                 self.count = 0
+                if self.current is not None and self.on_enter is not None:
+                    self.on_enter(self.current)
 
     @property
     def keys(self):
@@ -109,24 +117,39 @@ class Outcome:
     final_screen: str | None
 
 
+def composed(recognition):
+    """True for an And built only from GBFR_See_* leaves and Custom gates."""
+    if recognition.get("type") != "And":
+        return False
+    for part in recognition["param"]["all_of"]:
+        if isinstance(part, str):
+            if not part.startswith("GBFR_See_"):
+                return False
+        elif (part.get("recognition") or {}).get("type") != "Custom":
+            return False
+    return True
+
+
 def _speed_overrides(resource, timeout_ms):
-    """Script every recognising node and shorten waits so a test runs in seconds."""
+    """Script leaves and menu nodes, keep composed nodes native, shorten every wait."""
     overrides = {}
     for name in resource.node_list:
         if name.startswith("GBFR_Catalog_"):
-            continue  # only ever evaluated inside a parent's And, which is scripted
+            continue  # only ever evaluated inside a scripted node
         data = resource.get_node_data(name) or {}
         node: dict = {"pre_delay": 0, "post_delay": 0, "rate_limit": 20}
         if "timeout" in data:
             node["timeout"] = timeout_ms
-        if (data.get("recognition") or {}).get("type", "DirectHit") != "DirectHit":
+        recognition = data.get("recognition") or {}
+        if recognition.get("type", "DirectHit") != "DirectHit" and (
+                name.startswith("GBFR_See_") or not composed(recognition)):
             node["recognition"] = {"type": "Custom",
                                    "param": {"custom_recognition": "GBFRScript"}}
         overrides[name] = node
     return overrides
 
 
-def run(monkeypatch, tmp_path, screens, *, quest="解决沙漠狂徒", limit=1,
+def run(monkeypatch, tmp_path, screens, *, quest="解决沙漠狂徒", limit=1, until_stopped=False,
         resource_path=RESOURCE, timeout_ms=400):
     from maa.controller import CustomController
     from maa.custom_action import CustomAction
@@ -142,9 +165,21 @@ def run(monkeypatch, tmp_path, screens, *, quest="解决沙漠狂徒", limit=1,
     monkeypatch.setattr(maa_agent, "ControlServer", FakeServer)
     hooks = maa_agent.Hooks(tmp_path / "session.json")
 
+    def enter(current):
+        if current.finish and hooks.session is not None:
+            hooks.session.finish_requested = True
+    game.on_enter = enter
+
     class Script(CustomRecognition):
         def analyze(self, context, argv):
-            return (0, 0, 1, 1) if game.visible(argv.node_name) else None
+            if not game.visible(argv.node_name):
+                return None
+            game.event("seen:" + argv.node_name)
+            return (0, 0, 1, 1)
+
+    class Gate(CustomRecognition):
+        def analyze(self, context, argv):
+            return (0, 0, 1, 1) if hooks.want(context, argv.custom_recognition_param) else None
 
     class Action(CustomAction):
         def run(self, context, argv):
@@ -180,6 +215,7 @@ def run(monkeypatch, tmp_path, screens, *, quest="解决沙漠狂徒", limit=1,
     if not resource.post_bundle(resource_path).wait().succeeded:
         raise RuntimeError("Native resource loading failed")
     resource.register_custom_recognition("GBFRScript", Script())
+    resource.register_custom_recognition("GBFRSession", Gate())
     resource.register_custom_action("GBFR", Action())
     controller = Offline()
     controller.post_connection().wait()
@@ -189,6 +225,7 @@ def run(monkeypatch, tmp_path, screens, *, quest="解决沙漠狂徒", limit=1,
     overrides = _speed_overrides(resource, timeout_ms)
     overrides["GBFR_QuestConfig"] = {"attach": {"quest": quest}}
     overrides["GBFR_RunLimit"] = {"attach": {"limit": limit}}
+    overrides["GBFR_UntilStopped"] = {"enabled": until_stopped}
     try:
         job = tasker.post_task("GBFR_Start", overrides).wait()
         session = json.loads((tmp_path / "session.json").read_text())
