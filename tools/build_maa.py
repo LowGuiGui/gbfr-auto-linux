@@ -16,7 +16,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 AGENT_FILES = ("maa_agent.py", "maa_guard.py", "maa_session.py", "maa_target.py",
-               "gamescope.py", "xtest_input.py", "control.py", "applog.py")
+               "gamescope.py", "control.py", "applog.py")
 
 
 def digest(path):

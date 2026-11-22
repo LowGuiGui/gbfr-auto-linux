@@ -1929,6 +1929,175 @@
     "enabled": false,
     "doc": "Flag only: the \"until I stop it\" switch enables it; the run limit is then ignored."
   },
+  "GBFR_Key_Return": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          28
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_Escape": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          1
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_Up": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          103
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_Down": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          108
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_Left": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          105
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_Right": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          106
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_w": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          17
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_a": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          30
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_f": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          33
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_r": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          19
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_3": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          4
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_q": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          16
+        ],
+        "duration": 100
+      }
+    }
+  },
+  "GBFR_Key_e": {
+    "pre_delay": 0,
+    "post_delay": 0,
+    "action": {
+      "type": "LongPressKey",
+      "param": {
+        "key": [
+          18
+        ],
+        "duration": 100
+      }
+    }
+  },
   "GBFR_Counted": {
     "doc": "Reports the count in the client's log; the Agent rewrites the text after each count.",
     "pre_delay": 0,
