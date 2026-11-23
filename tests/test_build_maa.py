@@ -185,14 +185,69 @@ def install_env(tmp_path):
 
 
 def bundle_with_scripts(path):
-    """A release directory with what the menu scripts use: the icon and the scripts."""
+    """A release directory with what the menu scripts use: the icon, the scripts, the
+    runner's Python and the manifest a finished build writes last."""
     import shutil
     from tools.build_maa import APP_ID, BUNDLE_SCRIPTS, ROOT
     (path / "icons").mkdir(parents=True)
     shutil.copy2(ROOT / "assets/icons" / f"{APP_ID}.svg", path / "icons")
     for script in BUNDLE_SCRIPTS:
         shutil.copy2(ROOT / "assets/bundle" / script, path / script)
+    (path / ".venv/bin").mkdir(parents=True)
+    (path / ".venv/bin/python").write_text("runtime")
+    (path / ".venv/bin/python").chmod(0o755)
+    (path / "bundle.json").write_text("{}")
     return path
+
+
+@pytest.mark.parametrize("missing", ["bundle.json", ".venv/bin/python", "icons"])
+def test_install_refuses_an_unfinished_bundle_and_keeps_the_current_one(tmp_path, missing):
+    """A build that stopped part-way leaves its scripts without the runner or the manifest
+    (or an icon); installing it would point the menu at a bundle that cannot run."""
+    import os
+    import shutil
+    from tools.build_maa import APP_ID
+    good = bundle_with_scripts(tmp_path / "good")
+    broken = bundle_with_scripts(tmp_path / "broken")
+    target = broken / missing
+    shutil.rmtree(target) if target.is_dir() else target.unlink()
+    env = install_env(tmp_path)
+    share = tmp_path / "home/.local/share"
+    link = share / "gbfr-auto-linux/current"
+    assert run_script(good / "install.sh", env).returncode == 0
+    entry = (share / "applications" / f"{APP_ID}.desktop").read_text()
+    result = run_script(broken / "install.sh", env)
+    assert result.returncode == 1 and "没有安装" in result.stderr
+    assert os.readlink(link) == str(good.resolve())
+    assert (share / "applications" / f"{APP_ID}.desktop").read_text() == entry
+    assert sorted(path.name for path in link.parent.iterdir()) == ["current"]
+
+
+def test_an_install_that_fails_part_way_leaves_the_link_where_it_was(tmp_path):
+    import os
+    if os.geteuid() == 0:
+        pytest.skip("root writes into a read-only folder, so the icon copy would not fail")
+    good = bundle_with_scripts(tmp_path / "good")
+    new = bundle_with_scripts(tmp_path / "new")
+    env = install_env(tmp_path)
+    share = tmp_path / "home/.local/share"
+    link = share / "gbfr-auto-linux/current"
+    assert run_script(good / "install.sh", env).returncode == 0
+    apps = share / "icons/hicolor/scalable/apps"
+    apps.chmod(0o500)  # the icon cannot be written
+    try:
+        result = run_script(new / "install.sh", env)
+    finally:
+        apps.chmod(0o700)
+    assert result.returncode != 0
+    assert os.readlink(link) == str(good.resolve())
+
+
+def test_a_build_that_stops_part_way_says_how_to_retry(tmp_path):
+    partial = tmp_path / "gbfr"
+    (partial / "app").mkdir(parents=True)  # no bundle.json: the build did not finish
+    with pytest.raises(ValueError, match="did not finish"):
+        build(partial, tmp_path / "cache", "3.13")
 
 
 def run_script(path, env):
