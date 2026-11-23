@@ -120,8 +120,10 @@ of an error, the window says why and what to do.
 - "显示的信息…" (information shown) in the menu at the top right shows or hides each of these
   items, and saves the choice at once. "最近几条日志" (recent log lines) is hidden by default,
   everything else shown; the controls are always shown.
-- "置顶…" (keep on top) in the menu opens GNOME's own window menu, the same as a right click
-  on the title bar; choose 置顶 (Always on Top) there to keep the window above the others.
+- The pin in the title bar opens GNOME's own window menu, the same as a right click on the
+  title bar. Choose 置顶 (Always on Top) there to keep the window above the others, and choose
+  it again to undo that. The pin does not show whether the window is on top, because GNOME
+  does not let programs read that state.
 - When a session finishes or stops with an error, a desktop notification appears. There is
   none when you stop it yourself, nor when Start is refused at once (the game is not running,
   for example), because the window already says why.

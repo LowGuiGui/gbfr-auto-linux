@@ -24,7 +24,7 @@ import gi  # noqa: E402
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 import control_view as cv  # noqa: E402
 import maa_protocol  # noqa: E402
@@ -132,20 +132,22 @@ class MainWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         menu = Gio.Menu()
         menu.append("显示的信息…", "app.preferences")
-        menu.append("置顶…", "app.window-menu")
         menu.append("打开日志文件夹", "app.open-logs")
         menu.append(f"关于 {cv.APP_NAME}", "app.about")
         self.menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu,
                                           tooltip_text="菜单")
         header.pack_end(self.menu_button)
-        # 置顶… needs the click that chose it (see show_window_menu): remember the menu's
-        # clicks, only those made since it opened.
-        self._menu_click = None
-        popover = self.menu_button.get_popover()
-        clicks = Gtk.EventControllerLegacy(propagation_phase=Gtk.PropagationPhase.CAPTURE)
-        clicks.connect("event", self._remember_menu_click)
-        popover.add_controller(clicks)
-        popover.connect("show", lambda *_: setattr(self, "_menu_click", None))
+        # The pin opens GNOME's own window menu, where 置顶 lives: GTK 4 has no call to keep a
+        # window on top, and on Wayland a program can neither set that nor read it. A pointer
+        # press is passed on as it happens (_pin_pressed); the keyboard has no press to pass
+        # on, so activating the pin from it explains the right click instead.
+        self.pin_button = Gtk.Button(icon_name="view-pin-symbolic",
+                                     tooltip_text="置顶：在弹出的窗口菜单里选“置顶”")
+        press = Gtk.GestureClick(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        press.connect("pressed", self._pin_pressed)
+        self.pin_button.add_controller(press)
+        self.pin_button.connect("clicked", lambda *_: self.notice.set_label(WINDOW_MENU_HINT))
+        header.pack_end(self.pin_button)
         view.add_top_bar(header)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, margin_top=14,
                       margin_bottom=18, margin_start=16, margin_end=16)
@@ -230,29 +232,21 @@ class MainWindow(Adw.ApplicationWindow):
             self.set_focus(None)
         return False
 
-    def _remember_menu_click(self, _controller, event):
-        if event.get_event_type() in (Gdk.EventType.BUTTON_PRESS, Gdk.EventType.BUTTON_RELEASE,
-                                      Gdk.EventType.TOUCH_BEGIN, Gdk.EventType.TOUCH_END):
-            self._menu_click = event
-        return False
-
-    def show_window_menu(self):
-        """置顶…: ask GNOME for its own window menu, the one a right click on the title bar
-        opens, where 置顶 lives. GTK 4 has no call to keep a window on top and Mutter offers
-        programs no protocol for it. The window menu needs the click that asked for it, so
-        the menu's last click is passed on once the menu has closed and the pointer is
-        back over this window."""
-        event = self._menu_click
-        if event is None:  # chosen with the keyboard
+    def _pin_pressed(self, gesture, _presses, _x, _y):
+        """Pass this very press on, as GTK's own title bar does for a right click: Mutter shows
+        the window menu only for the latest press while the pointer is over this window. The
+        press comes from the controller, because PyGObject 3.56 hands GdkEvent signal
+        arguments over as None."""
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)  # the button never sees this press
+        if not self.request_window_menu(gesture.get_current_event()):
             self.notice.set_label(WINDOW_MENU_HINT)
-            return
-        GLib.timeout_add(150, self._ask_for_window_menu, event)
+        gesture.reset()
 
-    def _ask_for_window_menu(self, event):
+    def request_window_menu(self, event):
+        """Ask GNOME for its window menu for this press. False when there is no press or GTK
+        cannot send it; True means only that the request went out, not that a menu opened."""
         surface = self.get_surface()
-        if surface is None or not surface.show_window_menu(event):
-            self.notice.set_label(WINDOW_MENU_HINT)
-        return False
+        return bool(event is not None and surface is not None and surface.show_window_menu(event))
 
     # --- state ----------------------------------------------------------------------------
 
@@ -491,7 +485,7 @@ class App(Adw.Application):
         super().__init__(application_id=cv.APP_ID)
         self.window = None
         for name, handler in (("preferences", self._preferences), ("open-logs", self._open_logs),
-                              ("window-menu", self._window_menu), ("about", self._about)):
+                              ("about", self._about)):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
             self.add_action(action)
@@ -525,9 +519,6 @@ class App(Adw.Application):
 
     def _open_logs(self, *_):
         self.window.open_logs()
-
-    def _window_menu(self, *_):
-        self.window.show_window_menu()
 
     def _about(self, *_):
         dialog = Adw.AboutDialog(application_name=cv.APP_NAME, application_icon=cv.APP_ID,

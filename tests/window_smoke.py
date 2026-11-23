@@ -139,6 +139,54 @@ class Smoke:
     def history(self):
         return cv.read_history(cv.state_dir() / "history.jsonl", 20)
 
+    def pin_checks(self, w):
+        """The pin's answers. A real press needs a real pointer, which never reaches GTK 4
+        windows in a private session: stand-ins play the press's gesture and the surface here,
+        to check what the window does with each outcome."""
+        w.notice.set_label("")
+        w.pin_button.activate()  # what Space or Enter does: there is no press to pass on
+        yield self.pause(0.6)  # a button activated so says "clicked" 250 ms later
+        self.check("pin from the keyboard explains the right click",
+                   w.notice.get_label() == cw.WINDOW_MENU_HINT, w.notice.get_label())
+
+        class Press:
+            def __init__(self, event):
+                self.event, self.calls = event, []
+
+            def set_state(self, state):
+                self.calls.append(state)
+
+            def get_current_event(self):
+                return self.event
+
+            def reset(self):
+                self.calls.append("reset")
+
+        class Surface:
+            def __init__(self, accepts):
+                self.accepts, self.events = accepts, []
+
+            def show_window_menu(self, event):
+                self.events.append(event)
+                return self.accepts
+
+        event = object()
+        for name, press, surface, hint in (
+                ("a press without an event explains the right click", Press(None), Surface(True), True),
+                ("a press GTK cannot send explains the right click", Press(event), Surface(False), True),
+                ("a press sent to GNOME shows no hint", Press(event), Surface(True), False)):
+            w.notice.set_label("")
+            w.get_surface = lambda surface=surface: surface
+            try:
+                w._pin_pressed(press, 1, 10.0, 10.0)
+            finally:
+                del w.get_surface
+            sent = surface.events == ([] if press.event is None else [event])
+            self.check(f"pin: {name}", (w.notice.get_label() == cw.WINDOW_MENU_HINT) == hint and sent
+                       and press.calls == [Gtk.EventSequenceState.CLAIMED, "reset"],
+                       (w.notice.get_label(), surface.events, press.calls))
+        w.notice.set_label("")
+
     # --- the script ----------------------------------------------------------------------
 
     def script(self):
@@ -168,9 +216,13 @@ class Smoke:
         self.check("idle: nothing focused, nothing selected", w.get_focus() is None and texts
                    and not selected, (w.get_focus(), selected))
         model = w.menu_button.get_menu_model()
-        items = [(model.get_item_attribute_value(i, "label").unpack(),
-                  model.get_item_attribute_value(i, "action").unpack()) for i in range(model.get_n_items())]
-        self.check("idle: the menu offers 置顶…", ("置顶…", "app.window-menu") in items, items)
+        items = [model.get_item_attribute_value(i, "label").unpack() for i in range(model.get_n_items())]
+        self.check("idle: the menu has no 置顶… (the pin took its place)", "置顶…" not in items
+                   and not self.app.has_action("window-menu"), items)
+        pin = w.pin_button
+        self.check("idle: a pin in the header bar", pin.get_ancestor(Adw.HeaderBar) is not None
+                   and pin.get_mapped() and pin.get_icon_name() == "view-pin-symbolic"
+                   and "置顶" in (pin.get_tooltip_text() or ""), (pin.get_icon_name(), pin.get_tooltip_text()))
         self.check("idle: title and icon", w.get_title() == "GBFR 自动刷取"
                    and w.get_icon_name() == cv.APP_ID, (w.get_title(), w.get_icon_name()))
 
@@ -325,10 +377,7 @@ class Smoke:
         yield from self.shot("about", w.get_visible_dialog())
         w.get_visible_dialog().close()
         yield self.wait(lambda: w.get_visible_dialog() is None, 10, "about closed")
-        # 置顶… without a click to pass on (the keyboard path): the window says how instead.
-        self.app.activate_action("window-menu", None)
-        self.check("置顶… without a click explains the right click", w.notice.get_label()
-                   == cw.WINDOW_MENU_HINT, w.notice.get_label())
+        yield from self.pin_checks(w)
 
         # 8. One window only: a second start brings this one forward and exits.
         second = subprocess.Popen(["/usr/bin/python3", "-I", str(Path(cw.__file__))],

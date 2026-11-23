@@ -55,7 +55,8 @@ MaaFw, python-xlib or GTK.
 `window_smoke.py` is not collected by pytest: it opens the real window, so it runs locally
 in a private desktop session (its own D-Bus, home and Wayland display), never on a desktop
 in use. It drives the window in-process with `runner_scripted.py` behind it (nothing focused
-or selected when the window opens, the 置顶… item and its hint without a click, 3 runs, the
+or selected when the window opens, the pin in the header bar and its hint from the keyboard
+or for a press without an event or one GTK cannot send, 3 runs, the
 current battle's time, finish after this run, a finish the framework refused and asked
 again, stop now, a runner that dies with Start held until its keys are released, a Start
 that fails before any runner exists, a runner that ignores stop, the settings, a single
