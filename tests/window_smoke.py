@@ -163,6 +163,14 @@ class Smoke:
                    and not w.stop_button.get_sensitive())
         self.check("idle: empty history row", [r.get_title() for r in w.history_rows] == ["还没有记录"])
         self.check("idle: log lines hidden by default", not w.log.get_visible())
+        texts = [widget for widget in walk(w) if isinstance(widget, Gtk.Text)]
+        selected = [t.get_text() for t in texts if t.get_selection_bounds()]  # () when none
+        self.check("idle: nothing focused, nothing selected", w.get_focus() is None and texts
+                   and not selected, (w.get_focus(), selected))
+        model = w.menu_button.get_menu_model()
+        items = [(model.get_item_attribute_value(i, "label").unpack(),
+                  model.get_item_attribute_value(i, "action").unpack()) for i in range(model.get_n_items())]
+        self.check("idle: the menu offers 置顶…", ("置顶…", "app.window-menu") in items, items)
         self.check("idle: title and icon", w.get_title() == "GBFR 自动刷取"
                    and w.get_icon_name() == cv.APP_ID, (w.get_title(), w.get_icon_name()))
 
@@ -317,6 +325,10 @@ class Smoke:
         yield from self.shot("about", w.get_visible_dialog())
         w.get_visible_dialog().close()
         yield self.wait(lambda: w.get_visible_dialog() is None, 10, "about closed")
+        # 置顶… without a click to pass on (the keyboard path): the window says how instead.
+        self.app.activate_action("window-menu", None)
+        self.check("置顶… without a click explains the right click", w.notice.get_label()
+                   == cw.WINDOW_MENU_HINT, w.notice.get_label())
 
         # 8. One window only: a second start brings this one forward and exits.
         second = subprocess.Popen(["/usr/bin/python3", "-I", str(Path(cw.__file__))],
