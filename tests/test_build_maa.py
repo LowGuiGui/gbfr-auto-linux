@@ -212,6 +212,28 @@ def test_install_points_the_menu_at_this_bundle_and_uninstall_only_removes_its_o
     assert run(new, "uninstall.sh").returncode == 0  # nothing left to remove is fine
 
 
+def test_uninstall_leaves_no_file_where_a_deleted_icon_folder_was(tmp_path):
+    import shutil
+    import subprocess
+    from tools.build_maa import APP_ID, BUNDLE_SCRIPTS, ROOT
+    bundle = tmp_path / "gbfr"
+    (bundle / "icons").mkdir(parents=True)
+    shutil.copy2(ROOT / "assets/icons" / f"{APP_ID}.svg", bundle / "icons")
+    for script in BUNDLE_SCRIPTS:
+        shutil.copy2(ROOT / "assets/bundle" / script, bundle / script)
+    env = install_env(tmp_path)
+    theme = tmp_path / "home/.local/share/icons/hicolor"
+
+    def run(script):
+        return subprocess.run(["sh", str(bundle / script)], env=env, capture_output=True, text=True,
+                              timeout=30)
+    assert run("install.sh").returncode == 0
+    shutil.rmtree(theme)  # removed by hand while the menu entry stayed
+    assert run("uninstall.sh").returncode == 0
+    assert not theme.exists()
+    assert run("install.sh").returncode == 0 and theme.is_dir()  # a later install still works
+
+
 def test_install_refuses_a_path_the_menu_entry_cannot_hold(tmp_path):
     import shutil
     import subprocess

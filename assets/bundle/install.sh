@@ -22,7 +22,7 @@ mv "$icons/$id.svg.tmp" "$icons/$id.svg"
 # a new file in scalable/apps leaves that folder's time alone: an old cache would hide the
 # icon (a gear in the app grid). A newer folder retires the cache, and running programs look
 # again within seconds.
-touch "$data/icons/hicolor"
+touch -c "$data/icons/hicolor"
 entry=$data/applications/$id.desktop
 # The file is named after the app ID: GNOME matches the window to its menu entry and
 # icon by that ID, and shows the window's notifications only for an app it can find.
