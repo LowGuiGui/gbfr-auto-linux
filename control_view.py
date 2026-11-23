@@ -227,7 +227,9 @@ def controls(state):
     status = state.get("status") or {}
     ready, running = state.get("ready", True), state.get("running", False)
     stopping, closing = state.get("stopping", False), state.get("closing", False)
-    return {"start": ready and not running and not closing,
+    # After a runner died, Start waits until its keys have been released: the release
+    # takes no session lock, so its key-ups could land in a new session's presses.
+    return {"start": ready and not running and not closing and not state.get("releasing"),
             "settings": not running,
             "finish": running and not stopping and not status.get("finish_requested")
             and not state.get("finish_sent"),

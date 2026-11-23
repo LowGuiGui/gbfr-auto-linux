@@ -174,6 +174,7 @@ def test_which_controls_can_be_used():
     stopping = cv.controls(running({}, stopping=True))
     assert not stopping["finish"] and not stopping["stop"]
     assert cv.controls({"status": {}, "running": False, "closing": True})["start"] is False
+    assert cv.controls({"status": {}, "running": False, "releasing": True})["start"] is False
 
 
 def test_history_rows():

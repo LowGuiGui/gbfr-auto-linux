@@ -18,6 +18,8 @@ Scenarios:
                   plays the run out and ends in town, `stop` stops in the battle
     crash         as hold, but the process dies during run 2's battle (exit code 3)
     stuck         as hold, but the runner ignores every request to stop
+    refuse        as hold, but the framework refuses the first finish request (the runner's
+                  own rejection path reports it), and accepts the next one
 """
 
 import argparse
@@ -37,7 +39,22 @@ import maa_runner  # noqa: E402
 import test_maa_pipeline_graph as graph  # noqa: E402
 
 HOLD = 10 ** 9  # battle actions: the held battle never ends by itself
+HELD = ("hold", "crash", "stuck", "refuse")
 CRASH_CODE = 3
+RELEASE_S = 1.0  # about as long as a real release takes to connect and send its key-ups
+
+
+class Refusing:
+    """The runner's tasker, except that it refuses to change the pipeline."""
+
+    def __init__(self, tasker):
+        self.tasker = tasker
+
+    def override_pipeline(self, *_args, **_kwargs):
+        return False
+
+    def __getattr__(self, name):
+        return getattr(self.tasker, name)
 
 
 class Patch:
@@ -71,7 +88,7 @@ def screens(name):
         for _ in range(8):
             result += graph.repeated_run_keeping_it_on()
         return result
-    if name in ("hold", "crash", "stuck"):
+    if name in HELD:
         return [*graph.first_run_turning_repeat_on(), held_battle()]
     raise ValueError(name)
 
@@ -110,6 +127,7 @@ def main():
     args = parse_args()
     args.state.mkdir(parents=True, exist_ok=True)
     if args.release_keys:  # as the runner's --release-keys, without a game to reach
+        time.sleep(RELEASE_S)
         with (args.state / "released.txt").open("a") as record:
             record.write(f"{time.time():.3f}\n")
         print("已对用到的按键各发了一次松开（脚本化游戏）。")
@@ -125,10 +143,17 @@ def main():
                                    history_path=args.history,
                                    marker=maa_runner.Marker(args.state / "runner.json"),
                                    connect=connect, prepare=prepare)
-        if args.scenario in ("hold", "crash", "stuck"):
-            finish = runner.finish
+        if args.scenario in HELD:
+            finish, refused = runner.finish, []
 
             def finish_and_play_out():
+                if args.scenario == "refuse" and not refused:
+                    refused.append(True)
+                    real, runner.tasker = runner.tasker, Refusing(runner.tasker)
+                    try:
+                        return finish()  # the runner reports the rejection itself
+                    finally:
+                        runner.tasker = real
                 result = finish()
                 release_hold(game)
                 return result

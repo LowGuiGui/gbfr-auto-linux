@@ -324,7 +324,9 @@ class ReportingHooks(maa_agent.Hooks):
 
     Timing is wall-clock seconds: `started` when the session begins, one entry in `runs`
     per counted run (from the previous count, the first from the start), and
-    `battle_started` while a battle is on. The Agent's own Session stays free of clocks."""
+    `battle_started` while a battle is on. The Agent's own Session stays free of clocks.
+    The hooks' own `battle_started` is the battle limit's monotonic clock and is never
+    touched here; the window's battle time is kept apart in `battle_since`."""
 
     def __init__(self, status_path, report, clock=time.time):
         super().__init__(status_path)
@@ -332,7 +334,7 @@ class ReportingHooks(maa_agent.Hooks):
         self._clock = clock
         self.started = None
         self.runs = []
-        self.battle_started = None
+        self.battle_since = None
         self._last_count = None  # (completed, when)
 
     def _observe(self):
@@ -348,14 +350,14 @@ class ReportingHooks(maa_agent.Hooks):
             self.runs.append(round(now - when, 1))
             self._last_count = (session.completed, now)
         if session.phase == "battle":
-            self.battle_started = self.battle_started or now
+            self.battle_since = self.battle_since or now
         else:
-            self.battle_started = None
+            self.battle_since = None
 
     def status(self):
         result = super().status()
         result["timing"] = {"started": self.started, "runs": list(self.runs),
-                            "battle_started": self.battle_started}
+                            "battle_started": self.battle_since}
         result["failures"] = 1 if quest_failed(result.get("error")) else 0
         return result
 
@@ -422,7 +424,11 @@ class Runner:
             tasker, task_id = self.tasker, self.task_id
         if tasker is not None and task_id is not None:
             if not tasker.override_pipeline(task_id, FINISH_OVERRIDE):
-                self.emit("log", text="本轮后停的请求没有被接受，请再试一次或者立即停止。")
+                with self.lock:
+                    self.finish_requested = False
+                # The front end offers the request again on `finish_rejected`.
+                self.emit("log", text="本轮后停的请求没有被接受，请再试一次或者立即停止。",
+                          finish_rejected=True)
                 return False
         return True
 

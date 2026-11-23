@@ -266,17 +266,18 @@ class MainWindow(Adw.ApplicationWindow):
             return
         self.notice.set_label("")
         self.save_settings()  # may leave a notice that the settings were not saved
-        argv = cv.runner_command(APP_DIR, self.settings["runs"], self.settings["until_stopped"])
         self.state.update(status={}, running=True, stopping=False, finish_sent=False, log=[],
                           ended_at=None,
                           requested=None if self.settings["until_stopped"] else self.settings["runs"])
         try:
+            argv = cv.runner_command(APP_DIR, self.settings["runs"], self.settings["until_stopped"])
             self.runner = RunnerProcess(argv, self._on_event, self._on_exit,
                                         cv.state_dir() / "window-runner.log")
-        except GLib.Error as exc:
+        except (GLib.Error, OSError, ValueError) as exc:
+            # Nothing was started (no state folder, no runner program): back to idle.
             self.runner = None
             self.state["running"] = False
-            self.notice.set_label(f"后台程序没能启动：{exc.message}")
+            self.notice.set_label(f"后台程序没能启动：{getattr(exc, 'message', None) or exc}")
         self.refresh()
 
     def finish(self):
@@ -340,6 +341,9 @@ class MainWindow(Adw.ApplicationWindow):
             self.state["status"] = event["status"]
         elif kind == "log":
             self.state["log"] = (self.state["log"] + [event["text"]])[-cv.LOG_LINES:]
+            if event.get("finish_rejected"):  # offer 本轮后停 again
+                self.state["finish_sent"] = False
+                self.notice.set_label(event["text"])
         elif kind == "ended":
             # An `error` event always comes just before this one, with the same message as
             # the final status, so the status area alone tells why; the notice is cleared.
@@ -390,9 +394,11 @@ class MainWindow(Adw.ApplicationWindow):
             launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE
                                                   | Gio.SubprocessFlags.STDERR_MERGE)
             process = launcher.spawnv(cv.release_command(APP_DIR))
-        except GLib.Error as exc:
-            self.notice.set_label(f"松键程序没能启动：{exc.message}。请看一眼游戏里有没有键还按着。")
+        except (GLib.Error, ValueError) as exc:
+            self.notice.set_label(f"松键程序没能启动：{getattr(exc, 'message', exc)}。"
+                                  "请看一眼游戏里有没有键还按着。")
             return
+        self.state["releasing"] = True
         process.communicate_utf8_async(None, None, self._released)
 
     def _released(self, process, result):
@@ -400,8 +406,10 @@ class MainWindow(Adw.ApplicationWindow):
             _, output, _ = process.communicate_utf8_finish(result)
         except GLib.Error:
             output = ""
+        self.state["releasing"] = False
         lines = [line for line in (output or "").splitlines() if line.strip()]
         self.notice.set_label((lines[-1] if lines else "松键程序已结束。") + "请看一眼游戏画面。")
+        self.refresh()
 
     # --- closing ---------------------------------------------------------------------------
 

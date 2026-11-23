@@ -23,6 +23,7 @@ passed.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -194,6 +195,10 @@ class Smoke:
         w.runs.set_value(10)
         w.start_button.emit("clicked")
         yield self.wait(self.in_held_battle, 60, "run 2's battle")
+        yield self.pause(1.2)  # let the one-second timer redraw the battle time
+        elapsed = w.elapsed.get_label()
+        self.check("battle time is this battle's, in wall-clock time",
+                   re.search(r"这一场打了 0:0\d）$", elapsed) is not None, elapsed)
         w.finish_button.emit("clicked")
         self.check("finish: button off at once, stop still on", not w.finish_button.get_sensitive()
                    and w.stop_button.get_sensitive() and w.runner is not None)
@@ -206,6 +211,20 @@ class Smoke:
                    status)
         keys = (self.state / "keys.txt").read_text().split()
         self.check("finish: the six expected keys", keys == ["Return", "Return", "3", "Return", "3", "3"], keys)
+
+        # 3b. A finish the framework refused can be asked for again.
+        self.scenario("refuse")
+        w.start_button.emit("clicked")
+        yield self.wait(self.in_held_battle, 60, "run 2's battle")
+        w.finish_button.emit("clicked")
+        yield self.wait(lambda: w.finish_button.get_sensitive(), 15, "finish offered again")
+        self.check("refused finish: explained, still running", "没有被接受" in w.notice.get_label()
+                   and w.runner is not None, self.texts())
+        w.finish_button.emit("clicked")
+        yield self.wait(self.session_over, 60, "the finished session ends")
+        status = w.state["status"]
+        self.check("refused finish: the second request ends it after run 2",
+                   status.get("phase") == "finished" and status.get("completed") == 2, status)
 
         # 4. Stop now, during run 2's battle: no notification for a stop.
         self.scenario("hold")
@@ -227,6 +246,8 @@ class Smoke:
         self.scenario("crash")
         w.start_button.emit("clicked")
         yield self.wait(self.session_over, 60, "the runner dies")
+        self.check("crash: Start waits for the key release", not w.start_button.get_sensitive()
+                   and not (self.state / "released.txt").exists())
         yield self.wait(lambda: (self.state / "released.txt").exists() and "请看一眼游戏画面" in w.notice.get_label(),
                         20, "the key release")
         yield from self.shot("crashed")
@@ -240,6 +261,19 @@ class Smoke:
                    and self.notices[-1]["texts"], self.notices[-1:])
         self.check("crash: keys released once", len((self.state / "released.txt").read_text().split()) == 1)
         self.check("crash: Start again", w.start_button.get_sensitive())
+
+        # 5b. Start fails before any runner exists (the state folder is a file): idle again.
+        state_dir = cv.state_dir()
+        aside = state_dir.with_name(state_dir.name + ".aside")
+        state_dir.rename(aside)
+        state_dir.write_text("not a folder")
+        self.scenario("three")
+        w.start_button.emit("clicked")
+        self.check("unstartable: explained, Start offered again", w.runner is None
+                   and not w.state["running"] and w.start_button.get_sensitive()
+                   and "没能启动" in w.notice.get_label(), self.texts())
+        state_dir.unlink()
+        aside.rename(state_dir)
 
         # 6. A runner that ignores stop: after the deadline the window offers to end it.
         cv.STOP_DEADLINE_S = 2

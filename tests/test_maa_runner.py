@@ -255,6 +255,24 @@ def test_the_signal_handler_never_waits_for_the_runners_lock():
     assert runner.stopped.wait(3) and not runner.deadlocked
 
 
+def test_a_rejected_finish_says_so_and_can_be_sent_again(tmp_path):
+    class Tasker:
+        def __init__(self, answers):
+            self.answers = list(answers)
+
+        def override_pipeline(self, task_id, override):
+            assert (task_id, override) == (7, maa_runner.FINISH_OVERRIDE)
+            return self.answers.pop(0)
+    events = []
+    runner = maa_runner.Runner(maa_options.run_values(3), lambda kind, **f: events.append((kind, f)),
+                               status_path=tmp_path / "session.json", log_dir=tmp_path / "log")
+    runner.tasker, runner.task_id = Tasker([False, True]), 7
+    assert runner.finish() is False and not runner.finish_requested
+    assert events == [("log", {"text": "本轮后停的请求没有被接受，请再试一次或者立即停止。",
+                               "finish_rejected": True})]
+    assert runner.finish() is True and runner.finish_requested and len(events) == 1
+
+
 class Clock:
     def __init__(self, now=1000.0):
         self.now = now
@@ -270,6 +288,7 @@ def test_the_hooks_time_each_counted_run_and_the_current_battle(tmp_path):
     hooks.session = Session(None, 3)
     hooks.write_status()                         # the session begins at 1000
     clock.now, hooks.session.phase = 1030, "battle"
+    hooks.battle_started = 5.0                   # the battle limit's own monotonic clock
     hooks.write_status()
     assert reports[-1]["timing"]["battle_started"] == 1030
     clock.now = 1300
@@ -283,6 +302,7 @@ def test_the_hooks_time_each_counted_run_and_the_current_battle(tmp_path):
     hooks.write_status()
     timing = reports[-1]["timing"]
     assert timing == {"started": 1000, "runs": [300.0, 280.0], "battle_started": None}
+    assert hooks.battle_started == 5.0           # the guard's clock is left alone
     assert reports[-1]["failures"] == 0
     assert json.loads((tmp_path / "session.json").read_text())["timing"]["runs"] == [300.0, 280.0]
 
@@ -579,6 +599,11 @@ def test_a_session_reports_its_run_times_and_writes_its_history(monkeypatch, tmp
     assert outcome == "finished"
     (ended,) = kinds(events, "ended")
     assert len(ended["status"]["timing"]["runs"]) == 3 and ended["status"]["failures"] == 0
+    # Through the real battle action: the window's battle time is wall-clock, not the
+    # monotonic clock the hooks keep for their battle limit.
+    battles = [f["status"]["timing"]["battle_started"] for f in kinds(events, "status")
+               if f["status"].get("phase") == "battle"]
+    assert battles and all(abs(started - time.time()) < 600 for started in battles), battles
     (entry,) = control_view.read_history(history)
     assert entry["outcome"] == "finished" and entry["completed"] == 3
     assert entry["average"] is not None and entry["elapsed"] is not None
