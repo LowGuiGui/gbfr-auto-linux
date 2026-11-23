@@ -12,13 +12,18 @@ import pytest
 from maa_messages import explain, stopped
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = ("maa_agent.py", "maa_session.py", "maa_guard.py")
+# The runner shows its own start-up failures, and discovery (maa_target) reaches the
+# player through both the runner and the Agent's guard.
+SOURCES = ("maa_agent.py", "maa_session.py", "maa_guard.py", "maa_target.py", "maa_runner.py")
 
 
 def reasons():
     found = set()
     for name in SOURCES:
         text = (ROOT / name).read_text()
+        if name == "maa_runner.py":  # RunnerError(code, detail): the detail is the reason
+            found |= set(re.findall(r'RunnerError\("\w+",\s*f?"([^"]+)"', text))
+            continue
         found |= set(re.findall(r'Error\(f?"([^"]+)"', text))
         if name == "maa_guard.py":  # input_conflict returns its reasons
             found |= set(re.findall(r'return f?"([^"]+)"', text))

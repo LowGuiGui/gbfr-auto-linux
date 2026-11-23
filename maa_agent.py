@@ -315,12 +315,17 @@ def task_sink(hooks):
     return Events()
 
 
-def main():
-    from maa.agent.agent_server import AgentServer
+ACTION = "GBFR"  # the custom action every Custom node of the pipeline names
+GATE = "GBFRSession"  # the custom recognition the pipeline asks whether to go on
+
+
+def custom_objects(hooks):
+    """The pipeline's custom action and recognition, bound to `hooks`.
+
+    The Agent registers them with AgentServer; the runner registers the same objects
+    on its own Resource, in its own process."""
     from maa.custom_action import CustomAction
     from maa.custom_recognition import CustomRecognition
-
-    hooks = Hooks(Path(__file__).resolve().parent / "runtime" / "session.json")
 
     class Action(CustomAction):
         def run(self, context, argv):
@@ -330,8 +335,18 @@ def main():
         def analyze(self, context, argv):
             return (0, 0, 1, 1) if hooks.want(context, argv.custom_recognition_param) else None
 
-    AgentServer.register_custom_action("GBFR", Action())
-    AgentServer.register_custom_recognition("GBFRSession", Gate())
+    return Action(), Gate()
+
+
+def main():
+    # Importing maa.agent switches the binding into AgentServer mode for the whole
+    # process; only the Agent may do that, and before anything else touches maa.
+    from maa.agent.agent_server import AgentServer
+
+    hooks = Hooks(Path(__file__).resolve().parent / "runtime" / "session.json")
+    action, gate = custom_objects(hooks)
+    AgentServer.register_custom_action(ACTION, action)
+    AgentServer.register_custom_recognition(GATE, gate)
 
     AgentServer.add_tasker_sink(task_sink(hooks))
     try:
