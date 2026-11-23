@@ -26,13 +26,6 @@
       ]
     }
   ],
-  "agent": {
-    "child_exec": "./.venv/bin/python",
-    "child_args": [
-      "-B",
-      "./agent/maa_agent.py"
-    ]
-  },
   "task": [
     {
       "name": "current-quest",
@@ -91,6 +84,5 @@
         }
       }
     }
-  },
-  "welcome": "进度和“本轮后停止”在[控制面板](http://127.0.0.1:12792/api/local-file?path=control.html)。"
+  }
 }

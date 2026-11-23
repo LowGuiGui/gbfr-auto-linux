@@ -41,11 +41,14 @@ def test_run_options_reach_the_agent_nodes():
     assert pipeline["GBFR_UntilStopped"]["enabled"] is False
 
 
-def test_the_description_carries_no_panel_address_and_the_welcome_its_port():
+def test_the_interface_points_at_no_panel_and_starts_no_agent():
+    """MXU's fields are gone: no welcome link to its web panel, no Agent process to start,
+    no panel port."""
     catalog = load("assets/catalog.json")
-    interface = render({}, catalog)
+    interface = render(load("assets/interface.json"), catalog)
     assert "127.0.0.1" not in interface["task"][0]["description"]
-    assert str(catalog["profile"]["control_panel_port"]) in interface["welcome"]
+    assert not {"welcome", "agent"} & interface.keys()
+    assert "control_panel_port" not in catalog["profile"] and "welcome" not in catalog["text"]
 
 
 def test_generated_interface_is_current():

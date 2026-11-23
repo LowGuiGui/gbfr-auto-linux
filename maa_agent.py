@@ -1,17 +1,16 @@
-#!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
-"""Official Maa Agent hooks for bounded input, ownership and run accounting.
+"""The pipeline's hooks for bounded input, ownership and run accounting.
 
-Recognition, navigation and scheduling stay in the native resource pipeline. The
-Agent answers one question for it (`GBFRSession`: should the session go on or stop?)
-and records what the pipeline observed.
+Recognition, navigation and scheduling stay in the native resource pipeline. The hooks
+answer one question for it (`GBFRSession`: should the session go on or stop?) and record
+what the pipeline observed. The runner (maa_runner.py) registers them in its own
+process; the module keeps the name of the Maa Agent process that used to host them.
 """
 
 import json
 from pathlib import Path
-import sys
 import time
 import traceback
 
@@ -27,7 +26,7 @@ IDENTITY = {"admit", "settle"}
 # Reads only: a failed quest's results page, and the quest name beside the title.
 FAILED_PAGE = "GBFR_See_Defeat"
 QUEST_NAME = "GBFR_Read_Quest"
-# Every failure ends the task through this node; MXU's log shows its focus message.
+# Every failure ends the task through this node; the runner logs its focus message.
 STOPPED_NODE = "GBFR_Stopped"
 
 
@@ -212,7 +211,7 @@ class Hooks:
         params = json.loads(argv.custom_action_param)
         event = params.get("event")
         if event == "halt":
-            return False  # GBFR_Stopped: the task ends failed, after MXU shows why
+            return False  # GBFR_Stopped: the task ends failed, after the runner logs why
         if event == "begin":
             self.task_id = argv.task_detail.task_id  # first, so a failed begin still ends cleanly
             self.begin(context, params)
@@ -322,8 +321,7 @@ GATE = "GBFRSession"  # the custom recognition the pipeline asks whether to go o
 def custom_objects(hooks):
     """The pipeline's custom action and recognition, bound to `hooks`.
 
-    The Agent registers them with AgentServer; the runner registers the same objects
-    on its own Resource, in its own process."""
+    The runner registers them on its own Resource, in its own process."""
     from maa.custom_action import CustomAction
     from maa.custom_recognition import CustomRecognition
 
@@ -336,27 +334,3 @@ def custom_objects(hooks):
             return (0, 0, 1, 1) if hooks.want(context, argv.custom_recognition_param) else None
 
     return Action(), Gate()
-
-
-def main():
-    # Importing maa.agent switches the binding into AgentServer mode for the whole
-    # process; only the Agent may do that, and before anything else touches maa.
-    from maa.agent.agent_server import AgentServer
-
-    hooks = Hooks(Path(__file__).resolve().parent / "runtime" / "session.json")
-    action, gate = custom_objects(hooks)
-    AgentServer.register_custom_action(ACTION, action)
-    AgentServer.register_custom_recognition(GATE, gate)
-
-    AgentServer.add_tasker_sink(task_sink(hooks))
-    try:
-        if not AgentServer.start_up(sys.argv[-1]):
-            raise RuntimeError("Could not connect the GBFR Agent")
-        AgentServer.join()
-    finally:
-        hooks.close()
-        AgentServer.shut_down()
-
-
-if __name__ == "__main__":
-    main()

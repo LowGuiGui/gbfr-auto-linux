@@ -29,15 +29,19 @@ input/release, callback-scoped handle rebinding, session ownership and episode
 accounting tests. Negative controls reject helper windows, replaced sources,
 ambiguous targets, stale/blank action frames, duplicate results and unavailable
 session ownership. Catalog checks ensure the client has one task that passes nothing
-quest-specific to the pipeline, that run-limit options reach the Agent's nodes, and that
-no recognition expects a verified quest's name or objective.
-Builder checks cover dependency hash refusal and separate version directories; for the
-control window's release directory, that every local module its code imports is copied,
-that no MXU file is left in it, that its runner finds the directory's own interface,
-resource and OCR model, the licence notices, the manifest's hashes, and the menu entry's
-install and uninstall scripts in a temporary home (switching versions, refusing to remove
-another directory's entry, refusing a path the entry cannot hold, retiring an icon cache that
-would otherwise hide the new icon).
+quest-specific to the pipeline, that run-limit options reach the Agent's nodes, that
+no recognition expects a verified quest's name or objective, and that the interface carries
+none of MXU's fields (the welcome link to its panel, the Agent process, the panel port).
+Builder checks cover dependency hash refusal and separate version directories, that the
+pins hold only what the build fetches, that the builder offers no MXU bundle, and that no
+module of the release directory imports `maa.agent`; for the control window's release
+directory, that every local module its code imports is copied, that no MXU file is left in
+it, that its runner finds the directory's own interface, resource and OCR model, the licence
+notices, the manifest's hashes, and the menu entry's install and uninstall scripts in a
+temporary home (switching versions moves only the link and leaves the entry the same, no
+removal while the link points at another directory, removal when its directory is gone, the
+launcher resolving the link to the real directory, refusing a link path the entry cannot
+hold, retiring an icon cache that would otherwise hide the new icon).
 
 The runner (`test_maa_runner.py`) runs whole sessions in-process against the scripted game
 (12 runs, finish during battle, stop now, a stop before the task starts, no game, a bad

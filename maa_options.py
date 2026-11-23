@@ -3,11 +3,11 @@
 
 """The part of ProjectInterface v2 this project uses, and its options as a pipeline override.
 
-`assets/interface.json` stays the one definition of the task: MXU reads all of it, and
-the runner reads it through this module. Only what the project uses is accepted: one
+`assets/interface.json` stays the one definition of the task, in the standard format,
+and the runner reads it through this module. Only what the project uses is accepted: one
 Linux controller, one resource, one task, and `switch` and `input` options (nested
 options included). Anything else is refused when the file is loaded, so a later edit
-cannot silently mean something different to the runner than it does to MXU.
+cannot silently mean something the runner does not do.
 
 Written from the ProjectInterface v2 rules, not from any client's code. Two rules that
 matter here: a case or input applies its own `pipeline_override` before its nested
@@ -26,7 +26,7 @@ RUNS = "Runs"
 UNTIL_STOPPED = "UntilStopped"
 
 TOP_KEYS = {"interface_version", "name", "label", "version", "license", "description",
-            "controller", "resource", "agent", "task", "option", "welcome"}
+            "controller", "resource", "task", "option"}
 CONTROLLER_KEYS = {"name", "type", "display_short_side", "linux"}
 LINUX = {"screencap": "PipeWire", "input": "Libei", "pipewire_source": "Gamescope",
          "use_win32_vk_code": False}

@@ -39,7 +39,6 @@ def render(interface, catalog):
                         "pattern_msg": text["runs_pattern"]}],
             "pipeline_override": {"GBFR_RunLimit": {"attach": {"limit": "{Runs}"}}}},
     }
-    interface["welcome"] = text["welcome"].format(port=catalog["profile"]["control_panel_port"])
     return interface
 
 

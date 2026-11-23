@@ -91,6 +91,8 @@ def broken(change):
 
 @pytest.mark.parametrize("change", [
     lambda d: d.update(preset=[]),                                     # a PI feature we do not use
+    lambda d: d.update(agent={"child_exec": "./.venv/bin/python"}),    # no Agent process any more
+    lambda d: d.update(welcome="进度在控制面板"),                         # MXU's welcome line
     lambda d: d.update(interface_version=1),
     lambda d: d["controller"].append(copy.deepcopy(d["controller"][0])),
     lambda d: d["controller"][0].update(type="Adb"),

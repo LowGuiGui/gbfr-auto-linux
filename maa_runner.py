@@ -487,7 +487,7 @@ class Runner:
         runner = self
 
         class Focus(ContextEventSink):
-            """The lines MXU shows in its log: the node's focus text for this event."""
+            """The node's focus text for this event: what the window shows as log lines."""
 
             def on_raw_notification(self, context, msg, details):
                 value = (details.get("focus") or {}).get(msg)

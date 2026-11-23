@@ -11,7 +11,7 @@ The current client/resource path is described in [the Maa guide](../docs/maa.md)
 
 | Tool | Purpose |
 |---|---|
-| `build_maa.py` | Build a new pinned release directory: by default the control window and its runner, with `--mxu` the earlier MXU bundle. Refuses to overwrite and records every file's hash in `bundle.json` for rollback. |
+| `build_maa.py` | Build a new pinned release directory: the control window and its runner. Refuses to overwrite and records every file's hash in `bundle.json` for rollback. |
 | `maa_catalog.py` | Generate standard interface tasks from the goal catalog without duplicating the shared flow. |
 | `maa_replay.py` | Run native recognition on saved frames with all input disabled. |
 | `maa_fixtures.py` | Mask a captured frame to the regions the checked leaves read, for committed recognition fixtures. |
