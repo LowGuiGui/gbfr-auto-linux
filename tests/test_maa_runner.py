@@ -43,6 +43,19 @@ def test_each_session_gets_a_log_folder_and_only_the_newest_stay(tmp_path):
         maa_runner.new_log_dir(logs, 0)
 
 
+def test_log_rotation_leaves_folders_it_did_not_make(tmp_path):
+    """The window opens this folder for the player, who may keep things in it."""
+    logs = tmp_path / "logs"
+    kept = logs / "20261101-manual"
+    kept.mkdir(parents=True)
+    (kept / "memo.txt").write_text("keep me")
+    (logs / "notes").mkdir()
+    made = [maa_runner.new_log_dir(logs, 5, datetime(2026, 11, 22, 21, minute)) for minute in range(7)]
+    assert sorted(p.name for p in logs.iterdir()) == sorted(
+        [p.name for p in made[-5:]] + ["20261101-manual", "notes"])
+    assert (kept / "memo.txt").read_text() == "keep me"
+
+
 def held_lock(tmp_path):
     """Another loop's session lock, held by an open file as a session would hold it."""
     path = tmp_path / control.SOCKET_NAME

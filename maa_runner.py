@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import queue
+import re
 import shutil
 import signal
 import subprocess
@@ -101,11 +102,16 @@ def runtime_dir(env=os.environ):
     return path
 
 
+SESSION_LOG = re.compile(r"\d{8}-\d{6}(-\d+)?")  # the names new_log_dir gives its folders
+
+
 def new_log_dir(logs, keep, now=None):
     """A fresh folder for this session's logs; only the newest `keep` sessions stay.
 
     A MaaFw log is written at debug level and a long session leaves about 300 MB
-    (2026-11-22), so old sessions are removed rather than kept forever."""
+    (2026-11-22), so old sessions are removed rather than kept forever. Only folders
+    named the way this function names them count: the window opens this folder for
+    the player, who may keep other things in it."""
     if keep < 1:
         raise ValueError("Keep at least the current session's logs")
     logs.mkdir(parents=True, exist_ok=True)
@@ -114,8 +120,8 @@ def new_log_dir(logs, keep, now=None):
     while path.exists():
         path, number = logs / f"{stamp}-{number}", number + 1
     path.mkdir()
-    sessions = sorted((p for p in logs.iterdir() if p.is_dir() and not p.is_symlink()),
-                      key=lambda p: p.name)
+    sessions = sorted((p for p in logs.iterdir() if SESSION_LOG.fullmatch(p.name)
+                       and p.is_dir() and not p.is_symlink()), key=lambda p: p.name)
     for old in sessions[:-keep]:
         shutil.rmtree(old, ignore_errors=True)
     return path

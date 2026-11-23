@@ -135,10 +135,11 @@ def load_settings(path):
         settings["runs"] = runs
     if type(saved.get("until_stopped")) is bool:
         settings["until_stopped"] = saved["until_stopped"]
-    for key, value in (saved.get("show") or {}).items():
+    show = saved.get("show")
+    for key, value in (show.items() if isinstance(show, dict) else ()):
         if key in settings["show"] and type(value) is bool:
             settings["show"][key] = value
-    window = saved.get("window") or {}
+    window = saved.get("window") if isinstance(saved.get("window"), dict) else {}
     for key in ("width", "height"):
         if type(window.get(key)) is int and 200 <= window[key] <= 4000:
             settings["window"][key] = window[key]
@@ -244,26 +245,35 @@ def controls(state):
 
 
 def history_rows(entries):
-    """(title, subtitle) per past session, newest first."""
+    """(title, subtitle) per past session, newest first. A record this version cannot
+    show (written by hand, or by another version) is left out rather than stopping the
+    window, which builds these rows while it opens."""
     rows = []
     for entry in entries:
-        when = entry.get("ended") or ""
         try:
-            when = datetime.fromisoformat(when).strftime("%m-%d %H:%M")
-        except ValueError:
-            pass
-        limit = entry.get("limit")
-        done = f"{entry.get('completed', 0)}/{limit if limit else '一直刷'}"
-        title = f"{when}  {entry.get('quest') or '未读到任务名'}"
-        parts = [f"{OUTCOMES.get(entry.get('outcome'), entry.get('outcome') or '?')} {done}"]
-        if entry.get("average"):
-            parts.append(f"平均每轮 {duration(entry['average'])}")
-        if entry.get("elapsed"):
-            parts.append(f"共 {duration(entry['elapsed'])}")
-        if entry.get("failures"):
-            parts.append(f"任务失败 {entry['failures']} 次")
-        rows.append((title, " · ".join(parts)))
+            rows.append(history_row(entry))
+        except (AttributeError, TypeError, ValueError):
+            continue
     return rows
+
+
+def history_row(entry):
+    when = entry.get("ended") or ""
+    try:
+        when = datetime.fromisoformat(when).strftime("%m-%d %H:%M")
+    except ValueError:
+        pass
+    limit = entry.get("limit")
+    done = f"{entry.get('completed', 0)}/{limit if limit else '一直刷'}"
+    title = f"{when}  {entry.get('quest') or '未读到任务名'}"
+    parts = [f"{OUTCOMES.get(entry.get('outcome'), entry.get('outcome') or '?')} {done}"]
+    if entry.get("average"):
+        parts.append(f"平均每轮 {duration(entry['average'])}")
+    if entry.get("elapsed"):
+        parts.append(f"共 {duration(entry['elapsed'])}")
+    if entry.get("failures"):
+        parts.append(f"任务失败 {entry['failures']} 次")
+    return title, " · ".join(parts)
 
 
 def notification(outcome, status):
@@ -303,17 +313,21 @@ def append_history(path, status, outcome, clock=time.time):
 
 
 def read_history(path, count=5):
-    """The newest `count` entries, newest first; unreadable lines are skipped."""
+    """The newest `count` records, newest first. A line that is not a record (a write cut
+    short, even inside a character) is skipped, and the lines around it still count."""
     try:
-        lines = Path(path).read_text(encoding="utf-8").splitlines()
+        lines = Path(path).read_bytes().splitlines()
     except OSError:
         return []
     entries = []
     for line in reversed(lines):
         try:
-            entries.append(json.loads(line))
-        except ValueError:
+            entry = json.loads(line.decode("utf-8"))
+        except ValueError:  # UnicodeDecodeError is one
             continue
+        if not isinstance(entry, dict):
+            continue
+        entries.append(entry)
         if len(entries) >= count:
             break
     return entries
