@@ -7,11 +7,11 @@
 > **0.3.0 is in development.** It has its own control window and no longer needs MXU. It
 > also no longer walks the menus to pick a quest: you open any quest at the quest counter,
 > the software takes over from there, farms it with the game's own Repeat Quest, and answers
-> 是 (yes) on every tenth-run confirmation so farming goes on. The control window has not yet
-> passed an acceptance against the real game; the same farming flow ran 12 runs in a row
-> through MXU against the real game on 2026-11-22, starting from a quest's details page and
-> crossing the tenth-run dialog with no intervention. What has been verified so far is in
-> [Limits and evidence](#limits-and-evidence).
+> 是 (yes) on every tenth-run confirmation so farming goes on. The control window passed its
+> real-game acceptance on 2026-11-23: 12 runs in a row from a quest's details page with no
+> intervention (across the tenth-run dialog), finish after this run during run 2's battle,
+> stop now during run 1's battle, and closing the window during a session, which asked first
+> and then stopped. What has been verified so far is in [Limits and evidence](#limits-and-evidence).
 
 The [Chinese guide](maa.md) is authoritative; this is its translation.
 
@@ -274,6 +274,16 @@ only.
   the desktop notification on finishing. The built release directory, with no game running,
   answered Start by asking for the game to be started, and the installed menu entry opened
   the window.
+- The control window's real-game acceptance (2026-11-23, the game started the usual way,
+  the window opened from a release directory): started on Quakadile's details page with a
+  limit of 12 and finished with no intervention; the software pressed only the eight expected
+  keys, answered 是 on run 10's dialog, and the window read the quest name. 本轮后停 (finish
+  after this run) during run 2's battle ended in town after 2 runs; 立即停止 (stop now) during
+  run 1's battle stopped the keys at once, and the game finished that battle and returned to
+  town by itself; closing the window during a session asked first, then stopped and closed,
+  and the runner exited. The window's per-run times were within 0.1 s of MaaFramework's log;
+  the screen was kept awake only while a session ran; no key was left held after any
+  session. The window's buttons were pressed by a test script, not with a pointer.
 - 0.3.0's development version against the real game (2026-11-22, through MXU, in a
   Gamescope that showed nothing on the desktop and played no sound): started on Quakadile's
   details page with a limit of 12 and finished with no intervention. The software pressed
@@ -295,13 +305,13 @@ only.
   the dialog with the cursor on 是 and on 否; and a frame-by-frame replay of that day's
   failed run and 12-run block through the new recognition.
 
-**Not yet verified:** the control window has not run against the real game, nor been opened
-on a real desktop: scaling, the icon, notifications and keeping the screen awake have to be
-seen there. Against the real game, 0.3.0 has started only from a quest's details page;
-starting from matchmaking settings, the ready room or the ready panel has been checked only
-on measured screenshots. This version has not repeated stop now or the refusal of a second
-controller in the real game, and it has not met a real failure (failure handling is tested
-only against the scripted game). Only Quakadile was measured: other quests' battle screens,
+**Not yet verified:** in the real-game acceptance the window's buttons were pressed by a
+test script, and nobody has watched the desktop notifications appear on a real desktop.
+Against the real game, 0.3.0 has started only from a quest's details page; starting from
+matchmaking settings, the ready room or the ready panel has been checked only on measured
+screenshots. This version has not repeated the refusal of a second controller in the real
+game, and it has not met a real failure (failure handling is tested only against the
+scripted game). Only Quakadile was measured: other quests' battle screens,
 objective text and battle lengths have not been seen. The dialog at run 20, what 否 does,
 and what pressing 3 (retry) does on a failure page are untested. The pre-key check has not
 yet been seen stopping a held key in the real game.
