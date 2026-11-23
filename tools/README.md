@@ -11,7 +11,7 @@ The current client/resource path is described in [the Maa guide](../docs/maa.md)
 
 | Tool | Purpose |
 |---|---|
-| `build_maa.py` | Build a new pinned MXU/framework/resource/Agent directory; refuse overwrite and retain hashes for rollback. |
+| `build_maa.py` | Build a new pinned release directory: by default the control window and its runner, with `--mxu` the earlier MXU bundle. Refuses to overwrite and records every file's hash in `bundle.json` for rollback. |
 | `maa_catalog.py` | Generate standard interface tasks from the goal catalog without duplicating the shared flow. |
 | `maa_replay.py` | Run native recognition on saved frames with all input disabled. |
 | `maa_fixtures.py` | Mask a captured frame to the regions the checked leaves read, for committed recognition fixtures. |
@@ -21,7 +21,7 @@ The current client/resource path is described in [the Maa guide](../docs/maa.md)
 
 ### maa_runner.py
 
-The runner that the planned control window will start, one process per session. It finds
+The runner that the control window (`control_window.py`) starts, one process per session. It finds
 GBFR's own Gamescope (the game's processes grouped by their nearest Gamescope; exactly one
 group), connects MaaFramework's Linux controller to it (PipeWire capture, libei input), loads
 the resource and the OCR model, registers the Agent's hooks on its own resource and runs the
@@ -45,7 +45,10 @@ The OCR model directory is the one `build_maa.py --ocr-only` writes (it contains
 bundle's `resource/model` works too. The runner refuses to start without the three model
 files, because MaaFramework accepts a wrong directory and then reads no text. Each session's
 logs go to `$XDG_STATE_HOME/gbfr-auto-linux/logs/`, and only the newest five sessions are kept
-(`--log-keep`); the session snapshot goes to `$XDG_RUNTIME_DIR/gbfr-auto-linux/session.json`.
+(`--log-keep`); the session snapshot goes to `$XDG_RUNTIME_DIR/gbfr-auto-linux/session.json`,
+and a line for each finished, stopped or failed session to
+`$XDG_STATE_HOME/gbfr-auto-linux/history.jsonl`, which the window lists. In a release
+directory the runner lives in `app/` and finds `interface.json` and `resource/` beside it.
 It refuses to start while another session runs, including one under MXU.
 
 The historical probe below uses a separate implementation. Its dated measurements

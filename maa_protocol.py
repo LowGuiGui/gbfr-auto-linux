@@ -19,7 +19,9 @@ Closing stdin means the front end is gone: the runner stops the session and exit
 Events (runner -> front end):
     ready   {"pid", "maafw", "python"}          the runner started
     status  {"status": {...}}                    the session snapshot (maa_agent.Hooks.status)
-    log     {"text"}                             a line for the player, e.g. "第 1/12 次完成"
+    log     {"text"}                             a line for the player, e.g. "第 1/12 次完成";
+                                                 `finish_rejected: true` when a finish request
+                                                 was not accepted and may be sent again
     error   {"code", "message", "detail"}        the session cannot start or go on;
                                                  `message` is Chinese, `detail` technical
     ended   {"outcome", "status"}                outcome: finished, stopped or error

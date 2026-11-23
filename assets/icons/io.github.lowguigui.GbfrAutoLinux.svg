@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 LowGuiGui <https://github.com/LowGuiGui>
+SPDX-License-Identifier: GPL-2.0-or-later
+
+The app icon: a repeat sign around a play mark. Drawn for this project; no game art.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#62a0ea"/>
+      <stop offset="1" stop-color="#1c71d8"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="14" width="108" height="104" rx="24" fill="#1a5fb4"/>
+  <rect x="10" y="10" width="108" height="104" rx="24" fill="url(#face)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round">
+    <path d="M 34 62 A 30 30 0 0 1 86.3 41.9"/>
+    <path d="M 94 62 A 30 30 0 0 1 41.7 82.1"/>
+  </g>
+  <g fill="#ffffff">
+    <path d="M -3 -12 L 14 0 L -3 12 Z" transform="translate(86.3 41.9) rotate(48)"/>
+    <path d="M -3 -12 L 14 0 L -3 12 Z" transform="translate(41.7 82.1) rotate(228)"/>
+  </g>
+  <path d="M 56 47 L 81 62 L 56 77 Z" fill="#f6d32d" stroke="#f6d32d" stroke-width="3"
+        stroke-linejoin="round"/>
+</svg>

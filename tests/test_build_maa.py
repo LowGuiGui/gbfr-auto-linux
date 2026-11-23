@@ -68,3 +68,229 @@ def test_launchers_point_at_this_bundle(tmp_path):
     assert script.startswith("#!/bin/sh") and "exec ./mxu" in script and mode == 0o755
     entry, _ = files["gbfr-auto.desktop"]
     assert f'Exec="{tmp_path / "maa-0.2.0" / "start.sh"}"' in entry
+
+
+# --- the control window's bundle ---------------------------------------------------------
+
+def test_the_window_bundle_names_match_the_window():
+    import os
+    import control_view
+    from tools.build_maa import APP_FILES, APP_ID, BUNDLE_SCRIPTS, ROOT
+    assert APP_ID == control_view.APP_ID
+    assert all((ROOT / name).is_file() for name in APP_FILES)
+    assert all(os.access(ROOT / "assets/bundle" / name, os.X_OK) for name in BUNDLE_SCRIPTS)
+    for name in ("install.sh", "uninstall.sh"):
+        assert f"id={APP_ID}\n" in (ROOT / "assets/bundle" / name).read_text()
+    assert (ROOT / "assets/icons" / f"{APP_ID}.svg").is_file()
+
+
+def test_the_bundle_carries_every_local_module_its_code_imports():
+    import ast
+    from pathlib import Path
+    from tools.build_maa import APP_FILES, ROOT
+    local = {path.stem for path in ROOT.glob("*.py")}
+    needed = set()
+    for name in APP_FILES:
+        for node in ast.walk(ast.parse((ROOT / name).read_text())):
+            if isinstance(node, ast.Import):
+                needed |= {alias.name.split(".")[0] for alias in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                needed.add(node.module.split(".")[0])
+    assert needed & local <= {Path(name).stem for name in APP_FILES}
+
+
+def fake_downloads(tmp_path):
+    from tools.build_maa import WINDOW_DOWNLOADS
+    folder = tmp_path / "downloads"
+    folder.mkdir()
+    for key in WINDOW_DOWNLOADS:
+        (folder / key).write_text(key)
+    return {key: folder / key for key in WINDOW_DOWNLOADS}
+
+
+def test_the_window_bundle_has_no_mxu_and_its_runner_finds_everything(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from tools.build_maa import OCR_FILES, assemble_window
+    bundle = assemble_window(tmp_path / "bundle", fake_downloads(tmp_path))
+    names = {path.relative_to(bundle).as_posix() for path in bundle.rglob("*")}
+    assert {"app/control_window.py", "app/maa_runner.py", "interface.json", "README.md",
+            "icons/io.github.lowguigui.GbfrAutoLinux.svg", "third-party/PaddleOCR-LICENSE"} <= names
+    assert not [n for n in names if "mxu" in n.lower() or n.split("/")[0] in
+                ("agent", "maafw", "config", "control.html", "start.sh", "gbfr-auto.desktop")]
+    assert all(os.access(bundle / name, os.X_OK) for name in ("gbfr-control", "install.sh", "uninstall.sh"))
+    # The runner, imported from the bundle's app/ folder, finds the bundle's own files.
+    code = ("import json, sys; sys.path.insert(0, sys.argv[1]); import maa_runner, maa_options; "
+            "i = maa_runner.find_interface(); p = maa_options.resource_paths(json.loads(i.read_text()), i.parent); "
+            "print(i); print(p[0]); print(maa_runner.ocr_model_dir(p, env={}))")
+    found = subprocess.run([sys.executable, "-I", "-c", code, str(bundle / "app")], capture_output=True,
+                           text=True, timeout=60, cwd=tmp_path)
+    assert found.stdout.split() == [str(bundle / "interface.json"), str(bundle / "resource"),
+                                    str(bundle / "resource" / "model" / "ocr")], found.stderr
+    assert all((bundle / "resource/model/ocr" / name).is_file() for name in OCR_FILES)
+
+
+def test_licence_files_of_the_runtime_are_copied_out_of_the_environment(tmp_path):
+    from tools.build_maa import wheel_notices
+    site = tmp_path / ".venv/lib/python3.13/site-packages"
+    for path, text in (("maafw-5.16.1.dist-info/licenses/LICENSE.md", "lgpl"),
+                       ("six-1.17.0.dist-info/LICENSE", "mit"),
+                       ("six-1.17.0.dist-info/RECORD", "not a licence")):
+        (site / path).parent.mkdir(parents=True, exist_ok=True)
+        (site / path).write_text(text)
+    copied = wheel_notices(tmp_path / ".venv", tmp_path / "third-party")
+    assert sorted(p.relative_to(tmp_path / "third-party").as_posix() for p in copied) == [
+        "python/maafw-5.16.1/licenses/LICENSE.md", "python/six-1.17.0/LICENSE"]
+
+
+def test_the_manifest_hashes_every_file_outside_the_environment(tmp_path, monkeypatch):
+    import json
+    import tools.build_maa as build_maa
+    bundle = tmp_path / "bundle"
+    (bundle / ".venv/bin").mkdir(parents=True)
+    (bundle / ".venv/bin/python").write_text("runtime")
+    (bundle / "app").mkdir()
+    (bundle / "app/control_window.py").write_text("window")
+    answers = {"rev-parse": "abc123\n", "status": ""}
+    monkeypatch.setattr(build_maa.subprocess, "check_output",
+                        lambda argv, text: answers[argv[3]])
+    build_maa.write_manifest(bundle, kind="window")
+    manifest = json.loads((bundle / "bundle.json").read_text())
+    assert manifest["source"] == "abc123" and manifest["source_dirty"] is False
+    assert manifest["kind"] == "window"
+    assert manifest["files"] == {"app/control_window.py": hashlib.sha256(b"window").hexdigest()}
+
+
+def install_env(tmp_path):
+    import os
+    return {"HOME": str(tmp_path / "home"), "PATH": os.environ["PATH"]}
+
+
+def bundle_with_scripts(path):
+    """A release directory with what the menu scripts use: the icon and the scripts."""
+    import shutil
+    from tools.build_maa import APP_ID, BUNDLE_SCRIPTS, ROOT
+    (path / "icons").mkdir(parents=True)
+    shutil.copy2(ROOT / "assets/icons" / f"{APP_ID}.svg", path / "icons")
+    for script in BUNDLE_SCRIPTS:
+        shutil.copy2(ROOT / "assets/bundle" / script, path / script)
+    return path
+
+
+def run_script(path, env):
+    import subprocess
+    return subprocess.run(["sh", str(path)], env=env, capture_output=True, text=True, timeout=30)
+
+
+def test_install_moves_only_the_link_and_uninstall_only_removes_its_own(tmp_path):
+    import os
+    from tools.build_maa import APP_ID
+    old = bundle_with_scripts(tmp_path / "gbfr-0.4.0 a")  # a space in the path must survive
+    new = bundle_with_scripts(tmp_path / "gbfr-0.5.0")
+    env = install_env(tmp_path)
+    share = tmp_path / "home/.local/share"
+    entry = share / "applications" / f"{APP_ID}.desktop"
+    icon = share / "icons/hicolor/scalable/apps" / f"{APP_ID}.svg"
+    link = share / "gbfr-auto-linux/current"
+    # As on the owner's desktop: scalable/apps already exists, and an icon cache written by
+    # another installer is as new as the theme folder, so GTK would trust it.
+    theme = icon.parent.parent.parent
+    icon.parent.mkdir(parents=True)
+    cache = theme / "icon-theme.cache"
+    cache.write_bytes(b"cache from another installer")
+    for path in (cache, theme):
+        os.utime(path, (1_700_000_000, 1_700_000_000))
+
+    assert run_script(old / "install.sh", env).returncode == 0
+    assert theme.stat().st_mtime > cache.stat().st_mtime  # the old cache no longer counts
+    text = entry.read_text()
+    assert f'Exec="{link}/gbfr-control"\n' in text and f"Icon={APP_ID}\n" in text
+    assert "Name=GBFR 自动刷取\n" in text and icon.is_file()
+    assert os.readlink(link) == str(old.resolve())
+    # Switching versions moves the link alone: GNOME's app grid keeps launching the command
+    # an entry had when its icon was made, so the entry must never change.
+    assert run_script(new / "install.sh", env).returncode == 0
+    assert os.readlink(link) == str(new.resolve()) and entry.read_text() == text
+    assert sorted(path.name for path in link.parent.iterdir()) == ["current"]  # no temporary left
+    refused = run_script(old / "uninstall.sh", env)
+    assert refused.returncode == 1 and entry.exists() and icon.exists()
+    assert os.readlink(link) == str(new.resolve())
+    os.utime(theme, (1_700_000_000, 1_700_000_000))
+    assert run_script(new / "uninstall.sh", env).returncode == 0
+    assert not entry.exists() and not icon.exists() and not os.path.lexists(link)
+    assert not link.parent.exists()  # its folder held nothing else
+    assert theme.stat().st_mtime > cache.stat().st_mtime
+    assert run_script(new / "uninstall.sh", env).returncode == 0  # nothing left to remove is fine
+
+
+def test_the_link_resolves_to_the_real_bundle_and_a_window_keeps_its_own(tmp_path):
+    """Started through the link, the launcher runs the bundle the link named at that moment,
+    so a window keeps its own files and About its own commit after the link moves."""
+    import json
+    import os
+    import subprocess
+    from pathlib import Path
+    import control_view
+    from tools.build_maa import ROOT
+    a, b = (bundle_with_scripts(tmp_path / name) for name in ("a", "b"))
+    for bundle, source in ((a, "aaaaaaa111"), (b, "bbbbbbb222")):
+        (bundle / "app").mkdir()
+        (bundle / "interface.json").write_text(json.dumps({"version": "0.3.0"}))
+        (bundle / "bundle.json").write_text(json.dumps({"source": source}))
+    env = install_env(tmp_path)
+    link = tmp_path / "home/.local/share/gbfr-auto-linux/current"
+    assert run_script(a / "install.sh", env).returncode == 0
+    assert run_script(link / "install.sh", env).returncode == 0  # through the link itself
+    assert os.readlink(link) == str(a.resolve())  # the real folder, never the link
+    line = next(text for text in (ROOT / "assets/bundle/gbfr-control").read_text().splitlines()
+                if text.startswith("here="))
+    here = subprocess.run(["sh", "-c", line + '\nprintf %s "$here"', str(link / "gbfr-control")],
+                          capture_output=True, text=True, timeout=30).stdout
+    assert here == str(a.resolve())
+    assert run_script(b / "install.sh", env).returncode == 0
+    assert control_view.app_version(Path(here) / "app") == "0.3.0 (aaaaaaa)"
+    assert control_view.app_version(link.resolve() / "app") == "0.3.0 (bbbbbbb)"
+
+
+def test_uninstall_removes_a_link_whose_bundle_is_gone(tmp_path):
+    import os
+    import shutil
+    from tools.build_maa import APP_ID
+    old = bundle_with_scripts(tmp_path / "old")
+    new = bundle_with_scripts(tmp_path / "new")
+    env = install_env(tmp_path)
+    share = tmp_path / "home/.local/share"
+    assert run_script(old / "install.sh", env).returncode == 0
+    shutil.rmtree(old)  # deleted by hand while the menu still pointed at it
+    assert run_script(new / "uninstall.sh", env).returncode == 0
+    assert not (share / "applications" / f"{APP_ID}.desktop").exists()
+    assert not os.path.lexists(share / "gbfr-auto-linux/current")
+
+
+def test_uninstall_leaves_no_file_where_a_deleted_icon_folder_was(tmp_path):
+    import shutil
+    bundle = bundle_with_scripts(tmp_path / "gbfr")
+    env = install_env(tmp_path)
+    theme = tmp_path / "home/.local/share/icons/hicolor"
+    assert run_script(bundle / "install.sh", env).returncode == 0
+    shutil.rmtree(theme)  # removed by hand while the menu entry stayed
+    assert run_script(bundle / "uninstall.sh", env).returncode == 0
+    assert not theme.exists()
+    assert run_script(bundle / "install.sh", env).returncode == 0 and theme.is_dir()  # still works
+
+
+def test_install_refuses_a_link_path_the_entry_cannot_hold_but_takes_any_bundle_path(tmp_path):
+    bundle = bundle_with_scripts(tmp_path / "gbfr-$HOME")  # only the link goes into the entry
+    env = install_env(tmp_path)
+    assert run_script(bundle / "install.sh", env).returncode == 0
+    share = tmp_path / "share-$x"
+    result = run_script(bundle / "install.sh", dict(env, XDG_DATA_HOME=str(share)))
+    assert result.returncode == 1 and not share.exists()
+
+
+def test_the_launcher_opens_the_window_with_the_system_python():
+    from tools.build_maa import ROOT
+    text = (ROOT / "assets/bundle/gbfr-control").read_text()
+    assert 'exec /usr/bin/python3 -I "$here/app/control_window.py" "$@"' in text
+    assert "python3-gi gir1.2-gtk-4.0 gir1.2-adw-1" in text

@@ -10,10 +10,10 @@ SPDX-License-Identifier: GPL-2.0-or-later
 [![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
 > [!IMPORTANT]
-> **Maa 0.3.0 is in development: open any quest at the quest counter, and the software farms it with the game's own Repeat Quest, answering 是 (yes) on every tenth-run confirmation. The previous version, 0.2.0-rc.1, passed its first real-game acceptance (12 Quakadile runs in a row, finish after this run, stop now).**
+> **Maa 0.3.0 is in development: it has its own control window and no longer needs MXU. Open any quest at the quest counter, and the software farms it with the game's own Repeat Quest, answering 是 (yes) on every tenth-run confirmation. The control window has not yet passed a real-game acceptance; the previous version, 0.2.0-rc.1, passed its first real-game acceptance (12 Quakadile runs in a row, finish after this run, stop now).**
 >
-> Kept for rollback are 0.2.0-rc.1 (two material presets, walks the menus to accept the quest) and 0.1.0-rc.2 (returns to town after every run). It uses the existing MXU client,
-> MaaFramework's native Linux controller and this project's game resources. See the [Maa guide](docs/maa.en.md) for setup, use and stopping.
+> Kept for rollback are 0.2.0-rc.1 (two material presets, walks the menus to accept the quest) and 0.1.0-rc.2 (returns to town after every run), which use the MXU client.
+> The new version uses this project's own window, MaaFramework's native Linux controller and this project's game resources. See the [Maa guide](docs/maa.en.md) for setup, use and stopping.
 
 > [!WARNING]
 > **AI-written code.** This repository was written by AI coding assistants (Claude Code and OpenAI Codex) at the owner's direction and has **not been reviewed line by line by a human**.
@@ -28,13 +28,13 @@ This file is a translation of the [Chinese README](README.md), which is canonica
 
 ## Direction and status
 
-Maa provides recognition, scheduling, capture and input; MXU provides the existing interface.
-This project maintains game-screen recognition, the farming flow and small accounting/stop hooks rather than another automation engine.
+Maa provides recognition, scheduling, capture and input. The interface is this project's own control window (GTK 4 and libadwaita), which starts one background program per session that calls MaaFramework's Python API directly; MXU, used before, is no longer needed.
+This project maintains game-screen recognition, the farming flow, the window and small accounting/stop hooks rather than another automation engine.
 
 | Component | Current scope |
 |---|---|
-| Client/runtime | Pinned MXU 2.11.2 and MaaFramework 5.16.1; separate version directories preserve rollback |
-| Real-game validation | 0.3.0 development version (2026-11-22, through MXU, game off the desktop): 12 Quakadile runs in a row from the quest's details page with no intervention, 是 on the tenth-run dialog continued without town, and it ended in town; finish after this run, stop now and a real failure have not been run with this version. The game behaviour it relies on (是 on the tenth run continues, a failure page returns to town by itself) was measured with a script the same day. 0.2.0-rc.1 (2026-11-22): 12 Quakadile runs in a row with no intervention (across the tenth-run dialog), finish after this run and stop now all passed; the new loop is not yet validated for Blizzadile. 0.1.0-rc.2: Chinese 2.0.6, 16:9, Seedhollow town; Quakadile passed 1/1 and five consecutive runs; Blizzadile passed 1/1 |
+| Window/runtime | Its own control window (the system Python, GTK 4, libadwaita) and pinned MaaFramework 5.16.1; separate version directories preserve rollback. Until the control window passes its real-game acceptance, the MXU version can still be built |
+| Real-game validation | The control window has not run against the real game yet; the background program it starts (2026-11-22, from the command line, the game in its normal window) finished 3 runs, and in another session stopped after run 2 as asked. 0.3.0 development version (2026-11-22, through MXU, game off the desktop): 12 Quakadile runs in a row from the quest's details page with no intervention, 是 on the tenth-run dialog continued without town, and it ended in town; finish after this run, stop now and a real failure have not been run with this version. The game behaviour it relies on (是 on the tenth run continues, a failure page returns to town by itself) was measured with a script the same day. 0.2.0-rc.1 (2026-11-22): 12 Quakadile runs in a row with no intervention (across the tenth-run dialog), finish after this run and stop now all passed; the new loop is not yet validated for Blizzadile. 0.1.0-rc.2: Chinese 2.0.6, 16:9, Seedhollow town; Quakadile passed 1/1 and five consecutive runs; Blizzadile passed 1/1 |
 | Quest scope | Any private quest, starting from the quest opened at the counter; no recognition depends on a quest name. Only Quakadile has been measured, recorded in [catalog.json](assets/catalog.json) |
 | Stop behavior | A number of successful runs (1-999) or until stopped; finish after the current run; immediate automation stop; a failed quest is not counted and stops the session |
 | Outside current support | Automatic title continuation, walking to the counter and picking a quest, taking over mid-battle or on a results screen, equipment/spending automation, battle input |
@@ -42,20 +42,27 @@ This project maintains game-screen recognition, the farming flow and small accou
 A small success sample does not establish reliability for every party or extended unattended use.
 Normal game rewards and experience still apply. Unknown screens, defeat and timeouts stop automation.
 
-## Using the Maa client
+## Using the control window
 
-With Python 3.13 and `uv` available:
+The window runs on the system Python with GTK 4 and libadwaita. On Ubuntu (tested on Ubuntu 26.04), install first:
 
 ```sh
-python3 tools/build_maa.py --output dist/maa-0.3.0
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1
+```
+
+Package names for other distributions are in the [Maa guide](docs/maa.en.md). Then, with Python 3.13 and `uv` available, build a release directory and add it to the application menu:
+
+```sh
+python3 tools/build_maa.py --output dist/gbfr-auto-0.3.0
+dist/gbfr-auto-0.3.0/install.sh
 ```
 
 Start the game through Steam, open the quest to farm at the quest counter (stay on its details page or the ready room), and click once inside the game window.
-Run `./start.sh` from the built directory, tick "连刷当前任务" (farm the current quest), enter a number of runs or choose "until I stop it", and start.
-Use one run the first time you farm a quest to check the current party. The control panel (the link in the welcome message) shows the count and
-offers "finish after this run" and "stop now".
+Open "GBFR 自动刷取" from the application menu, enter a number of runs or choose "until I stop it", and press Start.
+Use one run the first time you farm a quest to check the current party. The window shows the quest name, the count, the stage, the time taken and the recent sessions,
+and offers "finish after this run" and "stop now"; it sends a desktop notification when a session finishes or stops with an error.
 
-The [Maa guide](docs/maa.en.md) covers prerequisites, what to do on errors and updating.
+The [Maa guide](docs/maa.en.md) covers prerequisites, what to do on errors, where files are kept and updating.
 Stopping the software does not pause or close the game; exit through the game's own menu.
 
 ## Legacy command-line implementation
@@ -88,7 +95,7 @@ Requires Python 3.12 or newer; CI and the local setup use 3.13.
 
 ## Project structure
 
-The first four rows are the Maa path. The legacy CLI and shared checks remain in
+The first five rows are the Maa path. The legacy CLI and shared checks remain in
 the repository.
 
 | File | What it does |
@@ -96,7 +103,8 @@ the repository.
 | `assets/catalog.json`, `assets/interface.json` | Material goals, prerequisites and standard client options |
 | `assets/resource/` | Shared native Maa recognition and quest flow |
 | `maa_agent.py`, `maa_guard.py`, `maa_session.py`, `maa_target.py`, `maa_messages.py` | Target/input checks, ownership, successful-run accounting, stop semantics and Chinese stop explanations |
-| `tools/build_maa.py`, `assets/control.html` | Independent client bundle and a progress/stop panel on the existing client's server |
+| `control_window.py`, `control_view.py`, `maa_runner.py`, `maa_protocol.py`, `maa_options.py` | The control window and the rules for what it shows and allows; the background program (runner), one per session; the JSON-lines protocol between them; `interface.json`'s options |
+| `tools/build_maa.py`, `assets/bundle/`, `assets/icons/`, `assets/control.html` | The release-directory build, its start/install/uninstall scripts and icon; the progress/stop panel of the older MXU release directories |
 | `opencv.py` | template matching, and the guard against blank frames |
 | `pages.py` | the engine that works out which screen is showing, from an ordered rule tree |
 | `pagetree.py` | the game's actual tree: which templates, which screens, and what to do on each |

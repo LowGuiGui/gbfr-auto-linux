@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 import control
+import control_view
 import maa_options
 import maa_protocol
 import maa_runner
@@ -252,6 +253,82 @@ def test_the_signal_handler_never_waits_for_the_runners_lock():
         handler(signal.SIGINT, None)
         assert not runner.deadlocked
     assert runner.stopped.wait(3) and not runner.deadlocked
+
+
+def test_a_rejected_finish_says_so_and_can_be_sent_again(tmp_path):
+    class Tasker:
+        def __init__(self, answers):
+            self.answers = list(answers)
+
+        def override_pipeline(self, task_id, override):
+            assert (task_id, override) == (7, maa_runner.FINISH_OVERRIDE)
+            return self.answers.pop(0)
+    events = []
+    runner = maa_runner.Runner(maa_options.run_values(3), lambda kind, **f: events.append((kind, f)),
+                               status_path=tmp_path / "session.json", log_dir=tmp_path / "log")
+    runner.tasker, runner.task_id = Tasker([False, True]), 7
+    assert runner.finish() is False and not runner.finish_requested
+    assert events == [("log", {"text": "本轮后停的请求没有被接受，请再试一次或者立即停止。",
+                               "finish_rejected": True})]
+    assert runner.finish() is True and runner.finish_requested and len(events) == 1
+
+
+class Clock:
+    def __init__(self, now=1000.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+def test_the_hooks_time_each_counted_run_and_the_current_battle(tmp_path):
+    from maa_session import Session
+    clock, reports = Clock(), []
+    hooks = maa_runner.ReportingHooks(tmp_path / "session.json", reports.append, clock=clock)
+    hooks.session = Session(None, 3)
+    hooks.write_status()                         # the session begins at 1000
+    clock.now, hooks.session.phase = 1030, "battle"
+    hooks.battle_started = 5.0                   # the battle limit's own monotonic clock
+    hooks.write_status()
+    assert reports[-1]["timing"]["battle_started"] == 1030
+    clock.now = 1300
+    hooks.session.settle()                       # run 1 counted 300 s after the start
+    hooks.write_status()
+    clock.now, hooks.session.repeat = 1360, True
+    hooks.session.battle()
+    hooks.write_status()
+    clock.now = 1580
+    hooks.session.settle()                       # run 2: 280 s after run 1
+    hooks.write_status()
+    timing = reports[-1]["timing"]
+    assert timing == {"started": 1000, "runs": [300.0, 280.0], "battle_started": None}
+    assert hooks.battle_started == 5.0           # the guard's clock is left alone
+    assert reports[-1]["failures"] == 0
+    assert json.loads((tmp_path / "session.json").read_text())["timing"]["runs"] == [300.0, 280.0]
+
+
+def test_only_a_failed_quest_counts_as_a_failure():
+    assert maa_runner.quest_failed("The quest failed: the party fell")
+    assert maa_runner.quest_failed("Repeat Quest could not be turned off after the quest failed")
+    assert maa_runner.quest_failed("The failure page's Repeat Quest toggle could not be read")
+    assert not maa_runner.quest_failed("The battle exceeded its 1800 s limit")
+    assert not maa_runner.quest_failed(None)
+    assert control_view.average([300.0, 280.0, 290.0]) == 290.0 and control_view.average([]) is None
+
+
+def test_history_keeps_one_line_per_session_and_reads_newest_first(tmp_path):
+    path, clock = tmp_path / "state" / "history.jsonl", Clock(2000.0)
+    for n in range(7):
+        status = {"quest": "解决沙漠狂徒", "completed": n, "limit": 10, "failures": 0,
+                  "timing": {"started": 1000.0, "runs": [300.0] * n}}
+        control_view.append_history(path, status, "finished", clock=clock)
+    with path.open("a") as stream:
+        stream.write("{broken\n")
+    entries = control_view.read_history(path)
+    assert [e["completed"] for e in entries] == [6, 5, 4, 3, 2]
+    assert entries[0]["elapsed"] == 1000.0 and entries[0]["average"] == 300.0
+    assert entries[-1]["outcome"] == "finished" and entries[0]["ended"].startswith("19")
+    assert control_view.read_history(tmp_path / "missing.jsonl") == []
 
 
 def test_exactly_one_mode_is_required():
@@ -512,6 +589,47 @@ def test_a_failed_release_also_stays_remembered(monkeypatch, tmp_path, maa_ready
     assert json.loads(marker.read_text())["release_pending"] is True
 
 
+def test_a_session_reports_its_run_times_and_writes_its_history(monkeypatch, tmp_path, maa_ready):
+    g = graph()
+    screens = [*g.first_run_turning_repeat_on(), *g.repeated_run_keeping_it_on(),
+               *g.last_run_turning_it_off()]
+    history = tmp_path / "history.jsonl"
+    outcome, _, events, _, _ = session(monkeypatch, tmp_path, screens, maa_options.run_values(3),
+                                       history_path=history)
+    assert outcome == "finished"
+    (ended,) = kinds(events, "ended")
+    assert len(ended["status"]["timing"]["runs"]) == 3 and ended["status"]["failures"] == 0
+    # Through the real battle action: the window's battle time is wall-clock, not the
+    # monotonic clock the hooks keep for their battle limit.
+    battles = [f["status"]["timing"]["battle_started"] for f in kinds(events, "status")
+               if f["status"].get("phase") == "battle"]
+    assert battles and all(abs(started - time.time()) < 600 for started in battles), battles
+    (entry,) = control_view.read_history(history)
+    assert entry["outcome"] == "finished" and entry["completed"] == 3
+    assert entry["average"] is not None and entry["elapsed"] is not None
+
+
+def test_a_failed_quest_is_counted_as_a_failure_in_the_history(monkeypatch, tmp_path, maa_ready):
+    g = graph()
+    screens = [*g.menus(), *g.battle(victory=False), g.screen("failed", *g.failure("off"))]
+    history = tmp_path / "history.jsonl"
+    outcome, _, events, _, _ = session(monkeypatch, tmp_path, screens, maa_options.run_values(3),
+                                       history_path=history)
+    assert outcome == "error"
+    assert kinds(events, "ended")[0]["status"]["failures"] == 1
+    (entry,) = control_view.read_history(history)
+    assert entry["failures"] == 1 and entry["outcome"] == "error" and entry["completed"] == 0
+
+
+def test_a_refused_start_leaves_no_history(monkeypatch, tmp_path, maa_ready):
+    def no_game():
+        raise ProbeError("expected one Gamescope for app 881020; found 0")
+    history = tmp_path / "history.jsonl"
+    session(monkeypatch, tmp_path, [], maa_options.run_values(3), connect=no_game,
+            history_path=history)
+    assert not history.exists()
+
+
 # --- with MaaFw: the runner as a child process, over the protocol -----------------------
 
 def child(tmp_path, scenario, *, runs="12", frame_delay=0.0):
@@ -573,6 +691,25 @@ def test_a_stop_command_over_the_protocol(tmp_path, maa_ready):
     assert process.wait(30) == 0
     assert events[-1]["event"] == "ended" and events[-1]["outcome"] == "stopped"
     assert 1 <= events[-1]["status"]["completed"] <= 3
+
+
+def in_run_2s_battle(event):
+    status = event.get("status") or {}
+    return event["event"] == "status" and status.get("phase") == "battle" \
+        and status.get("completed") == 1 and status.get("episode") == 2
+
+
+def test_finish_over_the_protocol_plays_the_run_out(tmp_path, maa_ready):
+    process = child(tmp_path, "hold", runs="10", frame_delay=0.02)
+    read_events(process, until=in_run_2s_battle)
+    process.stdin.write(maa_protocol.encode_command("finish"))
+    process.stdin.flush()
+    events = read_events(process)
+    assert process.wait(30) == 0
+    assert events[-1]["event"] == "ended" and events[-1]["outcome"] == "finished"
+    assert events[-1]["status"]["completed"] == 2 and events[-1]["status"]["finish_requested"]
+    assert (tmp_path / "state" / "keys.txt").read_text().split() == \
+        ["Return", "Return", "3", "Return", "3", "3"]
 
 
 def test_closing_stdin_stops_the_session(tmp_path, maa_ready):
