@@ -4,10 +4,11 @@
 #
 # Open the GBFR 自动刷取 control window from this bundle. The window runs on the system
 # Python with its GTK 4 and libadwaita; each session's runner uses this bundle's .venv.
+# -B, as for the runner: a bundle is never written to after its build, so no __pycache__.
 here=$(dirname "$(readlink -f "$0")")
 if ! /usr/bin/python3 -I -c 'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")' 2>/dev/null; then
     echo "GBFR 自动刷取 needs PyGObject with GTK 4 and libadwaita for /usr/bin/python3." >&2
     echo "Ubuntu: sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1" >&2
     exit 1
 fi
-exec /usr/bin/python3 -I "$here/app/control_window.py" "$@"
+exec /usr/bin/python3 -I -B "$here/app/control_window.py" "$@"

@@ -309,5 +309,30 @@ def test_install_refuses_a_link_path_the_entry_cannot_hold_but_takes_any_bundle_
 def test_the_launcher_opens_the_window_with_the_system_python():
     from tools.build_maa import ROOT
     text = (ROOT / "assets/bundle/gbfr-control").read_text()
-    assert 'exec /usr/bin/python3 -I "$here/app/control_window.py" "$@"' in text
+    assert 'exec /usr/bin/python3 -I -B "$here/app/control_window.py" "$@"' in text
     assert "python3-gi gir1.2-gtk-4.0 gir1.2-adw-1" in text
+
+
+def test_the_launcher_leaves_no_bytecode_in_the_release_directory(tmp_path):
+    """The window imports its modules from app/; without -B, Python would write
+    app/__pycache__ into a release directory that is never written to after its build.
+    The launcher's own lines run, with this interpreter in place of the system one."""
+    import shutil
+    import subprocess
+    import sys
+    from tools.build_maa import ROOT
+    bundle = tmp_path / "bundle"
+    (bundle / "app").mkdir(parents=True)
+    shutil.copy2(ROOT / "assets/bundle/gbfr-control", bundle / "gbfr-control")
+    (bundle / "app/helper.py").write_text("VALUE = 1\n")
+    (bundle / "app/control_window.py").write_text(  # as the real one: -I leaves its folder out
+        "import sys\nfrom pathlib import Path\nsys.path.insert(0, str(Path(__file__).resolve().parent))\n"
+        "import helper\nprint(helper.VALUE)\n")
+    lines = (bundle / "gbfr-control").read_text().splitlines()
+    here = next(line for line in lines if line.startswith("here="))
+    run = next(line for line in lines if line.startswith("exec /usr/bin/python3 "))
+    script = here + "\n" + run.replace("/usr/bin/python3", sys.executable, 1)
+    result = subprocess.run(["sh", "-c", script, str(bundle / "gbfr-control")],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0 and result.stdout.strip() == "1", result.stderr
+    assert not (bundle / "app/__pycache__").exists()
