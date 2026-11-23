@@ -231,9 +231,9 @@ and GNOME's app grid keeps starting the old path until the entry has disappeared
 back to one of them, run `./uninstall.sh` in the current directory, wait a minute, then run
 the old directory's `./install.sh`. An older release directory with MXU (0.2.0, and the 0.3.0
 development builds that contain an `mxu` file) keeps using its own `./start.sh`; both share
-the session lock, so they never control the game at the same time. Until the control window
-has passed its real-game acceptance, `tools/build_maa.py --mxu` still builds the MXU version.
-`./uninstall.sh` removes the menu entry, the icon and the link, but only when the link points
+the session lock, so they never control the game at the same time; new MXU release
+directories can no longer be built. `./uninstall.sh` removes the menu entry, the icon and
+the link, but only when the link points
 at its own directory (or at a directory that no longer exists). Never update any part while
 a session is running.
 

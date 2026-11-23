@@ -4,8 +4,8 @@
 """What the control window shows and allows, worked out without GTK.
 
 The window (control_window.py) only draws what these functions return, so the rules can
-be tested anywhere, CI included. The status rules follow the old web panel
-(assets/control.html); the session snapshot comes from the runner (maa_runner.py).
+be tested anywhere, CI included. The status rules started from the web panel of the MXU
+releases; the session snapshot comes from the runner (maa_runner.py).
 """
 
 import json

@@ -5,7 +5,7 @@ import hashlib
 
 import pytest
 
-from tools.build_maa import build, fetch, fetch_ocr, launcher_files, mxu_config
+from tools.build_maa import build, fetch, fetch_ocr
 
 
 def test_existing_bundle_is_never_overwritten(tmp_path):
@@ -46,28 +46,45 @@ def test_ocr_only_uses_the_pinned_hash_checked_files(tmp_path):
     assert not (tmp_path / "model").exists()
 
 
-def test_mxu_config_prefills_one_instance_from_the_interface_and_catalog():
+def test_the_pins_hold_only_what_the_build_fetches():
+    """No MXU download or MaaFramework archive is left: the build fetches every pinned
+    download, and the runner's MaaFw comes from the hash-pinned lock."""
     import json
+    from tools.build_maa import ROOT, WINDOW_DOWNLOADS
+    pins = json.loads((ROOT / "assets/dependencies.json").read_text())
+    assert set(pins["downloads"]) == set(WINDOW_DOWNLOADS)
+    assert set(pins) == {"maafw", "ocr_revision", "downloads"}
+
+
+def test_the_builder_offers_no_mxu_bundle():
+    import inspect
+    import subprocess
+    import sys
     from tools.build_maa import ROOT
-    interface = json.loads((ROOT / "assets/interface.json").read_text())
-    catalog = json.loads((ROOT / "assets/catalog.json").read_text())
-    config = mxu_config(interface, catalog)
-    (instance,) = config["instances"]
-    assert instance["controllerName"] == interface["controller"][0]["name"]
-    assert instance["resourceName"] == interface["resource"][0]["name"]
-    assert [task["taskName"] for task in instance["tasks"]] == [task["name"] for task in interface["task"]]
-    assert [task["enabled"] for task in instance["tasks"]] == [True] + [False] * (len(instance["tasks"]) - 1)
-    assert config["lastActiveInstanceId"] == instance["id"]
-    assert config["settings"]["webServerPort"] == catalog["profile"]["control_panel_port"]
-    assert config["settings"]["allowLanAccess"] is False
+    usage = subprocess.run([sys.executable, "-I", str(ROOT / "tools/build_maa.py"), "--help"],
+                           capture_output=True, text=True, timeout=60)
+    assert usage.returncode == 0 and "--output" in usage.stdout
+    assert "mxu" not in usage.stdout.lower()
+    assert list(inspect.signature(build).parameters) == ["output", "cache", "python"]
 
 
-def test_launchers_point_at_this_bundle(tmp_path):
-    files = launcher_files(tmp_path / "maa-0.2.0")
-    script, mode = files["start.sh"]
-    assert script.startswith("#!/bin/sh") and "exec ./mxu" in script and mode == 0o755
-    entry, _ = files["gbfr-auto.desktop"]
-    assert f'Exec="{tmp_path / "maa-0.2.0" / "start.sh"}"' in entry
+def test_no_bundled_module_starts_an_agent_server():
+    """Importing maa.agent switches MaaFw into AgentServer mode for the whole process. The
+    runner registers the hooks in its own process, so nothing it loads may import it."""
+    import ast
+    from tools.build_maa import APP_FILES, ROOT
+    found = []
+    for name in APP_FILES:
+        for node in ast.walk(ast.parse((ROOT / name).read_text())):
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                modules = [node.module or ""]
+            else:
+                continue
+            found += [(name, module) for module in modules
+                      if module == "maa.agent" or module.startswith("maa.agent.")]
+    assert not found
 
 
 # --- the control window's bundle ---------------------------------------------------------

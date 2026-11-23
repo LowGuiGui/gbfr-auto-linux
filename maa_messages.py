@@ -4,7 +4,7 @@
 """Chinese explanations of why a session stopped, with what to do next.
 
 The session keeps its technical reason (English, stable for tests and logs); the
-control panel and MXU's log show `describe(status)`. Each entry says what happened and
+control window shows `describe(status)`. Each entry says what happened and
 what the player should do; an unknown reason is shown as it is. A stop the player asked
 for is not an error and has its own message.
 """
@@ -21,7 +21,7 @@ MESSAGES = (
      "画面在限定时间内没有变成预期的样子，已停止。请看一眼游戏：打开要刷的任务"
      "（详情页或准备画面），再重新开始。"),
     (r"Select GBFR's native Gamescope",
-     "连接的不是 GBFR 的 Gamescope。请确认游戏是通过 Steam 启动的；用 MXU 时，请在设备里选择“GBFR Gamescope”。"),
+     "连接的不是 GBFR 的 Gamescope。请确认游戏是通过 Steam 启动的。"),
     (r"expected one Gamescope for app \d+; found 0$",
      "没有找到正在运行的游戏，没有开始。请先通过 Steam 启动游戏，等画面稳定后再开始。"),
     (r"expected one Gamescope for app \d+; found (\d+)$",

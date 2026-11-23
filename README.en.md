@@ -33,7 +33,7 @@ This project maintains game-screen recognition, the farming flow, the window and
 
 | Component | Current scope |
 |---|---|
-| Window/runtime | Its own control window (the system Python, GTK 4, libadwaita) and pinned MaaFramework 5.16.1; separate version directories preserve rollback. Until the control window passes its real-game acceptance, the MXU version can still be built |
+| Window/runtime | Its own control window (the system Python, GTK 4, libadwaita) and pinned MaaFramework 5.16.1; separate version directories preserve rollback |
 | Real-game validation | The control window has not run against the real game yet; the background program it starts (2026-11-22, from the command line, the game in its normal window) finished 3 runs, and in another session stopped after run 2 as asked. 0.3.0 development version (2026-11-22, through MXU, game off the desktop): 12 Quakadile runs in a row from the quest's details page with no intervention, 是 on the tenth-run dialog continued without town, and it ended in town; finish after this run, stop now and a real failure have not been run with this version. The game behaviour it relies on (是 on the tenth run continues, a failure page returns to town by itself) was measured with a script the same day. 0.2.0-rc.1 (2026-11-22): 12 Quakadile runs in a row with no intervention (across the tenth-run dialog), finish after this run and stop now all passed; the new loop is not yet validated for Blizzadile. 0.1.0-rc.2: Chinese 2.0.6, 16:9, Seedhollow town; Quakadile passed 1/1 and five consecutive runs; Blizzadile passed 1/1 |
 | Quest scope | Any private quest, starting from the quest opened at the counter; no recognition depends on a quest name. Only Quakadile has been measured, recorded in [catalog.json](assets/catalog.json) |
 | Stop behavior | A number of successful runs (1-999) or until stopped; finish after the current run; immediate automation stop; a failed quest is not counted and stops the session |
@@ -104,7 +104,7 @@ the repository.
 | `assets/resource/` | Shared native Maa recognition and quest flow |
 | `maa_agent.py`, `maa_guard.py`, `maa_session.py`, `maa_target.py`, `maa_messages.py` | Target/input checks, ownership, successful-run accounting, stop semantics and Chinese stop explanations |
 | `control_window.py`, `control_view.py`, `maa_runner.py`, `maa_protocol.py`, `maa_options.py` | The control window and the rules for what it shows and allows; the background program (runner), one per session; the JSON-lines protocol between them; `interface.json`'s options |
-| `tools/build_maa.py`, `assets/bundle/`, `assets/icons/`, `assets/control.html` | The release-directory build, its start/install/uninstall scripts and icon; the progress/stop panel of the older MXU release directories |
+| `tools/build_maa.py`, `assets/bundle/`, `assets/icons/` | The release-directory build, its start/install/uninstall scripts and icon |
 | `opencv.py` | template matching, and the guard against blank frames |
 | `pages.py` | the engine that works out which screen is showing, from an ordered rule tree |
 | `pagetree.py` | the game's actual tree: which templates, which screens, and what to do on each |
