@@ -339,6 +339,117 @@ def test_a_failure_seen_only_on_the_count_recheck_is_not_counted(monkeypatch, tm
     assert "本次已计数" not in outcome.messages and not any("次完成" in m for m in outcome.messages)
 
 
+def test_a_failure_line_drawn_after_the_count_takes_the_count_back(monkeypatch, tmp_path):
+    """The page reads as plain results even on the count's own recheck, and the failure
+    line shows only after the run was counted: the count is taken back."""
+    screens = [*menus(), *battle(victory=False),
+               screen("results, failure line not drawn yet", "GBFR_See_Results",
+                      leave_on="action:GBFR_Result"),
+               screen("failed", *failure("off"))]
+    outcome = run(monkeypatch, tmp_path, screens, limit=3)
+    assert_explained_failure(outcome)
+    assert outcome.session["error"].startswith("The quest failed")
+    assert outcome.session["completed"] == 0 and outcome.session["episode"] == 1
+    assert outcome.keys == NAV_KEYS
+
+
+def test_a_late_failure_line_takes_back_only_its_own_run(monkeypatch, tmp_path):
+    screens = [*first_run_turning_repeat_on(), *battle(victory=False),
+               screen("results, repeat on, failure line not drawn yet", "GBFR_See_Results",
+                      "GBFR_See_RepeatOn", leave_on="action:GBFR_Result"),
+               screen("failed, repeat on", *failure("on"), leave_on="key:3"),
+               screen("failed, repeat off", *failure("off"))]
+    outcome = run(monkeypatch, tmp_path, screens, limit=5)
+    assert_explained_failure(outcome)
+    assert outcome.session["error"].startswith("The quest failed")
+    assert outcome.session["completed"] == 1 and outcome.session["episode"] == 2
+    assert not outcome.session["left_on"]
+    assert outcome.keys == NAV_KEYS + ["3", "3"]
+
+
+def test_a_failure_after_an_unseen_run_keeps_the_success_before_it(monkeypatch, tmp_path):
+    """Run 1 is counted and the game repeats the quest, but no frame of run 2's battle is
+    recognised before its failure page. That page is not the one run 1 was counted on, so
+    run 1 stays counted. The hooks tell the two apart by time: with repeat on, the next
+    battle starts about 70 s after a results page (measured 2026-11-21)."""
+    import types
+
+    import maa_agent
+    import maa_graph
+    now = [1000.0]
+    monkeypatch.setattr(maa_agent, "time", types.SimpleNamespace(monotonic=lambda: now[0],
+                                                                 sleep=maa_agent.time.sleep))
+    event = maa_graph.ScriptedGame.event
+
+    def later_run(game, kind):
+        before = game.current
+        event(game, kind)
+        if game.current is not before and game.current is not None \
+                and game.current.name == "failed, repeat on":
+            now[0] += 100  # loading, the countdown and a short failed battle, none recognised
+    monkeypatch.setattr(maa_graph.ScriptedGame, "event", later_run)
+    screens = [*first_run_turning_repeat_on(),
+               screen("failed, repeat on", *failure("on"), leave_on="key:3"),
+               screen("failed, repeat off", *failure("off"))]
+    outcome = run(monkeypatch, tmp_path, screens, limit=5)
+    assert_explained_failure(outcome)
+    assert outcome.session["error"].startswith("The quest failed")
+    assert outcome.session["completed"] == 1
+    assert outcome.keys == NAV_KEYS + ["3", "3"]
+
+
+def finish_as_the_action_starts(monkeypatch, node):
+    """A finish request that lands after `node`'s gate said go on, just as its action
+    starts: the action sees the request, the recognition before it did not."""
+    import maa_agent
+    original = maa_agent.Hooks._run
+    fired = []
+
+    def _run(self, context, argv):
+        if argv.node_name == node and not fired:
+            fired.append(node)
+            self.session.finish_requested = True
+        return original(self, context, argv)
+    monkeypatch.setattr(maa_agent.Hooks, "_run", _run)
+    return fired
+
+
+def test_a_finish_landing_after_the_gate_still_turns_repeat_off(monkeypatch, tmp_path):
+    """The rewards page read repeat on and the gate said go on. The page does show repeat
+    on, so that is recorded, and the finish then turns it off as on any rewards page."""
+    fired = finish_as_the_action_starts(monkeypatch, "GBFR_KeepRepeating")
+    screens = [*first_run_turning_repeat_on()[:-1],
+               rewards("on", "action:GBFR_KeepRepeating"),
+               rewards("on", "key:3"),
+               rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=10)
+    assert fired
+    assert_clean_finish(outcome, 1)
+    assert outcome.session["finish_requested"]
+    assert outcome.keys == NAV_KEYS + ["3", "3"]
+
+
+def test_a_finish_landing_as_yes_is_about_to_be_pressed_sends_no_yes(monkeypatch, tmp_path):
+    """The press's own recheck asks the gate again, so 是 is not pressed once a finish
+    request has landed, and the dialog is left to time out as at the limit. What the game
+    does when it times out with the cursor on 是 was not measured; the script sends it to
+    town, as measured with the cursor on 否."""
+    fired = finish_as_the_action_starts(monkeypatch, "GBFR_TenthYes")
+    screens = first_run_turning_repeat_on()
+    for _ in range(8):
+        screens += repeated_run_keeping_it_on()
+    *tenth, _, _ = tenth_run_answered_yes()
+    screens += [*tenth,
+                screen("tenth-run dialog, cursor on 是, left to time out", "GBFR_See_TenthRun",
+                       "GBFR_See_TenthYes", leave_on="action:GBFR_TenthRun", after=3),
+                rewards("off", "action:GBFR_LetItEnd", after=2), town()]
+    outcome = run(monkeypatch, tmp_path, screens, limit=12)
+    assert fired
+    assert_clean_finish(outcome, 10)
+    assert outcome.session["continued"] == 0
+    assert outcome.keys == NAV_KEYS + ["3", "Up"]  # no Return on 是
+
+
 def test_a_count_whose_recheck_misses_is_retried_not_skipped(monkeypatch, tmp_path):
     """The results page is recognised, then hidden for every recheck: nothing is counted
     from the old frame, and the count is taken again once the page shows."""

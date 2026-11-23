@@ -41,6 +41,9 @@ MESSAGES = (
     (r"interface\.json", "任务定义文件 interface.json 缺失或者有运行器不支持的写法，没有开始。请重新构建版本目录。"),
     (r"Cannot bind the resource and the controller",
      "资源和游戏连接没能绑在一起，没有开始。请重新开始；还不行就看一下日志。"),
+    (r"Keys a crashed session may have held could not be",
+     "上次运行没有正常结束，这次没能确认它可能按着的键都已松开，所以没有开始。"
+     "请看一眼游戏里有没有键还按着，再重新开始。"),
     (r"The session did not stop within (\d+) s",
      "请求停止后 {0} 秒内软件没有停下来，已结束运行并尝试松开按键。请看一眼游戏里有没有键还按着。"),
     (r"Another session is already running|另一个循环正在跑",
@@ -94,7 +97,7 @@ MESSAGES = (
     (r"unrelated battle",
      "画面上的战斗不是这次会话开始的，已停止，没有计数。请打开要刷的任务（详情页或准备画面）重新开始。"),
     (r"cannot start in the current session state|requires a battle observed|"
-     r"victory screen appeared without|may only be turned on|can only be turned off|"
+     r"victory screen appeared without|can only be turned off|can only be taken back|"
      r"may only be answered|did not reach its settlement boundary|outside a results screen",
      "软件记录的进度和画面对不上，已停止，没有多计数。请看一眼游戏当前画面，"
      "打开要刷的任务（详情页或准备画面）重新开始。"),

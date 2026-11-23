@@ -208,6 +208,41 @@ def test_history_is_read_newest_first_and_bad_lines_are_skipped(tmp_path):
     assert [e["n"] for e in cv.read_history(path)] == [3, 2, 1]
 
 
+def test_a_damaged_history_line_costs_only_that_line(tmp_path):
+    """A write cut short inside a character, or a line that is JSON but no record, must
+    not keep the window from opening: it reads the history while it is being built."""
+    line = json.dumps({"n": 2, "quest": "解决沙漠狂徒"}, ensure_ascii=False).encode()
+    cut = line[:line.index("解".encode()) + 1]
+    path = tmp_path / "history.jsonl"
+    path.write_bytes(b"\n".join([json.dumps({"n": 1}).encode(), cut, b"5", b"[]",
+                                 json.dumps({"n": 3}).encode()]) + b"\n")
+    assert [e["n"] for e in cv.read_history(path)] == [3, 1]
+
+
+def test_a_history_record_with_odd_values_is_left_out_of_the_rows():
+    good = {"ended": "2026-11-23T14:05:09+08:00", "outcome": "finished", "completed": 1,
+            "limit": 1}
+    rows = cv.history_rows([{"ended": 5}, {"ended": "x", "average": "fast"}, good])
+    assert rows == cv.history_rows([good])
+
+
+def test_settings_of_the_wrong_shape_fall_back_to_the_defaults(tmp_path):
+    path = tmp_path / "settings.json"
+    defaults = cv.default_settings()
+    path.write_text(json.dumps({"show": True, "window": 5, "runs": 7}))
+    settings = cv.load_settings(path)
+    assert settings["show"] == defaults["show"] and settings["window"] == defaults["window"]
+    assert settings["runs"] == 7  # what is valid is still taken
+    path.write_text(json.dumps({"show": ["log"], "window": "wide"}))
+    assert cv.load_settings(path) == defaults
+
+
+def test_keys_are_released_after_a_runner_that_ended_unsure_or_never_said():
+    assert cv.release_after_exit(saw_ended=False, release_needed=False)
+    assert cv.release_after_exit(saw_ended=True, release_needed=True)
+    assert not cv.release_after_exit(saw_ended=True, release_needed=False)
+
+
 def test_the_view_rules_load_without_the_frameworks():
     # The window runs on the system Python, which has neither MaaFw nor python-xlib.
     import subprocess

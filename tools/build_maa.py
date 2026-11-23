@@ -71,6 +71,9 @@ def fetch_ocr(output, cache):
 
 def build(output, cache, python):
     if output.exists():
+        if not (output / "bundle.json").exists():  # written last: this build did not finish
+            raise ValueError(f"Output already exists, left by a build that did not finish (no "
+                             f"bundle.json); delete {output} and build again")
         raise ValueError("Output already exists; choose a new version directory for rollback")
     return build_window(output, cache, python)
 

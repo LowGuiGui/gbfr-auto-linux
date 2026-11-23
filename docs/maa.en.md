@@ -72,7 +72,9 @@ sure Repeat Quest is off and stops, and the game returns to town by itself.
    The build downloads pinned versions of the text-recognition model and of the Python
    packages the background program uses (MaaFramework among them), checks each hash, and
    changes no system or Steam settings. It never overwrites an existing directory, so older
-   versions stay available for rollback. Once built, the release directory is never written
+   versions stay available for rollback. A build that stopped part-way (a failed download,
+   say) leaves a directory without `bundle.json`, which `install.sh` will not install; delete
+   that directory and build again. Once built, the release directory is never written
    to; settings, history and logs live in the folders listed under
    [Where files are kept](#where-files-are-kept).
 
@@ -136,7 +138,9 @@ of an error, the window says why and what to do.
 The window runs on the system's Python. Each session starts a separate background program
 (the runner), which loads MaaFramework, captures the screen and sends the keys. If the
 window closes or crashes, the runner stops by itself; if the runner exits unexpectedly, the
-window says so and sends a key-up for every key the farming uses.
+window says so and sends a key-up for every key the farming uses. It does the same when the
+runner ends saying a key may still be down (it could not confirm that a key came up, or it
+did not stop in time).
 
 ## What one run looks like
 
@@ -147,7 +151,7 @@ window says so and sends a key-up for every key the farming uses.
 | Results | Counts once when the results screen appears. On the rewards page it turns Repeat Quest on to continue, or off to stop. It waits for the reward reveal before pressing 3, reads the toggle back, and presses once more if it did not change |
 | Later runs | The game starts each run by itself. With Repeat Quest on it skips the chest phase |
 | Runs 10, 20, … | The game resets Repeat Quest to off and asks whether to continue, with the cursor on 否 (no). To continue, the software presses Up, confirms on a fresh screenshot that the cursor is on 是, then presses Return. The game turns Repeat Quest back on and does not go to town. To stop, the software leaves the dialog to time out into town |
-| Quest failed | The game shows QUEST FAILED, then a single results page with no completion reward. The software does not count it; if Repeat Quest is on, it presses 3 to turn it off (the game would otherwise retry), then stops. The game returns to town after 30 seconds |
+| Quest failed | The game shows QUEST FAILED, then a single results page with no completion reward. The software does not count it (if the page's failure line shows later than its results title and the run was already counted, that count is taken back); if Repeat Quest is on, it presses 3 to turn it off (the game would otherwise retry), then stops. The game returns to town after 30 seconds |
 
 Measured on 2026-11-22 (Quakadile, test party): about 6 minutes per run with Repeat Quest
 on, about 5 of them in battle; about 70 seconds from results to the next battle, also after
@@ -191,6 +195,7 @@ Common cases:
 | Pressed 3 twice and Repeat Quest is still off | Check whether the game is stuck; open the quest at the counter again and restart |
 | Another window or overlay is over the game; a Ctrl, Shift or Alt key is held | Close the overlay, release the key, and start again |
 | The resource or the OCR model failed to load | Rebuild the release directory |
+| The last run did not end cleanly, and this time the keys it may have held could not all be confirmed released | The window has sent the key-ups once more. Check that no key is still held in the game, then start again |
 | The background program exited unexpectedly | The window has already sent a key-up for every key the farming uses; look at the game. `window-runner.log` next to the log folder and that session's logs help find the cause |
 
 Without a click in the game window after launch, keys may not reach the game at all, which
@@ -203,7 +208,7 @@ start again.
 |---|---|
 | Settings: the run count, which items are shown, the window size | `~/.config/gbfr-auto-linux/settings.json` |
 | Session history, one line per session | `~/.local/state/gbfr-auto-linux/history.jsonl` |
-| MaaFramework's logs, one folder per session, the last 5 kept (about 190 MB per hour of farming) | `~/.local/state/gbfr-auto-linux/logs/` |
+| MaaFramework's logs, one folder per session, the last 5 kept (about 190 MB per hour of farming); folders you put there yourself are never removed | `~/.local/state/gbfr-auto-linux/logs/` |
 | The runner's error output from the latest session | `~/.local/state/gbfr-auto-linux/window-runner.log` |
 | The current session's state | `$XDG_RUNTIME_DIR/gbfr-auto-linux/session.json` |
 
@@ -223,7 +228,9 @@ directory's runner from starting; rebuild to fix that.
 1. Build the new version into a new directory and leave the old one alone.
 2. Stop any running session and close the window.
 3. Run `./install.sh` in the new directory. The link now points at the new directory; the
-   menu entry itself stays the same.
+   menu entry itself stays the same. It refuses an incomplete directory (no `bundle.json`,
+   no runner Python or no icon) and leaves the link alone; the link also stays put if
+   installing fails part-way.
 
 To roll back, run `./install.sh` in the old directory. Earlier 0.3.0 development builds
 (those whose `install.sh` has no `current` link) write their own path into the menu entry,

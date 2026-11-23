@@ -43,6 +43,64 @@ def test_each_session_gets_a_log_folder_and_only_the_newest_stay(tmp_path):
         maa_runner.new_log_dir(logs, 0)
 
 
+def test_log_rotation_leaves_folders_it_did_not_make(tmp_path):
+    """The window opens this folder for the player, who may keep things in it."""
+    logs = tmp_path / "logs"
+    kept = logs / "20261101-manual"
+    kept.mkdir(parents=True)
+    (kept / "memo.txt").write_text("keep me")
+    (logs / "notes").mkdir()
+    made = [maa_runner.new_log_dir(logs, 5, datetime(2026, 11, 22, 21, minute)) for minute in range(7)]
+    assert sorted(p.name for p in logs.iterdir()) == sorted(
+        [p.name for p in made[-5:]] + ["20261101-manual", "notes"])
+    assert (kept / "memo.txt").read_text() == "keep me"
+
+
+def held_lock(tmp_path):
+    """Another loop's session lock, held by an open file as a session would hold it."""
+    path = tmp_path / control.SOCKET_NAME
+    return path, control.take_lock(path)
+
+
+def quiet_helper(monkeypatch, tmp_path, lock_socket):
+    """The release helper in tmp_path: its runtime folder, its lock, no framework logs."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setattr(maa_runner.control, "socket_path", lambda: lock_socket)
+    monkeypatch.setattr(maa_runner, "framework_logs", lambda folder: None)
+
+
+def test_the_key_release_helper_refuses_while_another_session_holds_the_lock(monkeypatch, tmp_path):
+    path, fd = held_lock(tmp_path)
+    quiet_helper(monkeypatch, tmp_path, path)
+    monkeypatch.setattr(maa_runner, "connect_game", lambda *a, **k: pytest.fail("connected"))
+    out = io.StringIO()
+    try:
+        assert maa_runner.release_only("881020", out) == maa_runner.EXIT_ERROR
+    finally:
+        control.drop_lock(fd)
+    assert "正在运行" in out.getvalue()
+
+
+def test_the_key_release_helper_releases_under_the_lock_and_forgets_a_crash(monkeypatch, tmp_path):
+    path = tmp_path / control.SOCKET_NAME
+    quiet_helper(monkeypatch, tmp_path, path)
+    marker = maa_runner.Marker(maa_runner.runtime_dir() / "runner.json")
+    marker.path.write_text(json.dumps({"pid": 2 ** 22 + 7, "stamp": "1"}))  # a crashed runner
+    held = []
+
+    def release(controller):
+        with pytest.raises(control.AlreadyRunning):  # the helper holds the lock meanwhile
+            control.drop_lock(control.take_lock(path))
+        held.append(controller)
+        return []
+    monkeypatch.setattr(maa_runner, "connect_game", lambda *a, **k: "controller")
+    monkeypatch.setattr(maa_runner, "release_keys", release)
+    out = io.StringIO()
+    assert maa_runner.release_only("881020", out) == maa_runner.EXIT_OK
+    assert held == ["controller"] and not marker.path.exists()
+    control.drop_lock(control.take_lock(path))  # and lets go of it afterwards
+
+
 def write_model(directory):
     directory.mkdir(parents=True)
     for name in maa_runner.OCR_FILES:
@@ -579,14 +637,80 @@ def test_a_crash_stays_remembered_until_its_keys_are_released(monkeypatch, tmp_p
     assert data["release_pending"] is True and data["pid"] == os.getpid()
 
 
-def test_a_failed_release_also_stays_remembered(monkeypatch, tmp_path, maa_ready):
+def test_a_failed_release_refuses_the_session_and_stays_remembered(monkeypatch, tmp_path, maa_ready):
+    """A key the crashed runner held may still be down (Up, say), and the first key of
+    the new session (Return) would not notice it: nothing starts."""
     marker = tmp_path / "runner.json"
     marker.write_text(json.dumps({"pid": 2 ** 22 + 7, "stamp": "1"}))
     monkeypatch.setattr(maa_runner, "release_keys", lambda controller: ["Up: Native key release failed"])
-    outcome, _, events, _, _ = session(monkeypatch, tmp_path, one_run(), maa_options.run_values(1))
-    assert outcome == "finished"
-    assert "松键时出错" in kinds(events, "log")[0]["text"]
+    outcome, _, events, game, _ = session(monkeypatch, tmp_path, one_run(), maa_options.run_values(1))
+    assert outcome == "error" and game.keys == []
+    (error,) = kinds(events, "error")
+    assert error["code"] == "release" and "Up" in error["detail"]
+    assert "没有开始" in error["message"]
+    (ended,) = kinds(events, "ended")
+    assert ended["release_needed"] is True  # the window tries again from a fresh connection
     assert json.loads(marker.read_text())["release_pending"] is True
+
+
+def test_a_crashed_runners_keys_are_released_only_under_the_session_lock(monkeypatch, tmp_path,
+                                                                        maa_ready):
+    marker = tmp_path / "runner.json"
+    marker.write_text(json.dumps({"pid": 2 ** 22 + 7, "stamp": "1"}))
+    path, fd = held_lock(tmp_path)  # another loop holds it, without answering on its socket
+    monkeypatch.setattr(maa_runner, "release_keys", lambda controller: pytest.fail("released"))
+    try:
+        outcome, _, events, game, _ = session(monkeypatch, tmp_path, one_run(),
+                                              maa_options.run_values(1), socket_path=path)
+    finally:
+        control.drop_lock(fd)
+    assert outcome == "error" and game.keys == []
+    assert kinds(events, "error")[0]["code"] == "busy"
+    assert json.loads(marker.read_text())["release_pending"] is True
+
+
+def test_a_key_the_guard_could_not_release_is_handed_on(monkeypatch, tmp_path, maa_ready):
+    """The guard saw a key stay down after its key-up: the session ends saying so, and the
+    marker stays, so the window and the next runner each send key-ups again."""
+    import maa_graph
+
+    def press(self, context, key, duration=100):
+        self.release_unconfirmed = {key}
+        raise ProbeError("Input release was not observed")
+    monkeypatch.setattr(maa_graph.FakeGuard, "press", press)
+    outcome, _, events, _, _ = session(monkeypatch, tmp_path, one_run(), maa_options.run_values(1))
+    assert outcome == "error"
+    (ended,) = kinds(events, "ended")
+    assert ended["release_needed"] is True
+    assert maa_runner.Marker(tmp_path / "runner.json").path.exists()
+
+
+def test_a_session_that_ends_cleanly_needs_no_release(monkeypatch, tmp_path, maa_ready):
+    outcome, _, events, _, _ = session(monkeypatch, tmp_path, one_run(), maa_options.run_values(1))
+    assert outcome == "finished" and kinds(events, "ended")[0]["release_needed"] is False
+    assert not (tmp_path / "runner.json").exists()
+
+
+def test_a_runner_that_cannot_stop_asks_for_a_release_from_a_fresh_connection(monkeypatch, tmp_path):
+    """The framework did not let go within the grace time. Its key-ups on the old connection
+    may have failed, or a press may still land before the process exits: either way the
+    window sends key-ups again once the runner is gone, and the marker stays."""
+    events = []
+    runner = maa_runner.Runner(maa_options.run_values(1), lambda kind, **f: events.append((kind, f)),
+                               status_path=tmp_path / "session.json", log_dir=tmp_path / "log",
+                               marker=maa_runner.Marker(tmp_path / "runner.json"))
+    runner.marker.claim()
+    runner.controller = "controller"
+    runner.stop_requested_at = time.monotonic() - maa_runner.STOP_GRACE_S - 1
+    monkeypatch.setattr(maa_runner, "release_keys", lambda controller: ["Up: Native key release failed"])
+    with pytest.raises(maa_runner.RunnerError) as stuck:
+        runner._wait_for_end()
+    assert stuck.value.code == "stuck"
+    runner._fail(stuck.value)
+    runner._teardown()
+    (ended,) = kinds(events, "ended")
+    assert ended["outcome"] == "error" and ended["release_needed"] is True
+    assert (tmp_path / "runner.json").exists()
 
 
 def test_a_session_reports_its_run_times_and_writes_its_history(monkeypatch, tmp_path, maa_ready):
@@ -619,6 +743,22 @@ def test_a_failed_quest_is_counted_as_a_failure_in_the_history(monkeypatch, tmp_
     assert kinds(events, "ended")[0]["status"]["failures"] == 1
     (entry,) = control_view.read_history(history)
     assert entry["failures"] == 1 and entry["outcome"] == "error" and entry["completed"] == 0
+
+
+def test_a_count_taken_back_leaves_no_run_time_or_success(monkeypatch, tmp_path, maa_ready):
+    g = graph()
+    screens = [*g.menus(), *g.battle(victory=False),
+               g.screen("results, failure line not drawn yet", "GBFR_See_Results",
+                        leave_on="action:GBFR_Result"),
+               g.screen("failed", *g.failure("off"))]
+    history = tmp_path / "history.jsonl"
+    outcome, _, events, _, _ = session(monkeypatch, tmp_path, screens, maa_options.run_values(3),
+                                       history_path=history)
+    assert outcome == "error"
+    status = kinds(events, "ended")[0]["status"]
+    assert status["completed"] == 0 and status["timing"]["runs"] == [] and status["failures"] == 1
+    (entry,) = control_view.read_history(history)
+    assert entry["completed"] == 0 and entry["average"] is None and entry["failures"] == 1
 
 
 def test_a_refused_start_leaves_no_history(monkeypatch, tmp_path, maa_ready):

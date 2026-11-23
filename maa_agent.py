@@ -28,6 +28,11 @@ FAILED_PAGE = "GBFR_See_Defeat"
 QUEST_NAME = "GBFR_Read_Quest"
 # Every failure ends the task through this node; the runner logs its focus message.
 STOPPED_NODE = "GBFR_Stopped"
+# A failure page seen this soon after a count is the counted page itself, its failure line
+# drawn late. A later run's failure page comes much later, even when the session saw none of
+# that run's battle: with repeat on, the next battle starts about 70 s after a results page
+# (measured 2026-11-21), and it still has to be lost before its failure page shows.
+LATE_FAILURE_S = 20
 
 
 class Stopped(SessionError):
@@ -43,10 +48,14 @@ class Hooks:
         self.controls = None
         self.calls = {}
         self.battle_started = None
+        self.counted_at = None  # when the last count was made, for LATE_FAILURE_S
         self.battle_limit = 600
         self.task_id = None
         self.last_node = None
         self.startup_error = None  # a failure before the session existed
+        # The guard saw a key stay down after its key-up: ask for key-ups from a fresh
+        # connection once the session is over.
+        self.release_needed = False
 
     def status(self):
         if self.session:
@@ -73,6 +82,8 @@ class Hooks:
         """Release the guard and the control socket. Never raises."""
         guard, self.guard = self.guard, None
         owner, self.owner = self.owner, None
+        if guard is not None and getattr(guard, "release_unconfirmed", None):
+            self.release_needed = True
         for item in (guard, owner):
             if item is not None:
                 try:
@@ -94,6 +105,7 @@ class Hooks:
         self.battle_limit = config.get("battle_limit", 1800)
         self.calls = {}
         self.battle_started = None
+        self.counted_at = None
         self.controls = Controls()
         self.owner = ControlServer(self.controls, socket_path(), self.status).start()
         self.guard = NativeGuard(context.tasker.controller)
@@ -224,6 +236,13 @@ class Hooks:
         self.guard.controller = context.tasker.controller
         if event in IDENTITY:
             self.guard.check()
+        if (params.get("page") == "failed" and self.session.phase == "settled"
+                and self.counted_at is not None
+                and time.monotonic() - self.counted_at <= LATE_FAILURE_S):
+            # The run was counted on this page before its failure line was drawn (the
+            # count's recheck saw only the results title): the quest failed after all.
+            self.session.uncount()
+            self.counted_at = None
         self._finish_flag(context)
         self.calls[argv.node_name] = self.calls.get(argv.node_name, 0) + 1
         if self.calls[argv.node_name] > params.get("budget", 20):
@@ -269,6 +288,7 @@ class Hooks:
                 raise SessionError("A victory screen appeared without an observed battle")
         elif event == "settle":
             self.session.settle()
+            self.counted_at = time.monotonic()
             self.calls = {}
             self.battle_started = None
             self._read_quest(context, frame)

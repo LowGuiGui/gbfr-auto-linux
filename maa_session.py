@@ -88,9 +88,23 @@ class Session:
         self.repeat = False
         self.cap_seen = False
 
+    def uncount(self):
+        """The results page this run was counted on showed a failure line afterwards: the
+        quest failed, so the count is taken back. The hooks ask for it only shortly after
+        the count (maa_agent.LATE_FAILURE_S), so a later run's failure page, even one whose
+        battle went unseen, never takes back an earlier success."""
+        if self.phase != "settled" or self.completed < 1:
+            raise SessionError("A count can only be taken back on the page it was made on")
+        self.completed -= 1
+        self.phase = "battle"
+        self.repeat = False
+
     def repeat_on(self):
-        if self.phase != "settled" or not self.should_continue:
-            raise SessionError("Repeat Quest may only be turned on to continue the session")
+        """The results page reads Repeat Quest on. The pipeline reads it while the session
+        goes on; a finish request that lands between that read and this record changes
+        nothing about the toggle, so it is recorded all the same and turned off next."""
+        if self.phase != "settled":
+            raise SessionError("Repeat Quest was read on outside a results screen")
         self.repeat = self.left_on = True
 
     def repeat_off(self):

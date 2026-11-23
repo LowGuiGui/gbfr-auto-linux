@@ -308,7 +308,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.notice.set_label("")
         self.save_settings()  # may leave a notice that the settings were not saved
         self.state.update(status={}, running=True, stopping=False, finish_sent=False, log=[],
-                          ended_at=None,
+                          ended_at=None, release_needed=False,
                           requested=None if self.settings["until_stopped"] else self.settings["runs"])
         try:
             argv = cv.runner_command(APP_DIR, self.settings["runs"], self.settings["until_stopped"])
@@ -390,6 +390,7 @@ class MainWindow(Adw.ApplicationWindow):
             # the final status, so the status area alone tells why; the notice is cleared.
             self.state["status"] = event.get("status") or {}
             self.state["ended_at"] = time.time()
+            self.state["release_needed"] = bool(event.get("release_needed"))
             self.notice.set_label("")
             self._notify(event.get("outcome"), self.state["status"])
         self.refresh()
@@ -410,9 +411,7 @@ class MainWindow(Adw.ApplicationWindow):
         if self.state["ended_at"] is None:
             self.state["ended_at"] = time.time()
         if not runner.saw_ended:
-            # It never said how it ended: record an error end for it, and since it may have
-            # died holding a key, send a key-up for every key the pipeline uses from a fresh
-            # connection (a separate process that finishes even if this window closes).
+            # It never said how it ended: record an error end for it.
             why = "被结束了" if runner.forced else f"意外退出了（退出码 {code}）"
             status = dict(self.state["status"], phase="error", message=f"后台程序{why}。",
                           error=f"runner exited without an end event (exit code {code})")
@@ -422,6 +421,10 @@ class MainWindow(Adw.ApplicationWindow):
             except OSError:
                 pass
             self._notify("error", status)
+        if cv.release_after_exit(runner.saw_ended, self.state.get("release_needed")):
+            # It may have died holding a key, or said a key may still be down: send a
+            # key-up for every key the pipeline uses from a fresh connection (a separate
+            # process that finishes even if this window closes).
             self._release_keys()
         self._load_history()
         self.refresh()

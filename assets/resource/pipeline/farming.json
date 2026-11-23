@@ -757,6 +757,7 @@
         "custom_action_param": {
           "key": "3",
           "event": "toggle",
+          "page": "failed",
           "budget": 2,
           "on_change": "skip",
           "exhausted": "Repeat Quest could not be turned off after the quest failed; the game may retry it"
@@ -787,6 +788,7 @@
         "custom_action": "GBFR",
         "custom_action_param": {
           "event": "failed",
+          "page": "failed",
           "reason": "The quest failed; Repeat Quest is off and no further run was started"
         }
       }
@@ -809,6 +811,7 @@
       "param": {
         "custom_action": "GBFR",
         "custom_action_param": {
+          "page": "failed",
           "budget": 15,
           "exhausted": "The failure page's Repeat Quest toggle could not be read"
         }
