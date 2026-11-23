@@ -41,20 +41,25 @@ notices, the manifest's hashes, and the menu entry's install and uninstall scrip
 temporary home (switching versions moves only the link and leaves the entry the same, no
 removal while the link points at another directory, removal when its directory is gone, the
 launcher resolving the link to the real directory, refusing a link path the entry cannot
-hold, retiring an icon cache that would otherwise hide the new icon).
+hold, retiring an icon cache that would otherwise hide the new icon, refusing a directory a
+stopped build left unfinished, and moving the link only once every other step worked).
 
 The runner (`test_maa_runner.py`) runs whole sessions in-process against the scripted game
 (12 runs, finish during battle, stop now, a stop before the task starts, no game, a bad
 count, a second session refused, the idle inhibitor's lifetime, crashes remembered until
-their keys are released, run times and the history line, the window's battle time kept apart
+their keys are released, a session refused when a crashed runner's keys cannot all be
+released or another session holds the lock, an end that says a key may still be down (a key
+the guard could not see come up, a runner that cannot stop), log rotation that leaves the
+player's own folders, a count taken back, run times and the history line, the window's battle time kept apart
 from the battle limit's monotonic clock, a rejected finish request that can be sent again),
 and as a child process over the line protocol (`runner_scripted.py`: a session from ready to ended, stop, finish during run
 2's battle, a closed stdin). `test_maa_protocol.py` and `test_maa_options.py` cover the
 protocol's encoding and version checks and the `interface.json` subset with its options.
 `test_control_view.py` covers what the window shows and allows without GTK: the texts for
 each phase, a refused start, the time and average per run, which buttons work when, the
-settings file, the history rows, the notifications, and that the module loads without
-MaaFw, python-xlib or GTK.
+settings file, the history rows, the notifications, a damaged history line or settings of
+the wrong shape, when the window sends key-ups after its runner exits, and that the module
+loads without MaaFw, python-xlib or GTK.
 
 `window_smoke.py` is not collected by pytest: it opens the real window, so it runs locally
 in a private desktop session (its own D-Bus, home and Wayland display), never on a desktop
@@ -62,7 +67,8 @@ in use. It drives the window in-process with `runner_scripted.py` behind it (not
 or selected when the window opens, the pin in the header bar and its hint from the keyboard
 or for a press without an event or one GTK cannot send, 3 runs, the
 current battle's time, finish after this run, a finish the framework refused and asked
-again, stop now, a runner that dies with Start held until its keys are released, a Start
+again, stop now, a runner that dies with Start held until its keys are released, a runner
+that ends saying a key may still be down (and none after a clean end), a Start
 that fails before any runner exists, a runner that ignores stop, the settings, a single
 instance, closing during a session) and saves a picture of the window after each step.
 
@@ -73,7 +79,9 @@ tenth-run dialog), until-stopped across three dialogs, the cursor already on 是
 game ignores, a cursor that never reaches 是, a dialog left to time out, finishing during
 battle or on the rewards page, a toggle that never changes, a failed quest with Repeat
 Quest on, off or unreadable, a failure first seen by the count's recheck, a count whose
-recheck misses (retried, and stopped uncounted after three misses), an unknown start,
+recheck misses (retried, and stopped uncounted after three misses), a failure line drawn
+only after the count (the count taken back), a finish request landing between a node's gate
+and its action, an unknown start,
 stale results, a game that closes mid-battle, and the client's Stop, including a Stop
 after 3 or 是 was sent but before the toggle was read back. Leaves are scripted; composed nodes and the session gate run
 natively. The harness also records the focus messages a client such as MXU logs, so the
