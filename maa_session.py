@@ -90,8 +90,9 @@ class Session:
 
     def uncount(self):
         """The results page this run was counted on showed a failure line afterwards: the
-        quest failed, so the count is taken back. Only the page of the run just counted
-        can do this, because every later run needs its own battle first."""
+        quest failed, so the count is taken back. The hooks ask for it only shortly after
+        the count (maa_agent.LATE_FAILURE_S), so a later run's failure page, even one whose
+        battle went unseen, never takes back an earlier success."""
         if self.phase != "settled" or self.completed < 1:
             raise SessionError("A count can only be taken back on the page it was made on")
         self.completed -= 1

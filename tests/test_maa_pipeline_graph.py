@@ -367,6 +367,37 @@ def test_a_late_failure_line_takes_back_only_its_own_run(monkeypatch, tmp_path):
     assert outcome.keys == NAV_KEYS + ["3", "3"]
 
 
+def test_a_failure_after_an_unseen_run_keeps_the_success_before_it(monkeypatch, tmp_path):
+    """Run 1 is counted and the game repeats the quest, but no frame of run 2's battle is
+    recognised before its failure page. That page is not the one run 1 was counted on, so
+    run 1 stays counted. The hooks tell the two apart by time: with repeat on, the next
+    battle starts about 70 s after a results page (measured 2026-11-21)."""
+    import types
+
+    import maa_agent
+    import maa_graph
+    now = [1000.0]
+    monkeypatch.setattr(maa_agent, "time", types.SimpleNamespace(monotonic=lambda: now[0],
+                                                                 sleep=maa_agent.time.sleep))
+    event = maa_graph.ScriptedGame.event
+
+    def later_run(game, kind):
+        before = game.current
+        event(game, kind)
+        if game.current is not before and game.current is not None \
+                and game.current.name == "failed, repeat on":
+            now[0] += 100  # loading, the countdown and a short failed battle, none recognised
+    monkeypatch.setattr(maa_graph.ScriptedGame, "event", later_run)
+    screens = [*first_run_turning_repeat_on(),
+               screen("failed, repeat on", *failure("on"), leave_on="key:3"),
+               screen("failed, repeat off", *failure("off"))]
+    outcome = run(monkeypatch, tmp_path, screens, limit=5)
+    assert_explained_failure(outcome)
+    assert outcome.session["error"].startswith("The quest failed")
+    assert outcome.session["completed"] == 1
+    assert outcome.keys == NAV_KEYS + ["3", "3"]
+
+
 def finish_as_the_action_starts(monkeypatch, node):
     """A finish request that lands after `node`'s gate said go on, just as its action
     starts: the action sees the request, the recognition before it did not."""

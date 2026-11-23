@@ -80,7 +80,7 @@ game ignores, a cursor that never reaches 是, a dialog left to time out, finish
 battle or on the rewards page, a toggle that never changes, a failed quest with Repeat
 Quest on, off or unreadable, a failure first seen by the count's recheck, a count whose
 recheck misses (retried, and stopped uncounted after three misses), a failure line drawn
-only after the count (the count taken back), a finish request landing between a node's gate
+only after the count (the count taken back, but never by a later run's failure page), a finish request landing between a node's gate
 and its action, an unknown start,
 stale results, a game that closes mid-battle, and the client's Stop, including a Stop
 after 3 or 是 was sent but before the toggle was read back. Leaves are scripted; composed nodes and the session gate run
