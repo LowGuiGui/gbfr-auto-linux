@@ -17,6 +17,36 @@ The current client/resource path is described in [the Maa guide](../docs/maa.md)
 | `maa_fixtures.py` | Mask a captured frame to the regions the checked leaves read, for committed recognition fixtures. |
 | `maa_headless.py` | Exercise an owned headless stand-in, including capture, bounded input, stop and target loss; this is not game acceptance. |
 | `maa_probe.py` | Native controller measurements and refusal checks; inspect `--help` before live use. |
+| `../maa_runner.py` | Run one session with MaaFramework in-process, without MXU or an Agent: see below. |
+
+### maa_runner.py
+
+The runner that the planned control window will start, one process per session. It finds
+GBFR's own Gamescope (the game's processes grouped by their nearest Gamescope; exactly one
+group), connects MaaFramework's Linux controller to it (PipeWire capture, libei input), loads
+the resource and the OCR model, registers the Agent's hooks on its own resource and runs the
+task defined in `assets/interface.json`:
+
+    .venv/bin/python maa_runner.py --runs 12 --ocr-model <model dir>
+    .venv/bin/python maa_runner.py --until-stopped --ocr-model <model dir>
+
+Type `finish` and Enter to stop after the current run, or `stop` and Enter (or Ctrl+C) to stop
+now; the game itself never pauses. `--json` switches to the line protocol described in
+`maa_protocol.py`, which is how a front end drives it; a closed stdin then stops the session.
+`--release-keys` only sends a key-up for each key the pipeline uses, for after a crash.
+
+While a session runs, the screen is kept from dimming, blanking and locking: the runner holds a
+GNOME session idle inhibitor through `gnome-session-inhibit`, whose command reads a pipe only the
+runner writes. When the session ends, or the runner exits or crashes, the pipe closes and the
+inhibitor goes with it. Without a GNOME session the runner says so once and farms on;
+`--no-inhibit` turns this off.
+
+The OCR model directory is the one `build_maa.py --ocr-only` writes (it contains `ocr/`); a
+bundle's `resource/model` works too. The runner refuses to start without the three model
+files, because MaaFramework accepts a wrong directory and then reads no text. Each session's
+logs go to `$XDG_STATE_HOME/gbfr-auto-linux/logs/`, and only the newest five sessions are kept
+(`--log-keep`); the session snapshot goes to `$XDG_RUNTIME_DIR/gbfr-auto-linux/session.json`.
+It refuses to start while another session runs, including one under MXU.
 
 The historical probe below uses a separate implementation. Its dated measurements
 must not be treated as current native-Maa acceptance.

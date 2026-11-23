@@ -21,7 +21,33 @@ MESSAGES = (
      "画面在限定时间内没有变成预期的样子，已停止。请看一眼游戏：打开要刷的任务"
      "（详情页或准备画面），再重新开始。"),
     (r"Select GBFR's native Gamescope",
-     "MXU 连接的不是 GBFR 的 Gamescope。请在设备里选择“GBFR Gamescope”，并确认游戏是通过 Steam 启动的。"),
+     "连接的不是 GBFR 的 Gamescope。请确认游戏是通过 Steam 启动的；用 MXU 时，请在设备里选择“GBFR Gamescope”。"),
+    (r"expected one Gamescope for app \d+; found 0$",
+     "没有找到正在运行的游戏，没有开始。请先通过 Steam 启动游戏，等画面稳定后再开始。"),
+    (r"expected one Gamescope for app \d+; found (\d+)$",
+     "找到了 {0} 个运行着 GBFR 的 Gamescope，不知道该控制哪一个，没有开始。请只保留一个游戏在运行。"),
+    (r"same host runtime directory|PipeWire environments differ|no host Gamescope endpoint|"
+     r"selected Gamescope socket is unavailable|did not find exactly the selected Gamescope|"
+     r"input endpoint does not belong|reports no capture node|reports no input socket|"
+     r"PipeWire node is absent or ambiguous|PipeWire source is not owned|PipeWire source has no stable",
+     "找不到游戏的截图或输入通道，没有开始。Gamescope 可能刚重启，或者游戏不是通过 Steam 启动的；"
+     "请等游戏画面稳定后再开始。"),
+    (r"Expected one visible GBFR game window",
+     "没有找到唯一的游戏窗口（游戏可能还在加载），没有开始。请等游戏画面稳定后再开始。"),
+    (r"Gamescope was replaced|target process was replaced|target ancestry changed|"
+     r"target socket disappeared|is gone or its identity cannot be read|not the owned test process",
+     "游戏或它的 Gamescope 重启过或者关闭了，已停止。请等游戏画面稳定后再开始。"),
+    (r"XDG_RUNTIME_DIR is not set", "桌面会话的运行目录（XDG_RUNTIME_DIR）没有设置，没有开始。请在桌面会话里运行。"),
+    (r"interface\.json", "任务定义文件 interface.json 缺失或者有运行器不支持的写法，没有开始。请重新构建版本目录。"),
+    (r"Cannot bind the resource and the controller",
+     "资源和游戏连接没能绑在一起，没有开始。请重新开始；还不行就看一下日志。"),
+    (r"The session did not stop within (\d+) s",
+     "请求停止后 {0} 秒内软件没有停下来，已结束运行并尝试松开按键。请看一眼游戏里有没有键还按着。"),
+    (r"Another session is already running|另一个循环正在跑",
+     "已经有一个刷取在运行（可能是 MXU 版本目录里的那个），没有开始。先停掉它，再开始。"),
+    (r"The OCR model is incomplete|Native resource loading failed|Native OCR model loading failed",
+     "资源或 OCR 模型加载失败，没有开始。请重新构建版本目录。"),
+    (r"Stopped before the session started", "已按要求停止，还没有开始刷，没有按任何键。"),
     (r"requires a usable 1280x720 capture",
      "截图不可用或尺寸不对：需要 16:9 的游戏画面。请检查游戏的分辨率设置。"),
     (r"Repeat Quest could not be turned on",

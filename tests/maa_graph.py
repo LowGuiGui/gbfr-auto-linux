@@ -165,10 +165,89 @@ def _speed_overrides(resource, timeout_ms):
     return overrides
 
 
+def scripted_controller(game, frame_delay=0.0):
+    """A controller that shows the scripted game and refuses every native input."""
+    import time
+
+    from maa.controller import CustomController
+
+    class Offline(CustomController):
+        def connect(self):
+            return True
+
+        def request_uuid(self):
+            return "gbfr-scripted-game"
+
+        def screencap(self):
+            if frame_delay:
+                time.sleep(frame_delay)  # pace the game, e.g. so a stop lands mid-session
+            return FRAME.copy()
+
+        def denied(self, *args, **kwargs):
+            # The pipeline's only inputs go through the Agent's guard. A native input
+            # here means a node started sending keys outside the Agent's checks.
+            game.event("native-input")
+            return False
+
+        start_app = stop_app = click = swipe = touch_down = touch_move = touch_up = denied
+        click_key = input_text = key_down = key_up = denied
+
+    return Offline()
+
+
+def script_recognition(game):
+    from maa.custom_recognition import CustomRecognition
+
+    class Script(CustomRecognition):
+        def analyze(self, context, argv):
+            if not game.visible(argv.node_name):
+                return None
+            game.event("seen:" + argv.node_name)
+            return (0, 0, 1, 1)
+
+    return Script()
+
+
+def runner_parts(monkeypatch, game, *, timeout_ms=400, frame_delay=0.0):
+    """The scripted game as the runner's collaborators: `connect` gives its controller,
+    and `prepare` registers the scripted leaves and returns the speed-up overrides. The
+    Agent's guard and control socket are replaced as in `run`."""
+    import maa_agent
+    from maa.custom_action import CustomAction
+
+    monkeypatch.setattr(maa_agent, "NativeGuard", lambda controller: FakeGuard(game))
+    monkeypatch.setattr(maa_agent, "ControlServer", FakeServer)
+    original = maa_agent.custom_objects
+
+    def observed_objects(hooks):
+        """The runner's own registration, plus the "action finished" events that move the
+        scripted game on (screens left by `action:<node>`)."""
+        action, gate = original(hooks)
+
+        class Observed(CustomAction):
+            def run(self, context, argv):
+                result = action.run(context, argv)
+                game.event("action:" + argv.node_name)
+                return result
+        return Observed(), gate
+
+    monkeypatch.setattr(maa_agent, "custom_objects", observed_objects)
+
+    def connect():
+        controller = scripted_controller(game, frame_delay)
+        controller.post_connection().wait()
+        return controller
+
+    def prepare(resource):
+        resource.register_custom_recognition("GBFRScript", script_recognition(game))
+        return _speed_overrides(resource, timeout_ms)
+
+    return connect, prepare
+
+
 def run(monkeypatch, tmp_path, screens, *, limit=1, until_stopped=False,
         resource_path=RESOURCE, timeout_ms=400):
     from maa.context import ContextEventSink
-    from maa.controller import CustomController
     from maa.custom_action import CustomAction
     from maa.custom_recognition import CustomRecognition
     from maa.define import LoggingLevelEnum
@@ -200,13 +279,6 @@ def run(monkeypatch, tmp_path, screens, *, limit=1, until_stopped=False,
             tasker.post_stop()
     game.on_enter = enter
 
-    class Script(CustomRecognition):
-        def analyze(self, context, argv):
-            if not game.visible(argv.node_name):
-                return None
-            game.event("seen:" + argv.node_name)
-            return (0, 0, 1, 1)
-
     class Gate(CustomRecognition):
         def analyze(self, context, argv):
             return (0, 0, 1, 1) if hooks.want(context, argv.custom_recognition_param) else None
@@ -228,25 +300,6 @@ def run(monkeypatch, tmp_path, screens, *, limit=1, until_stopped=False,
             if value:
                 messages.append(value)
 
-    class Offline(CustomController):
-        def connect(self):
-            return True
-
-        def request_uuid(self):
-            return "gbfr-scripted-game"
-
-        def screencap(self):
-            return FRAME.copy()
-
-        def denied(self, *args, **kwargs):
-            # The pipeline's only inputs go through the Agent's guard. A native input
-            # here means a node started sending keys outside the Agent's checks.
-            game.event("native-input")
-            return False
-
-        start_app = stop_app = click = swipe = touch_down = touch_move = touch_up = denied
-        click_key = input_text = key_down = key_up = denied
-
     Tasker.set_log_dir(tmp_path / "maa-log")
     Tasker.set_save_draw(False)
     Tasker.set_save_on_error(False)
@@ -255,10 +308,10 @@ def run(monkeypatch, tmp_path, screens, *, limit=1, until_stopped=False,
     resource.use_cpu()
     if not resource.post_bundle(resource_path).wait().succeeded:
         raise RuntimeError("Native resource loading failed")
-    resource.register_custom_recognition("GBFRScript", Script())
+    resource.register_custom_recognition("GBFRScript", script_recognition(game))
     resource.register_custom_recognition("GBFRSession", Gate())
     resource.register_custom_action("GBFR", Action())
-    controller = Offline()
+    controller = scripted_controller(game)
     controller.post_connection().wait()
     tasker = Tasker()
     if not tasker.bind(resource, controller):
