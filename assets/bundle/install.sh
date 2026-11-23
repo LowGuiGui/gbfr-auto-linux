@@ -18,6 +18,11 @@ icons=$data/icons/hicolor/scalable/apps
 mkdir -p "$data/applications" "$icons"
 cp "$here/icons/$id.svg" "$icons/$id.svg.tmp"
 mv "$icons/$id.svg.tmp" "$icons/$id.svg"
+# GTK and GNOME Shell trust an icon-theme.cache that is not older than the theme folder, and
+# a new file in scalable/apps leaves that folder's time alone: an old cache would hide the
+# icon (a gear in the app grid). A newer folder retires the cache, and running programs look
+# again within seconds.
+touch "$data/icons/hicolor"
 entry=$data/applications/$id.desktop
 # The file is named after the app ID: GNOME matches the window to its menu entry and
 # icon by that ID, and shows the window's notifications only for an app it can find.

@@ -20,4 +20,5 @@ if ! grep -qxF "Exec=\"$here/gbfr-control\"" "$entry"; then
     exit 1
 fi
 rm -f "$entry" "$data/icons/hicolor/scalable/apps/$id.svg"
+touch "$data/icons/hicolor"  # as install.sh: running programs look again, no stale cache
 echo "已从应用菜单删除。设置、历史和日志没有动。"

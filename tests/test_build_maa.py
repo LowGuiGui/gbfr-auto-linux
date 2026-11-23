@@ -168,6 +168,7 @@ def install_env(tmp_path):
 
 
 def test_install_points_the_menu_at_this_bundle_and_uninstall_only_removes_its_own(tmp_path):
+    import os
     import shutil
     import subprocess
     from tools.build_maa import APP_ID, BUNDLE_SCRIPTS, ROOT
@@ -183,11 +184,20 @@ def test_install_points_the_menu_at_this_bundle_and_uninstall_only_removes_its_o
     env = install_env(tmp_path)
     entry = tmp_path / "home/.local/share/applications" / f"{APP_ID}.desktop"
     icon = tmp_path / "home/.local/share/icons/hicolor/scalable/apps" / f"{APP_ID}.svg"
+    # As on the owner's desktop: scalable/apps already exists, and an icon cache written by
+    # another installer is as new as the theme folder, so GTK would trust it.
+    theme = icon.parent.parent.parent
+    icon.parent.mkdir(parents=True)
+    cache = theme / "icon-theme.cache"
+    cache.write_bytes(b"cache from another installer")
+    for path in (cache, theme):
+        os.utime(path, (1_700_000_000, 1_700_000_000))
 
     def run(bundle, script):
         return subprocess.run(["sh", str(bundle / script)], env=env, capture_output=True, text=True,
                               timeout=30)
     assert run(old, "install.sh").returncode == 0
+    assert theme.stat().st_mtime > cache.stat().st_mtime  # the old cache no longer counts
     text = entry.read_text()
     assert f'Exec="{old}/gbfr-control"\n' in text and f"Icon={APP_ID}\n" in text
     assert "Name=GBFR 自动刷取\n" in text and icon.is_file()
@@ -195,8 +205,10 @@ def test_install_points_the_menu_at_this_bundle_and_uninstall_only_removes_its_o
     assert f'Exec="{new}/gbfr-control"\n' in entry.read_text()
     refused = run(old, "uninstall.sh")
     assert refused.returncode == 1 and entry.exists() and icon.exists()
+    os.utime(theme, (1_700_000_000, 1_700_000_000))
     assert run(new, "uninstall.sh").returncode == 0
     assert not entry.exists() and not icon.exists()
+    assert theme.stat().st_mtime > cache.stat().st_mtime
     assert run(new, "uninstall.sh").returncode == 0  # nothing left to remove is fine
 
 

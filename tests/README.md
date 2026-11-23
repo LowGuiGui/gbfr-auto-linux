@@ -36,7 +36,8 @@ control window's release directory, that every local module its code imports is 
 that no MXU file is left in it, that its runner finds the directory's own interface,
 resource and OCR model, the licence notices, the manifest's hashes, and the menu entry's
 install and uninstall scripts in a temporary home (switching versions, refusing to remove
-another directory's entry, refusing a path the entry cannot hold).
+another directory's entry, refusing a path the entry cannot hold, retiring an icon cache that
+would otherwise hide the new icon).
 
 The runner (`test_maa_runner.py`) runs whole sessions in-process against the scripted game
 (12 runs, finish during battle, stop now, a stop before the task starts, no game, a bad
