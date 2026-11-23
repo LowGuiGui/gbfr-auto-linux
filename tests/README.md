@@ -31,7 +31,31 @@ ambiguous targets, stale/blank action frames, duplicate results and unavailable
 session ownership. Catalog checks ensure the client has one task that passes nothing
 quest-specific to the pipeline, that run-limit options reach the Agent's nodes, and that
 no recognition expects a verified quest's name or objective.
-Builder checks cover dependency hash refusal and separate version directories.
+Builder checks cover dependency hash refusal and separate version directories; for the
+control window's release directory, that every local module its code imports is copied,
+that no MXU file is left in it, that its runner finds the directory's own interface,
+resource and OCR model, the licence notices, the manifest's hashes, and the menu entry's
+install and uninstall scripts in a temporary home (switching versions, refusing to remove
+another directory's entry, refusing a path the entry cannot hold).
+
+The runner (`test_maa_runner.py`) runs whole sessions in-process against the scripted game
+(12 runs, finish during battle, stop now, a stop before the task starts, no game, a bad
+count, a second session refused, the idle inhibitor's lifetime, crashes remembered until
+their keys are released, run times and the history line), and as a child process over the
+line protocol (`runner_scripted.py`: a session from ready to ended, stop, finish during run
+2's battle, a closed stdin). `test_maa_protocol.py` and `test_maa_options.py` cover the
+protocol's encoding and version checks and the `interface.json` subset with its options.
+`test_control_view.py` covers what the window shows and allows without GTK: the texts for
+each phase, a refused start, the time and average per run, which buttons work when, the
+settings file, the history rows, the notifications, and that the module loads without
+MaaFw, python-xlib or GTK.
+
+`window_smoke.py` is not collected by pytest: it opens the real window, so it runs locally
+in a private desktop session (its own D-Bus, home and Wayland display), never on a desktop
+in use. It drives the window in-process with `runner_scripted.py` behind it (3 runs, finish
+after this run, stop now, a runner that dies, a runner that ignores stop, the settings, a
+single instance, closing during a session) and saves a picture of the window after each
+step.
 
 The pipeline graph tests (`test_maa_pipeline_graph.py`, harness `maa_graph.py`) run
 the real resource and Agent against a scripted game that follows the Repeat Quest

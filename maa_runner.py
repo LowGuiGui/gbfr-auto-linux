@@ -46,6 +46,7 @@ import maa_guard
 import maa_options
 import maa_protocol
 import maa_target
+from control_view import append_history  # one line format for the runner and the window
 from maa_messages import explain
 
 GAME_APPID = "881020"
@@ -309,14 +310,60 @@ class IdleInhibitor:
                 process.kill()
 
 
-class ReportingHooks(maa_agent.Hooks):
-    """The Agent's hooks, unchanged, plus a report each time they write the snapshot."""
+QUEST_FAILED = ("The quest failed", "after the quest failed", "failure page's Repeat Quest")
 
-    def __init__(self, status_path, report):
+
+def quest_failed(error):
+    """True when a session ended because the quest itself failed (not the software)."""
+    return bool(error) and any(marker in error for marker in QUEST_FAILED)
+
+
+class ReportingHooks(maa_agent.Hooks):
+    """The Agent's hooks, unchanged, plus timing for the window and a report each time
+    they write the snapshot.
+
+    Timing is wall-clock seconds: `started` when the session begins, one entry in `runs`
+    per counted run (from the previous count, the first from the start), and
+    `battle_started` while a battle is on. The Agent's own Session stays free of clocks."""
+
+    def __init__(self, status_path, report, clock=time.time):
         super().__init__(status_path)
         self._report = report
+        self._clock = clock
+        self.started = None
+        self.runs = []
+        self.battle_started = None
+        self._last_count = None  # (completed, when)
+
+    def _observe(self):
+        session = self.session
+        if session is None:
+            return
+        now = self._clock()
+        if self.started is None:
+            self.started = now
+            self._last_count = (session.completed, now)
+        completed, when = self._last_count
+        if session.completed > completed:
+            self.runs.append(round(now - when, 1))
+            self._last_count = (session.completed, now)
+        if session.phase == "battle":
+            self.battle_started = self.battle_started or now
+        else:
+            self.battle_started = None
+
+    def status(self):
+        result = super().status()
+        result["timing"] = {"started": self.started, "runs": list(self.runs),
+                            "battle_started": self.battle_started}
+        result["failures"] = 1 if quest_failed(result.get("error")) else 0
+        return result
 
     def write_status(self):
+        try:
+            self._observe()
+        except Exception:
+            traceback.print_exc()
         super().write_status()
         try:
             self._report(self.status())
@@ -334,7 +381,8 @@ class Runner:
     recognitions and return a base override; tests use both to put a scripted game in
     place of Gamescope."""
 
-    def __init__(self, values, emit, *, status_path, log_dir, interface_path=None, marker=None,
+    def __init__(self, values, emit, *, status_path, log_dir, history_path=None, interface_path=None,
+                 marker=None,
                  socket_path=None, appid=GAME_APPID, ocr_model=None, connect=None, prepare=None,
                  inhibitor=None):
         self.interface_path = interface_path
@@ -351,6 +399,7 @@ class Runner:
         self.connect = connect or self._connect_game
         self.prepare = prepare
         self.inhibitor = inhibitor
+        self.history_path = history_path
         self.lock = threading.Lock()
         self.ended = threading.Event()
         self.outcome = None
@@ -459,8 +508,17 @@ class Runner:
             reason = "Automation ended before a verified town finish"
             status = dict(status, phase="error", error=reason, message=explain(reason))
         self.outcome = outcome
+        self._record(status, outcome)
         self.emit("ended", outcome=outcome, status=status)
         self.ended.set()
+
+    def _record(self, status, outcome):
+        """Add the session to the history; never lets that end the session badly."""
+        if self.history_path is not None:
+            try:
+                append_history(self.history_path, status, outcome)
+            except Exception:
+                traceback.print_exc()
 
     def _fail(self, exc):
         self.error = exc
@@ -470,6 +528,9 @@ class Runner:
         else:
             self.emit("error", code=exc.code, message=exc.message, detail=exc.detail)
             status = {"phase": "error", "error": exc.detail, "message": exc.message}
+            if self.task_id is not None and self.hooks is not None:  # a session that ran
+                status = dict(self.hooks.status(), **status)
+                self._record(status, self.outcome)
         self.emit("ended", outcome=self.outcome, status=status)
 
     def run(self):
@@ -810,6 +871,7 @@ def main(argv=None):
     def make_runner(emit):
         return Runner(values, emit, interface_path=args.interface,
                       status_path=runtime / "session.json",
+                      history_path=state_dir() / "history.jsonl",
                       log_dir=lambda: new_log_dir(state_dir() / "logs", args.log_keep),
                       marker=Marker(runtime / "runner.json"),
                       socket_path=control.socket_path(), appid=args.appid,
