@@ -20,6 +20,8 @@ Scenarios:
     stuck         as hold, but the runner ignores every request to stop
     refuse        as hold, but the framework refuses the first finish request (the runner's
                   own rejection path reports it), and accepts the next one
+    unsure        as one, but the key the guard lets go after its first 3 still reads down,
+                  so the session ends saying a key may still be down
 """
 
 import argparse
@@ -36,6 +38,7 @@ sys.path[:0] = [str(HERE.parent), str(HERE)]
 import maa_graph  # noqa: E402
 import maa_options  # noqa: E402
 import maa_runner  # noqa: E402
+import maa_target  # noqa: E402
 import test_maa_pipeline_graph as graph  # noqa: E402
 
 HOLD = 10 ** 9  # battle actions: the held battle never ends by itself
@@ -71,7 +74,7 @@ def held_battle():
 
 
 def screens(name):
-    if name == "one":
+    if name in ("one", "unsure"):
         return [*graph.menus(), *graph.battle(victory=True), graph.titles(),
                 graph.rewards("off", "action:GBFR_LetItEnd", after=2), graph.town()]
     if name == "three":
@@ -163,6 +166,15 @@ def main():
                              daemon=True).start()
         if args.scenario == "stuck":
             runner.stop = lambda *_args, **_kwargs: True  # acknowledged, never done
+        if args.scenario == "unsure":
+            press = maa_graph.FakeGuard.press
+
+            def unsure(guard, context, key, duration=100):
+                if key == "3":
+                    guard.release_unconfirmed = {key}
+                    raise maa_target.ProbeError("Input release was not observed")
+                return press(guard, context, key, duration)
+            maa_graph.FakeGuard.press = unsure
         return runner
     code = maa_runner.drive(make_runner, json_mode=True)
     (args.state / "keys.txt").write_text(" ".join(game.keys))

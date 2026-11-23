@@ -157,6 +157,10 @@ def input_conflict(display, window_id, name, keycode, keysym):
 
 
 class NativeGuard:
+    # Keys this guard sent a key-up for and still saw down afterwards. The session's end
+    # asks for key-ups from a fresh connection then (maa_runner), as after a crash.
+    release_unconfirmed = frozenset()
+
     def __init__(self, controller):
         self.display = None
         self.controller = controller
@@ -240,13 +244,32 @@ class NativeGuard:
         result = context.run_action(node, pipeline_override=override or {})
         if result is None or not result.success:
             # A failed or interrupted press must not leave the key down.
-            wait_native(self.controller.post_key_up(KEYS[key]), "key release")
+            self._let_go(key, keycode)
             raise ProbeError("Native key press failed")
-        deadline = time.monotonic() + .5
+        if not self._up_within(keycode, .5):
+            # The press reported success, yet the key still reads down: let it go the same
+            # way. The session still stops, because input did not behave as it should.
+            self._let_go(key, keycode)
+            raise ProbeError("Input release was not observed")
+
+    def _up_within(self, keycode, seconds):
+        deadline = time.monotonic() + seconds
         while is_down(self.display.query_keymap(), keycode):
             if time.monotonic() >= deadline:
-                raise ProbeError("Input release was not observed")
+                return False
             time.sleep(.02)
+        return True
+
+    def _let_go(self, key, keycode):
+        """Send a key-up for `key` and watch it come up. Never raises: it runs while a
+        failure is being handled. A key it cannot see come up is remembered."""
+        try:
+            wait_native(self.controller.post_key_up(KEYS[key]), "key release")
+            if self._up_within(keycode, .5):
+                return
+        except Exception:  # the key-up job failed, or the nested display is gone
+            pass
+        self.release_unconfirmed = self.release_unconfirmed | {key}
 
 
 def key_nodes():

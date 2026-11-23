@@ -92,17 +92,30 @@ def test_a_lit_caps_lock_is_not_a_held_modifier():
     assert input_conflict(d, w.game.id, "3", *THREE) is None
 
 
-def pressing(d, w, result=True):
+def pressing(d, w, result=True, *, key_up_works=True):
+    """A guard on the fake nested display. Its key-ups lift the key there unless
+    `key_up_works` is False; "fails" makes the native key-up job itself fail."""
     guard = NativeGuard.__new__(NativeGuard)
     guard.display, guard.window, guard.codes = d, w.game, {"3": THREE}
     guard.alive = lambda: None
     released = []
-    guard.controller = SimpleNamespace(post_key_up=lambda code: released.append(code) or
-                                       SimpleNamespace(done=True, succeeded=True))
+
+    def post_key_up(code):
+        released.append(code)
+        if key_up_works is True:
+            d.keys_down.discard(code + 8)
+        return SimpleNamespace(done=True, succeeded=key_up_works != "fails")
+    guard.controller = SimpleNamespace(post_key_up=post_key_up)
     actions = []
     context = SimpleNamespace(run_action=lambda node, pipeline_override: actions.append(
         (node, pipeline_override)) or (SimpleNamespace(success=True) if result else None))
     return guard, context, actions, released
+
+
+def frozen_clock(monkeypatch):
+    clock = iter(range(1000))
+    monkeypatch.setattr(maa_guard.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(maa_guard.time, "sleep", lambda s: None)
 
 
 def test_a_press_runs_the_named_native_key_node():
@@ -130,17 +143,45 @@ def test_a_failed_native_press_releases_the_key():
     with pytest.raises(ProbeError, match="failed"):
         guard.press(context, "3")
     assert released == [4]
+    assert not guard.release_unconfirmed  # the key reads up afterwards
 
 
-def test_a_key_still_down_after_the_press_is_reported(monkeypatch):
+@pytest.mark.parametrize("key_up_works", [False, "fails"])
+def test_a_failed_press_whose_key_up_does_not_take_is_remembered(monkeypatch, key_up_works):
     d, w = nested()
-    guard, context, _, _ = pressing(d, w)
-    context.run_action = lambda node, pipeline_override: d.keys_down.add(12) or SimpleNamespace(success=True)
-    clock = iter(range(100))
-    monkeypatch.setattr(maa_guard.time, "monotonic", lambda: next(clock))
-    monkeypatch.setattr(maa_guard.time, "sleep", lambda s: None)
+    guard, context, _, released = pressing(d, w, result=False, key_up_works=key_up_works)
+    context.run_action = lambda node, pipeline_override: d.keys_down.add(12)  # down, then failed
+    frozen_clock(monkeypatch)
+    with pytest.raises(ProbeError, match="press failed"):
+        guard.press(context, "3")
+    assert released == [4] and guard.release_unconfirmed == {"3"}
+
+
+def held_after_press(d):
+    return lambda node, pipeline_override: d.keys_down.add(12) or SimpleNamespace(success=True)
+
+
+def test_a_key_still_down_after_the_press_gets_a_key_up(monkeypatch):
+    """The press reported success, yet the key still reads down: it is let go like a
+    failed press, and the session still stops, because input did not behave."""
+    d, w = nested()
+    guard, context, _, released = pressing(d, w)
+    context.run_action = held_after_press(d)
+    frozen_clock(monkeypatch)
     with pytest.raises(ProbeError, match="release"):
         guard.press(context, "3")
+    assert released == [4] and 12 not in d.keys_down
+    assert not guard.release_unconfirmed
+
+
+def test_a_key_that_stays_down_after_its_key_up_is_remembered(monkeypatch):
+    d, w = nested()
+    guard, context, _, released = pressing(d, w, key_up_works=False)
+    context.run_action = held_after_press(d)
+    frozen_clock(monkeypatch)
+    with pytest.raises(ProbeError, match="release"):
+        guard.press(context, "3")
+    assert released == [4] and guard.release_unconfirmed == {"3"}
 
 
 @pytest.mark.parametrize("key, duration", [("F12", 100), ("3", 49), ("3", 501), ("3", True)])

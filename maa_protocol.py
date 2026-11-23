@@ -24,7 +24,12 @@ Events (runner -> front end):
                                                  was not accepted and may be sent again
     error   {"code", "message", "detail"}        the session cannot start or go on;
                                                  `message` is Chinese, `detail` technical
-    ended   {"outcome", "status"}                outcome: finished, stopped or error
+    ended   {"outcome", "status",                outcome: finished, stopped or error;
+             "release_needed"}                   release_needed: true when a key may still
+                                                 be down and the runner could not make sure
+                                                 it is not. Once the runner has exited, the
+                                                 front end then sends key-ups from a fresh
+                                                 connection (maa_runner.py --release-keys).
 """
 
 import json

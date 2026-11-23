@@ -412,6 +412,9 @@ class Runner:
         self.hooks = None
         self.finish_requested = False
         self.release_pending = False  # a crashed runner's keys are not released yet
+        # Keys may still be down and this runner could not make sure they are not; the
+        # `ended` event says so, and the front end sends key-ups from a fresh connection.
+        self.release_needed = False
         self.stop_requested_at = None
 
     # Called from other threads -----------------------------------------------------
@@ -515,8 +518,11 @@ class Runner:
             status = dict(status, phase="error", error=reason, message=explain(reason))
         self.outcome = outcome
         self._record(status, outcome)
-        self.emit("ended", outcome=outcome, status=status)
+        self.emit("ended", outcome=outcome, status=status, release_needed=self._needs_release())
         self.ended.set()
+
+    def _needs_release(self):
+        return self.release_needed or (self.hooks is not None and self.hooks.release_needed)
 
     def _record(self, status, outcome):
         """Add the session to the history; never lets that end the session badly."""
@@ -537,7 +543,8 @@ class Runner:
             if self.task_id is not None and self.hooks is not None:  # a session that ran
                 status = dict(self.hooks.status(), **status)
                 self._record(status, self.outcome)
-        self.emit("ended", outcome=self.outcome, status=status)
+        self.emit("ended", outcome=self.outcome, status=status,
+                  release_needed=self._needs_release())
 
     def run(self):
         """Blocking. Returns "finished", "stopped" or "error"."""
@@ -559,13 +566,7 @@ class Runner:
                 self.controller = self.connect()
                 self._check_stop()
                 if release_first:
-                    failures = release_keys(self.controller)
-                    if not failures:
-                        self.release_pending = False
-                        if self.marker is not None:
-                            self.marker.claim(release_pending=False)
-                    self.emit("log", text="上次运行没有正常结束，已先松开用到的按键。" if not failures
-                              else "上次运行没有正常结束；松键时出错：" + "；".join(failures))
+                    self._recover()
                 resource = self._load_resource()
                 self.hooks = ReportingHooks(self.status_path,
                                             lambda status: self.emit("status", status=status))
@@ -619,11 +620,41 @@ class Runner:
         self.marker.claim(release_pending=self.release_pending)
         return self.release_pending
 
+    def _recover(self):
+        """Send the key-ups a crashed runner may owe, before this session sends anything.
+
+        The keys go out under the session lock, so they never cut into input from a
+        session that started meanwhile. If any key-up fails, nothing starts: that key may
+        still be down, and the checks before each key look only at the key about to be
+        pressed (a held Up would not stop a Return)."""
+        lock = None
+        if self.socket_path is not None:
+            try:
+                lock = control.take_lock(self.socket_path)
+            except control.AlreadyRunning as exc:
+                raise RunnerError("busy", "Another session is already running: " + str(exc)) from None
+        try:
+            failures = release_keys(self.controller)
+        finally:
+            if lock is not None:
+                control.drop_lock(lock)
+        if failures:
+            self.release_needed = True
+            raise RunnerError("release", "Keys a crashed session may have held could not be "
+                                         "released: " + "; ".join(failures))
+        self.release_pending = False
+        if self.marker is not None:
+            self.marker.claim(release_pending=False)
+        self.emit("log", text="上次运行没有正常结束，已先松开用到的按键。")
+
     def _wait_for_end(self):
         while not self.ended.wait(0.2):
             started = self.stop_requested_at
             if started is not None and time.monotonic() - started > STOP_GRACE_S:
                 failures = release_keys(self.controller) if self.controller is not None else []
+                # Even after key-ups that worked, a press the framework still runs may land
+                # before this process exits: the front end sends key-ups again afterwards.
+                self.release_needed = True
                 raise RunnerError("stuck", f"The session did not stop within {STOP_GRACE_S} s"
                                   + (f"; key release failed: {failures}" if failures else ""))
 
@@ -654,10 +685,10 @@ class Runner:
             self.hooks.close()
         if self.inhibitor is not None:
             self.inhibitor.stop()  # the screen may sleep again
-        # A stuck runner leaves its marker: the next one then treats it as crashed and
-        # releases the keys first. clear() only removes a marker this process wrote.
-        stuck = self.error is not None and self.error.code == "stuck"
-        if self.marker is not None and not stuck and not self.release_pending:
+        # A runner that may leave a key down (stuck, or a key-up it could not confirm)
+        # leaves its marker: the next one then treats it as crashed and releases the keys
+        # first. clear() only removes a marker this process wrote.
+        if self.marker is not None and not self.release_pending and not self._needs_release():
             self.marker.clear()
 
 
@@ -691,7 +722,10 @@ class Human:
             status = fields.get("status") or {}
             label = {"finished": "已完成", "stopped": "已停止", "error": "出错停止"}[fields["outcome"]]
             message = status.get("message")
-            return f"结束：{label}，成功 {status.get('completed', 0)} 次。" + (f"{message}\n" if message else "\n")
+            text = f"结束：{label}，成功 {status.get('completed', 0)} 次。" + (f"{message}\n" if message else "\n")
+            if fields.get("release_needed"):
+                text += "可能还有键按着：可以运行 maa_runner.py --release-keys 补发一次松开。\n"
+            return text
         return ""
 
 
@@ -818,25 +852,38 @@ def drive(make_runner, *, json_mode, stdin=None, stdout=None):
     return EXIT_OK if outcome in ("finished", "stopped") else EXIT_ERROR
 
 
-def release_only(appid, out):
-    """--release-keys: connect input only and send the key-ups."""
+def framework_logs(folder):
+    """MaaFw's log for a process that runs no session: its own folder, never a session's."""
     from maa.define import LoggingLevelEnum
     from maa.tasker import Tasker
 
-    log_dir = state_dir() / "release-log"  # not a session: never pushes a session's logs out
-    log_dir.mkdir(parents=True, exist_ok=True)
-    Tasker.set_log_dir(log_dir)
+    folder.mkdir(parents=True, exist_ok=True)
+    Tasker.set_log_dir(folder)
     Tasker.set_stdout_level(LoggingLevelEnum.Off)
+
+
+def release_only(appid, out):
+    """--release-keys: connect input only and send the key-ups. It holds the session lock
+    while it does, so it never cuts into input from a session that is running."""
+    marker = Marker(runtime_dir() / "runner.json")
     try:
-        controller = connect_game(appid, capture=False)
-    except maa_target.ProbeError as exc:
-        out.write(explain(str(exc)) + "\n")
+        lock = control.take_lock(control.socket_path())
+    except control.AlreadyRunning:
+        out.write("另一个刷取正在运行，没有松键；它停下以后再试。\n")
         return EXIT_ERROR
-    failures = release_keys(controller)
+    try:
+        framework_logs(state_dir() / "release-log")
+        try:
+            controller = connect_game(appid, capture=False)
+        except maa_target.ProbeError as exc:
+            out.write(explain(str(exc)) + "\n")
+            return EXIT_ERROR
+        failures = release_keys(controller)
+    finally:
+        control.drop_lock(lock)
     if failures:
         out.write("松键时出错：" + "；".join(failures) + "\n")
         return EXIT_ERROR
-    marker = Marker(runtime_dir() / "runner.json")
     if marker.previous() == "crashed":
         marker.path.unlink(missing_ok=True)
     out.write("已对用到的按键（" + "、".join(maa_guard.KEYS) + "）各发了一次松开。\n")

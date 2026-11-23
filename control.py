@@ -70,6 +70,26 @@ def socket_path(runtime_dir=None):
     return Path(base, SOCKET_NAME)
 
 
+def take_lock(path):
+    """拿套接字 path 旁边那把锁（循环和 ControlServer 用的同一把），返回打开的文件描述符；
+    拿不到就是另一个循环正在跑，抛 AlreadyRunning。会话之外要发输入的（松键）也先拿它，
+    这样不会在别的会话按着键的时候插进去。O_NOFOLLOW：那个位置上是链接的话，宁可拿不到。"""
+    lock_path = Path(path).with_suffix(".lock")
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise AlreadyRunning(f"{lock_path} 被别的进程锁着：另一个循环正在跑") from None
+    return fd
+
+
+def drop_lock(fd):
+    # 锁文件留在那里不删：删掉再建，两个进程就可能各锁一个文件
+    fcntl.flock(fd, fcntl.LOCK_UN)
+    os.close(fd)
+
+
 class Controls:
     """停下和暂停的开关。哪个线程都可以拨，循环自己的线程来看。"""
 
@@ -196,21 +216,12 @@ class ControlServer:
                                f"{stat.S_IMODE(st.st_mode):o}），控制套接字不放在这里")
 
     def _take_lock(self):
-        """锁文件和套接字放在一起，O_NOFOLLOW：那个位置上是链接的话，宁可起不来。"""
-        lock_path = self._path.with_suffix(".lock")
-        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            os.close(fd)
-            raise AlreadyRunning(f"{lock_path} 被别的进程锁着：另一个循环正在跑") from None
-        self._lock = fd
+        """锁文件和套接字放在一起，见 take_lock。"""
+        self._lock = take_lock(self._path)
 
     def _drop_lock(self):
-        # 锁文件留在那里不删：删掉再建，两个进程就可能各锁一个文件
         if self._lock is not None:
-            fcntl.flock(self._lock, fcntl.LOCK_UN)
-            os.close(self._lock)
+            drop_lock(self._lock)
             self._lock = None
 
     def _listen(self):

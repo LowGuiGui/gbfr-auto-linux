@@ -208,6 +208,12 @@ def test_history_is_read_newest_first_and_bad_lines_are_skipped(tmp_path):
     assert [e["n"] for e in cv.read_history(path)] == [3, 2, 1]
 
 
+def test_keys_are_released_after_a_runner_that_ended_unsure_or_never_said():
+    assert cv.release_after_exit(saw_ended=False, release_needed=False)
+    assert cv.release_after_exit(saw_ended=True, release_needed=True)
+    assert not cv.release_after_exit(saw_ended=True, release_needed=False)
+
+
 def test_the_view_rules_load_without_the_frameworks():
     # The window runs on the system Python, which has neither MaaFw nor python-xlib.
     import subprocess

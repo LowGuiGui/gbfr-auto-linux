@@ -106,6 +106,13 @@ def release_command(app_dir, env=os.environ):
     return command[:command.index("--json")] + ["--release-keys"]
 
 
+def release_after_exit(saw_ended, release_needed):
+    """Whether the window sends key-ups from a fresh connection once its runner has exited:
+    when the runner never said how it ended (it may have died holding a key), or said that
+    a key may still be down."""
+    return not saw_ended or bool(release_needed)
+
+
 # --- settings -------------------------------------------------------------------------
 
 def default_settings():

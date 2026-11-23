@@ -249,6 +249,8 @@ class Smoke:
         self.check("three: history row shown", w.history_rows and "已完成 3/3" in w.history_rows[0].get_subtitle(),
                    [r.get_subtitle() for r in w.history_rows])
         self.check("three: runs saved", cv.load_settings(w.settings_path)["runs"] == 3)
+        yield self.pause(2.0)  # a key release would have run by now (it takes about 1 s)
+        self.check("three: no key release after a clean end", not (self.state / "released.txt").exists())
 
         # 3. Finish after this run, asked during run 2's battle.
         self.scenario("hold")
@@ -321,6 +323,20 @@ class Smoke:
                    and self.notices[-1]["texts"], self.notices[-1:])
         self.check("crash: keys released once", len((self.state / "released.txt").read_text().split()) == 1)
         self.check("crash: Start again", w.start_button.get_sensitive())
+
+        # 5a. The runner ends saying a key may still be down: the window releases the keys too.
+        self.scenario("unsure")
+        w.start_button.emit("clicked")
+        yield self.wait(lambda: (self.state / "released.txt").exists()
+                        and "请看一眼游戏画面" in w.notice.get_label(), 60, "the key release after an unsure end")
+        status = w.state["status"]
+        self.check("unsure: an error that says keys may be held", status.get("phase") == "error"
+                   and "按键没有正常完成" in (status.get("message") or ""), status)
+        self.check("unsure: keys released once", len((self.state / "released.txt").read_text().split()) == 1)
+        entries = self.history()
+        self.check("unsure: one history line, the runner's own", entries and entries[0]["outcome"] == "error"
+                   and "runner exited" not in (entries[0].get("error") or ""), entries[:1])
+        self.check("unsure: Start again", w.start_button.get_sensitive())
 
         # 5b. Start fails before any runner exists (the state folder is a file): idle again.
         state_dir = cv.state_dir()

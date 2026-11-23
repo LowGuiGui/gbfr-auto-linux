@@ -47,6 +47,9 @@ class Hooks:
         self.task_id = None
         self.last_node = None
         self.startup_error = None  # a failure before the session existed
+        # The guard saw a key stay down after its key-up: ask for key-ups from a fresh
+        # connection once the session is over.
+        self.release_needed = False
 
     def status(self):
         if self.session:
@@ -73,6 +76,8 @@ class Hooks:
         """Release the guard and the control socket. Never raises."""
         guard, self.guard = self.guard, None
         owner, self.owner = self.owner, None
+        if guard is not None and getattr(guard, "release_unconfirmed", None):
+            self.release_needed = True
         for item in (guard, owner):
             if item is not None:
                 try:
