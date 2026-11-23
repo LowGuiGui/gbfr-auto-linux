@@ -163,7 +163,11 @@ def session_running(socket_path):
 
 class Marker:
     """runner.json: which process is running a session, so the next runner can tell a
-    crashed one (its keys may still be held) from a live one."""
+    crashed one (its keys may still be held) from a live one.
+
+    A runner that took over from a crashed one writes `release_pending` until its own
+    key release has worked. If it ends before that (stopped early, no game), it leaves
+    the marker behind, so the runner after it still releases the keys first."""
 
     def __init__(self, path):
         self.path = Path(path)
@@ -180,10 +184,11 @@ class Marker:
         except maa_target.ProbeError:
             return "crashed"
 
-    def claim(self):
+    def claim(self, release_pending=False):
         temporary = self.path.with_suffix(".tmp")
         pid = os.getpid()
-        temporary.write_text(json.dumps({"pid": pid, "stamp": maa_target.process_stamp(pid)}))
+        temporary.write_text(json.dumps({"pid": pid, "stamp": maa_target.process_stamp(pid),
+                                         "release_pending": release_pending}))
         temporary.replace(self.path)
 
     def clear(self):
@@ -355,6 +360,7 @@ class Runner:
         self.controller = None
         self.hooks = None
         self.finish_requested = False
+        self.release_pending = False  # a crashed runner's keys are not released yet
         self.stop_requested_at = None
 
     # Called from other threads -----------------------------------------------------
@@ -487,6 +493,10 @@ class Runner:
                 self._check_stop()
                 if release_first:
                     failures = release_keys(self.controller)
+                    if not failures:
+                        self.release_pending = False
+                        if self.marker is not None:
+                            self.marker.claim(release_pending=False)
                     self.emit("log", text="上次运行没有正常结束，已先松开用到的按键。" if not failures
                               else "上次运行没有正常结束；松键时出错：" + "；".join(failures))
                 resource = self._load_resource()
@@ -538,8 +548,9 @@ class Runner:
         previous = self.marker.previous()
         if previous == "alive":
             raise RunnerError("busy", "Another session is already running (runner)")
-        self.marker.claim()
-        return previous == "crashed"
+        self.release_pending = previous == "crashed"
+        self.marker.claim(release_pending=self.release_pending)
+        return self.release_pending
 
     def _wait_for_end(self):
         while not self.ended.wait(0.2):
@@ -578,7 +589,8 @@ class Runner:
             self.inhibitor.stop()  # the screen may sleep again
         # A stuck runner leaves its marker: the next one then treats it as crashed and
         # releases the keys first. clear() only removes a marker this process wrote.
-        if self.marker is not None and (self.error is None or self.error.code != "stuck"):
+        stuck = self.error is not None and self.error.code == "stuck"
+        if self.marker is not None and not stuck and not self.release_pending:
             self.marker.clear()
 
 
@@ -694,6 +706,16 @@ def protocol_stdout():
     return stream
 
 
+def signal_handler(runner):
+    """Ctrl+C or SIGTERM: stop. The handler runs on the main thread between two bytecodes,
+    possibly while that thread holds `runner.lock`, so it must not take the lock itself;
+    a short-lived thread does, once the lock is free."""
+    def handle(*_):
+        threading.Thread(target=runner.stop, args=("signal",), name="gbfr-runner-signal",
+                         daemon=True).start()
+    return handle
+
+
 def maafw_version():
     try:
         from importlib.metadata import version
@@ -715,7 +737,7 @@ def drive(make_runner, *, json_mode, stdin=None, stdout=None):
     holder["runner"] = runner
     if threading.current_thread() is threading.main_thread():
         for number in (signal.SIGINT, signal.SIGTERM):
-            signal.signal(number, lambda *_: runner.stop("signal"))
+            signal.signal(number, signal_handler(runner))
     threading.Thread(target=read_commands, args=(stdin, runner, emitter.emit),
                      kwargs={"json_mode": json_mode}, name="gbfr-runner-commands",
                      daemon=True).start()

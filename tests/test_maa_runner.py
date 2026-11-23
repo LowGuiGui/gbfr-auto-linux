@@ -228,6 +228,32 @@ def test_the_terminal_shows_phases_once_and_a_closing_line():
     assert line == "结束：已停止，成功 3 次。已按要求停止。\n"
 
 
+class LockedRunner:
+    """A runner whose lock is held: stop() reports a deadlock instead of hanging."""
+
+    def __init__(self):
+        self.lock, self.stopped, self.deadlocked = threading.Lock(), threading.Event(), False
+
+    def stop(self, reason="requested"):
+        if not self.lock.acquire(timeout=1):
+            self.deadlocked = True
+            return
+        try:
+            self.stopped.set()
+        finally:
+            self.lock.release()
+
+
+def test_the_signal_handler_never_waits_for_the_runners_lock():
+    import signal
+    runner = LockedRunner()
+    handler = maa_runner.signal_handler(runner)
+    with runner.lock:  # a signal landing while the main thread holds the lock (post_task)
+        handler(signal.SIGINT, None)
+        assert not runner.deadlocked
+    assert runner.stopped.wait(3) and not runner.deadlocked
+
+
 def test_exactly_one_mode_is_required():
     for argv in ([], ["--runs", "3", "--until-stopped"], ["--runs", "3", "--release-keys"]):
         with pytest.raises(SystemExit):
@@ -462,6 +488,28 @@ def test_keys_are_released_first_after_a_crashed_runner(monkeypatch, tmp_path, m
     assert outcome == "finished" and len(released) == 1
     assert "上次运行没有正常结束" in kinds(events, "log")[0]["text"]
     assert not (tmp_path / "runner.json").exists()
+
+
+def test_a_crash_stays_remembered_until_its_keys_are_released(monkeypatch, tmp_path, maa_ready):
+    marker = tmp_path / "runner.json"
+    marker.write_text(json.dumps({"pid": 2 ** 22 + 7, "stamp": "1"}))  # a crashed runner
+
+    def no_game():
+        raise ProbeError("expected one Gamescope for app 881020; found 0")
+    session(monkeypatch, tmp_path, [], maa_options.run_values(1), connect=no_game)
+    data = json.loads(marker.read_text())
+    # Left behind with this process's id: once it exits, the next runner sees a crash.
+    assert data["release_pending"] is True and data["pid"] == os.getpid()
+
+
+def test_a_failed_release_also_stays_remembered(monkeypatch, tmp_path, maa_ready):
+    marker = tmp_path / "runner.json"
+    marker.write_text(json.dumps({"pid": 2 ** 22 + 7, "stamp": "1"}))
+    monkeypatch.setattr(maa_runner, "release_keys", lambda controller: ["Up: Native key release failed"])
+    outcome, _, events, _, _ = session(monkeypatch, tmp_path, one_run(), maa_options.run_values(1))
+    assert outcome == "finished"
+    assert "松键时出错" in kinds(events, "log")[0]["text"]
+    assert json.loads(marker.read_text())["release_pending"] is True
 
 
 # --- with MaaFw: the runner as a child process, over the protocol -----------------------
