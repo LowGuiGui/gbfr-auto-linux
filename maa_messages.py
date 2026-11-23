@@ -97,7 +97,7 @@ MESSAGES = (
     (r"unrelated battle",
      "画面上的战斗不是这次会话开始的，已停止，没有计数。请打开要刷的任务（详情页或准备画面）重新开始。"),
     (r"cannot start in the current session state|requires a battle observed|"
-     r"victory screen appeared without|may only be turned on|can only be turned off|"
+     r"victory screen appeared without|can only be turned off|can only be taken back|"
      r"may only be answered|did not reach its settlement boundary|outside a results screen",
      "软件记录的进度和画面对不上，已停止，没有多计数。请看一眼游戏当前画面，"
      "打开要刷的任务（详情页或准备画面）重新开始。"),

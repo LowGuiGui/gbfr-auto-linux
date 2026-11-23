@@ -349,6 +349,9 @@ class ReportingHooks(maa_agent.Hooks):
         if session.completed > completed:
             self.runs.append(round(now - when, 1))
             self._last_count = (session.completed, now)
+        elif session.completed < completed:  # a count taken back: its run failed after all
+            del self.runs[session.completed:]
+            self._last_count = (session.completed, when)
         if session.phase == "battle":
             self.battle_since = self.battle_since or now
         else:

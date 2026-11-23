@@ -54,13 +54,20 @@ def test_a_battle_after_results_needs_repeat_turned_on():
         session.battle()
 
 
-def test_turning_repeat_on_at_the_limit_is_refused():
-    session = Session("boss", 1)
+def test_repeat_read_on_after_a_finish_request_is_recorded():
+    """The gate said go on, then a finish request landed before the action recorded what
+    the page shows. The toggle is on in the game, so the session says so: the finish waits
+    until it is turned off, and a run the game starts first is adopted as an overrun."""
+    session = Session("boss", 3)
     first_run(session)
+    session.finish_requested = True
+    session.repeat_on()
+    assert session.repeat and session.left_on
     with pytest.raises(SessionError):
-        session.repeat_on()
+        session.finish()
     session.repeat_off()
     session.finish()
+    assert session.phase == "finished" and session.completed == 1
 
 
 def test_a_stop_during_battle_ends_at_that_run_and_counts_it():
@@ -148,6 +155,22 @@ def test_defeat_never_counts_or_retries():
     assert not session.should_continue
     with pytest.raises(SessionError):
         session.admit()
+
+
+def test_a_count_is_taken_back_when_its_page_turns_out_to_be_a_failure():
+    session = Session("boss", 3)
+    first_run(session)
+    session.repeat_on()
+    session.battle()
+    session.settle()
+    session.repeat_on()  # read on the page before its failure line showed
+    session.uncount()
+    assert session.completed == 1 and session.episode == 2
+    assert session.phase == "battle" and not session.repeat
+    session.fail("The quest failed")
+    assert session.completed == 1
+    with pytest.raises(SessionError):
+        Session("boss", 3).uncount()  # nothing was counted
 
 
 def test_finish_before_departure_is_a_clean_finish():

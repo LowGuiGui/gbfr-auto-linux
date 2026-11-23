@@ -732,6 +732,22 @@ def test_a_failed_quest_is_counted_as_a_failure_in_the_history(monkeypatch, tmp_
     assert entry["failures"] == 1 and entry["outcome"] == "error" and entry["completed"] == 0
 
 
+def test_a_count_taken_back_leaves_no_run_time_or_success(monkeypatch, tmp_path, maa_ready):
+    g = graph()
+    screens = [*g.menus(), *g.battle(victory=False),
+               g.screen("results, failure line not drawn yet", "GBFR_See_Results",
+                        leave_on="action:GBFR_Result"),
+               g.screen("failed", *g.failure("off"))]
+    history = tmp_path / "history.jsonl"
+    outcome, _, events, _, _ = session(monkeypatch, tmp_path, screens, maa_options.run_values(3),
+                                       history_path=history)
+    assert outcome == "error"
+    status = kinds(events, "ended")[0]["status"]
+    assert status["completed"] == 0 and status["timing"]["runs"] == [] and status["failures"] == 1
+    (entry,) = control_view.read_history(history)
+    assert entry["completed"] == 0 and entry["average"] is None and entry["failures"] == 1
+
+
 def test_a_refused_start_leaves_no_history(monkeypatch, tmp_path, maa_ready):
     def no_game():
         raise ProbeError("expected one Gamescope for app 881020; found 0")

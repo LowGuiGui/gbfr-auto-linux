@@ -229,6 +229,10 @@ class Hooks:
         self.guard.controller = context.tasker.controller
         if event in IDENTITY:
             self.guard.check()
+        if params.get("page") == "failed" and self.session.phase == "settled":
+            # The run was counted on this page before its failure line was drawn (the
+            # count's recheck saw only the results title): the quest failed after all.
+            self.session.uncount()
         self._finish_flag(context)
         self.calls[argv.node_name] = self.calls.get(argv.node_name, 0) + 1
         if self.calls[argv.node_name] > params.get("budget", 20):
